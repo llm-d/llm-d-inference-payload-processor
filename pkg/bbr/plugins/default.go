@@ -14,13 +14,14 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package routing
+package plugins
 
 import (
+	"context"
 	"encoding/json"
 
-	bbr "sigs.k8s.io/gateway-api-inference-extension/pkg/bbr/plugins"
-	epp "sigs.k8s.io/gateway-api-inference-extension/pkg/epp/framework/interface/plugin"
+	"sigs.k8s.io/gateway-api-inference-extension/pkg/bbr/framework"
+	"sigs.k8s.io/gateway-api-inference-extension/pkg/epp/framework/interface/plugin"
 )
 
 const (
@@ -28,35 +29,27 @@ const (
 )
 
 // compile-time type validation
-var _ bbr.BBRPlugin = &DefaultPlugin{}
+var _ framework.PayloadProcessor = &DefaultPlugin{}
 
 type DefaultPlugin struct {
-	typedName epp.TypedName
+	typedName plugin.TypedName
 }
 
 // DefaultPluginFactory defines the factory function for DefaultPlugin.
 // The name and rawParameters are ignored as the plugin uses the default configuration.
-func DefaultPluginFactory(_ string, _ json.RawMessage) (bbr.BBRPlugin, error) {
+func DefaultPluginFactory(_ string, _ json.RawMessage) (framework.PayloadProcessor, error) {
 	return NewDefaultPlugin(), nil
 }
 
 // NewDefaultPlugin returns a concrete *DefaultPlugin.
 func NewDefaultPlugin() *DefaultPlugin {
 	return &DefaultPlugin{
-		typedName: epp.TypedName{Type: DefaultPluginType, Name: DefaultPluginType},
+		typedName: plugin.TypedName{Type: DefaultPluginType, Name: DefaultPluginType},
 	}
 }
 
-// The current default plugin is a no-op and returns the request body unchanged.
-// After integration, "no-op-plugin" will be replaced by "default-plugin",
-// which will extract the model name, map it to a base model, and set the
-// necessary request headers.
-func (p *DefaultPlugin) Execute(requestBodyBytes []byte) ([]byte, map[string][]string, error) {
-	return requestBodyBytes, nil, nil
-}
-
 // TypedName returns the type and name tuple of this plugin instance.
-func (p *DefaultPlugin) TypedName() epp.TypedName {
+func (p *DefaultPlugin) TypedName() plugin.TypedName {
 	return p.typedName
 }
 
@@ -64,4 +57,12 @@ func (p *DefaultPlugin) TypedName() epp.TypedName {
 func (p *DefaultPlugin) WithName(name string) *DefaultPlugin {
 	p.typedName.Name = name
 	return p
+}
+
+// The current default plugin is a no-op and returns the request body unchanged.
+// After integration, "no-op-plugin" will be replaced by "default-plugin",
+// which will extract the model name, map it to a base model, and set the
+// necessary request headers.
+func (p *DefaultPlugin) Execute(ctx context.Context, headers map[string]string, body map[string]any) (map[string]string, map[string]any, error) {
+	return headers, body, nil
 }
