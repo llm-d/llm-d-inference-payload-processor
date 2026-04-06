@@ -22,8 +22,8 @@ bbr:
     - type: body-field-to-header
       name: model-extractor
       json:
-        field_name: model
-        header_name: X-Gateway-Model-Name
+        fieldName: model
+        headerName: X-Gateway-Model-Name
     - type: base-model-to-header
       name: base-model-mapper
 

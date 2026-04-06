@@ -91,15 +91,6 @@ func ExpectBBRBodyPassThrough(prompt, model string) *extProcPb.ProcessingRespons
 	}
 }
 
-// ExpectBBRNoOpHeader asserts that BBR did nothing to the headers (e.g., when no model is found).
-func ExpectBBRNoOpHeader() *extProcPb.ProcessingResponse {
-	return &extProcPb.ProcessingResponse{
-		Response: &extProcPb.ProcessingResponse_RequestHeaders{
-			RequestHeaders: &extProcPb.HeadersResponse{},
-		},
-	}
-}
-
 // --- Response Phase Expectations ---
 
 // ExpectResponseHeadersPassThrough asserts that BBR passed response headers through with no mutations.
@@ -155,7 +146,7 @@ func ExpectResponseBodyMutation(body map[string]any) *extProcPb.ProcessingRespon
 
 // ExpectBBRUnaryResponse creates expected response for unary tests where the body is mutated directly.
 // baseModelName is the expected base model name (e.g., "qwen" for both "qwen" and "sql-lora-sheddable")
-func ExpectBBRUnaryResponse(modelName, baseModelName string, prompt string) *extProcPb.ProcessingResponse {
+func ExpectBBRUnaryResponse(modelName, baseModelName string) *extProcPb.ProcessingResponse {
 	resp := &extProcPb.ProcessingResponse{}
 
 	if modelName != "" {

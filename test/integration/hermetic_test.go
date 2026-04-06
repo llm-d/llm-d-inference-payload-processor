@@ -53,7 +53,7 @@ func TestBodyBasedRouting(t *testing.T) {
 		{
 			name:         "success: extracts model and sets header",
 			req:          integration.ReqLLMUnary(logger, "test", "qwen"),
-			wantResponse: ExpectBBRUnaryResponse("qwen", "qwen", "test"),
+			wantResponse: ExpectBBRUnaryResponse("qwen", "qwen"),
 		},
 		{
 			name: "no model parameter in body - skips gracefully",
@@ -63,15 +63,7 @@ func TestBodyBasedRouting(t *testing.T) {
 					RequestBody: &extProcPb.BodyResponse{
 						Response: &extProcPb.CommonResponse{
 							ClearRouteCache: true,
-							HeaderMutation: &extProcPb.HeaderMutation{
-								SetHeaders: []*envoyCorev3.HeaderValueOption{
-									{
-										Header: &envoyCorev3.HeaderValue{
-											Key: "X-Gateway-Base-Model-Name",
-										},
-									},
-								},
-							},
+							HeaderMutation:  &extProcPb.HeaderMutation{},
 						},
 					},
 				},
@@ -160,7 +152,7 @@ func TestResponsePlugins(t *testing.T) {
 				respBodyReq(map[string]any{"choices": []any{map[string]any{"text": "Hi there!"}}}),
 			},
 			wantResponses: []*extProcPb.ProcessingResponse{
-				ExpectBBRUnaryResponse("qwen", "qwen", "test"),
+				ExpectBBRUnaryResponse("qwen", "qwen"),
 				ExpectResponseHeadersPassThrough(),
 				ExpectResponseBodyPassThrough(),
 			},
@@ -183,7 +175,7 @@ func TestResponsePlugins(t *testing.T) {
 				respBodyReq(map[string]any{"choices": []any{map[string]any{"text": "Hello!"}}}),
 			},
 			wantResponses: []*extProcPb.ProcessingResponse{
-				ExpectBBRUnaryResponse("test-model", "", "hello"),
+				ExpectBBRUnaryResponse("test-model", ""),
 				ExpectResponseHeadersPassThrough(),
 				ExpectResponseBodyMutation(map[string]any{
 					"choices":   []any{map[string]any{"text": "Hello!"}},
@@ -261,11 +253,6 @@ func TestFullDuplexStreamed_BodyBasedRouting(t *testing.T) {
 											Header: &envoyCorev3.HeaderValue{
 												Key:      "Content-Length",
 												RawValue: []byte("50"),
-											},
-										},
-										{
-											Header: &envoyCorev3.HeaderValue{
-												Key: "X-Gateway-Base-Model-Name",
 											},
 										},
 									},
