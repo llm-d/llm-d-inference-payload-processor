@@ -24,7 +24,7 @@ help: ## Show this help message
 
 .PHONY: build
 build: ## Build the Go binary
-	go build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o bin/$(PROJECT_NAME) .
+	go build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o bin/$(PROJECT_NAME) ./cmd
 
 .PHONY: test
 test: ## Run tests with race detection
