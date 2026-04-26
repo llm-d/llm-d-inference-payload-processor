@@ -47,7 +47,7 @@ type BaseModelToHeaderPlugin struct {
 
 // BaseModelToHeaderPluginFactory defines the factory function for BaseModelToHeaderPlugin
 func BaseModelToHeaderPluginFactory(name string, _ json.RawMessage, handle framework.Handle) (framework.BBRPlugin, error) {
-	plugin, err := NewBaseModelToHeaderPlugin(handle.ReconcilerBuilder, handle.ClientReader())
+	plugin, err := NewBaseModelToHeaderPlugin(handle.ReconcilerBuilder, handle.Client())
 	if err != nil {
 		return nil, fmt.Errorf("failed to create plugin '%s' - %w", BaseModelToHeaderPluginType, err)
 	}
