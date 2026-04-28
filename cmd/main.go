@@ -21,7 +21,7 @@ import (
 
 	ctrl "sigs.k8s.io/controller-runtime"
 
-	"sigs.k8s.io/gateway-api-inference-extension/cmd/bbr/runner"
+	"github.com/llm-d/llm-d-inference-payload-processor/cmd/runner"
 )
 
 func main() {

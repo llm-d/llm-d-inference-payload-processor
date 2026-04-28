@@ -30,12 +30,12 @@ import (
 	"google.golang.org/grpc/status"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
-	"sigs.k8s.io/gateway-api-inference-extension/pkg/bbr/framework"
-	envoy "sigs.k8s.io/gateway-api-inference-extension/pkg/common/envoy"
-	errcommon "sigs.k8s.io/gateway-api-inference-extension/pkg/common/error"
-	logutil "sigs.k8s.io/gateway-api-inference-extension/pkg/common/observability/logging"
-	reqcommon "sigs.k8s.io/gateway-api-inference-extension/pkg/common/request"
-	"sigs.k8s.io/gateway-api-inference-extension/version"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/bbr/framework"
+	envoy "github.com/llm-d/llm-d-inference-payload-processor/pkg/common/envoy"
+	errcommon "github.com/llm-d/llm-d-inference-payload-processor/pkg/common/error"
+	logutil "github.com/llm-d/llm-d-inference-payload-processor/pkg/common/observability/logging"
+	reqcommon "github.com/llm-d/llm-d-inference-payload-processor/pkg/common/request"
+	"github.com/llm-d/llm-d-inference-payload-processor/version"
 )
 
 const (

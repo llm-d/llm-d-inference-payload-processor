@@ -28,9 +28,9 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"google.golang.org/protobuf/testing/protocmp"
 
-	"sigs.k8s.io/gateway-api-inference-extension/pkg/bbr/framework"
-	envoytest "sigs.k8s.io/gateway-api-inference-extension/pkg/common/envoy/test"
-	logutil "sigs.k8s.io/gateway-api-inference-extension/pkg/common/observability/logging"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/bbr/framework"
+	envoytest "github.com/llm-d/llm-d-inference-payload-processor/pkg/common/envoy/test"
+	logutil "github.com/llm-d/llm-d-inference-payload-processor/pkg/common/observability/logging"
 	epp "sigs.k8s.io/gateway-api-inference-extension/pkg/epp/framework/interface/plugin"
 )
 

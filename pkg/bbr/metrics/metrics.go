@@ -24,7 +24,7 @@ import (
 	compbasemetrics "k8s.io/component-base/metrics"
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
 
-	metricsutil "sigs.k8s.io/gateway-api-inference-extension/pkg/common/observability/metrics"
+	metricsutil "github.com/llm-d/llm-d-inference-payload-processor/pkg/common/observability/metrics"
 )
 
 const component = "bbr"

@@ -21,7 +21,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"sigs.k8s.io/gateway-api-inference-extension/pkg/bbr/framework"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/bbr/framework"
 )
 
 const (

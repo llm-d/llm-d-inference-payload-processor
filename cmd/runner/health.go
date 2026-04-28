@@ -25,7 +25,7 @@ import (
 	"google.golang.org/grpc/status"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
-	logutil "sigs.k8s.io/gateway-api-inference-extension/pkg/common/observability/logging"
+	logutil "github.com/llm-d/llm-d-inference-payload-processor/pkg/common/observability/logging"
 )
 
 type healthServer struct{}

@@ -26,10 +26,10 @@ import (
 	eppb "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
-	"sigs.k8s.io/gateway-api-inference-extension/pkg/bbr/framework"
-	"sigs.k8s.io/gateway-api-inference-extension/pkg/bbr/metrics"
-	envoy "sigs.k8s.io/gateway-api-inference-extension/pkg/common/envoy"
-	logutil "sigs.k8s.io/gateway-api-inference-extension/pkg/common/observability/logging"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/bbr/framework"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/bbr/metrics"
+	envoy "github.com/llm-d/llm-d-inference-payload-processor/pkg/common/envoy"
+	logutil "github.com/llm-d/llm-d-inference-payload-processor/pkg/common/observability/logging"
 )
 
 // HandleResponseHeaders extracts response headers into reqCtx and returns

@@ -21,8 +21,8 @@ import (
 
 	"github.com/spf13/pflag"
 
-	"sigs.k8s.io/gateway-api-inference-extension/pkg/bbr/config"
-	"sigs.k8s.io/gateway-api-inference-extension/pkg/common/observability/logging"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/bbr/config"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/common/observability/logging"
 )
 
 const (
