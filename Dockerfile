@@ -1,26 +1,33 @@
-# Multi-stage build for llm-d-inference-payload-processor
-# Supports multi-arch: linux/amd64, linux/arm64
+# Dockerfile has specific requirement to put this ARG at the beginning:
+# https://docs.docker.com/engine/reference/builder/#understand-how-arg-and-from-interact
+ARG BUILDER_IMAGE=golang:1.25
+ARG BASE_IMAGE=gcr.io/distroless/static:nonroot
 
-# --- Build stage ---
-FROM golang:1.24 AS builder
+## Multistage build
+FROM ${BUILDER_IMAGE} AS builder
+ENV CGO_ENABLED=0
+ENV GOOS=linux
+ENV GOARCH=amd64
+ARG COMMIT_SHA=unknown
+ARG BUILD_REF
 
-WORKDIR /workspace
-
-# Cache dependencies (go.sum is optional until the first dep is added)
-COPY go.mod ./
-COPY go.su[m] ./
+# Dependencies
+WORKDIR /src
+COPY go.mod go.sum ./
 RUN go mod download
 
-# Copy source and build
-COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /workspace/app ./cmd
+# Sources
+COPY cmd ./cmd
+COPY pkg ./pkg
+COPY internal ./internal
+COPY version ./version
+WORKDIR /src/cmd
+RUN go build -ldflags="-X github.com/llm-d/llm-d-inference-payload-processor/version.CommitSHA=${COMMIT_SHA} -X github.com/llm-d/llm-d-inference-payload-processor/version.BuildRef=${BUILD_REF}" -o /payload-processor
 
-# --- Runtime stage ---
-FROM gcr.io/distroless/static:nonroot
+## Multistage deploy
+FROM ${BASE_IMAGE}
 
 WORKDIR /
-COPY --from=builder /workspace/app .
+COPY --from=builder /payload-processor /payload-processor
 
-USER 65532:65532
-
-ENTRYPOINT ["/app"]
+ENTRYPOINT ["/payload-processor"]
