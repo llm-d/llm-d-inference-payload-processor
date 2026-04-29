@@ -18,23 +18,24 @@ package framework
 
 import (
 	"context"
-
-	"sigs.k8s.io/gateway-api-inference-extension/pkg/epp/framework/interface/plugin"
 )
 
-// BBRPlugin defines the interface for a plugin.
-// This interface should be embedded in all plugins across bbr code.
-type BBRPlugin plugin.Plugin // alias
+// Plugin defines the interface for a plugin.
+// This interface should be embedded in all plugins across the code.
+type Plugin interface {
+	// TypedName returns the type and name tuple of this plugin instance.
+	TypedName() TypedName
+}
 
 type RequestProcessor interface {
-	BBRPlugin
+	Plugin
 	// ProcessRequest runs the RequestProcessor plugin.
 	// RequestProcessor can mutate the headers and/or the body of the request.
 	ProcessRequest(ctx context.Context, cycleState *CycleState, request *InferenceRequest) error
 }
 
 type ResponseProcessor interface {
-	BBRPlugin
+	Plugin
 	// ProcessResponse runs the ResponseProcessor plugin.
 	// ResponseProcessor can mutate the headers and/or the body of the response.
 	ProcessResponse(ctx context.Context, cycleState *CycleState, response *InferenceResponse) error

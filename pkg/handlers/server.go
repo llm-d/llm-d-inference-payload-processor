@@ -30,16 +30,16 @@ import (
 	"google.golang.org/grpc/status"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
-	"github.com/llm-d/llm-d-inference-payload-processor/pkg/bbr/framework"
 	envoy "github.com/llm-d/llm-d-inference-payload-processor/pkg/common/envoy"
 	errcommon "github.com/llm-d/llm-d-inference-payload-processor/pkg/common/error"
 	logutil "github.com/llm-d/llm-d-inference-payload-processor/pkg/common/observability/logging"
-	reqcommon "github.com/llm-d/llm-d-inference-payload-processor/pkg/common/request"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework"
 	"github.com/llm-d/llm-d-inference-payload-processor/version"
 )
 
 const (
 	contentLengthHeader = "Content-Length"
+	requestIdHeaderKey  = "x-request-id"
 
 	requestPluginExtensionPoint  = "request"
 	responsePluginExtensionPoint = "response"
@@ -75,7 +75,7 @@ func (s *Server) Process(srv extProcPb.ExternalProcessor_ProcessServer) error {
 
 	// Start tracing span for the request
 	tracer := otel.Tracer(
-		"gateway-api-inference-extension/bbr/extproc",
+		"llm-d/inference-payload-processor/extproc",
 		trace.WithInstrumentationVersion(version.BuildRef),
 		trace.WithInstrumentationAttributes(
 			attribute.String("commit-sha", version.CommitSHA),
@@ -118,8 +118,8 @@ func (s *Server) Process(srv extProcPb.ExternalProcessor_ProcessServer) error {
 		var err error
 		switch v := req.Request.(type) {
 		case *extProcPb.ProcessingRequest_RequestHeaders:
-			if requestId := envoy.ExtractHeaderValue(v, reqcommon.RequestIdHeaderKey); len(requestId) > 0 {
-				logger = logger.WithValues(reqcommon.RequestIdHeaderKey, requestId)
+			if requestId := envoy.ExtractHeaderValue(v, requestIdHeaderKey); len(requestId) > 0 {
+				logger = logger.WithValues(requestIdHeaderKey, requestId)
 				loggerVerbose = logger.V(logutil.VERBOSE)
 				ctx = log.IntoContext(ctx, logger)
 			}

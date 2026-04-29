@@ -28,8 +28,7 @@ import (
 	crconfig "sigs.k8s.io/controller-runtime/pkg/config"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
-	"github.com/llm-d/llm-d-inference-payload-processor/pkg/bbr/framework"
-	"sigs.k8s.io/gateway-api-inference-extension/pkg/epp/framework/interface/plugin"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework"
 )
 
 const (
@@ -40,7 +39,7 @@ const (
 // TestBaseModelToHeaderPlugin_TypedName tests the TypedName method returns correct type and name.
 func TestBaseModelToHeaderPlugin_TypedName(t *testing.T) {
 	p := &BaseModelToHeaderPlugin{
-		typedName:     plugin.TypedName{Type: BaseModelToHeaderPluginType, Name: "test-plugin"},
+		typedName:     framework.TypedName{Type: BaseModelToHeaderPluginType, Name: "test-plugin"},
 		AdaptersStore: NewAdaptersStore(),
 	}
 
@@ -56,7 +55,7 @@ func TestBaseModelToHeaderPlugin_TypedName(t *testing.T) {
 // TestBaseModelToHeaderPlugin_WithName tests that WithName correctly updates the plugin name.
 func TestBaseModelToHeaderPlugin_WithName(t *testing.T) {
 	p := &BaseModelToHeaderPlugin{
-		typedName:     plugin.TypedName{Type: BaseModelToHeaderPluginType, Name: "original"},
+		typedName:     framework.TypedName{Type: BaseModelToHeaderPluginType, Name: "original"},
 		AdaptersStore: NewAdaptersStore(),
 	}
 
@@ -117,7 +116,7 @@ func TestBaseModelToHeaderPluginFactory(t *testing.T) {
 			}
 
 			// Create a handle using the test manager
-			handle := framework.NewBbrHandle(context.Background(), mgr)
+			handle := framework.NewHandle(context.Background(), mgr)
 
 			p, err := BaseModelToHeaderPluginFactory(tt.pluginName, tt.rawParams, handle)
 			if err != nil {
@@ -153,7 +152,7 @@ func TestBaseModelToHeaderPlugin_ProcessRequest(t *testing.T) {
 	}
 
 	p := &BaseModelToHeaderPlugin{
-		typedName:     plugin.TypedName{Type: BaseModelToHeaderPluginType, Name: "test"},
+		typedName:     framework.TypedName{Type: BaseModelToHeaderPluginType, Name: "test"},
 		AdaptersStore: store,
 	}
 
@@ -277,7 +276,7 @@ func TestBaseModelToHeaderPlugin_ProcessRequest_MutatedHeaders(t *testing.T) {
 	}
 
 	p := &BaseModelToHeaderPlugin{
-		typedName:     plugin.TypedName{Type: BaseModelToHeaderPluginType, Name: "test"},
+		typedName:     framework.TypedName{Type: BaseModelToHeaderPluginType, Name: "test"},
 		AdaptersStore: store,
 	}
 

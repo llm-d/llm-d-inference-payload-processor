@@ -28,10 +28,9 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"google.golang.org/protobuf/testing/protocmp"
 
-	"github.com/llm-d/llm-d-inference-payload-processor/pkg/bbr/framework"
 	envoytest "github.com/llm-d/llm-d-inference-payload-processor/pkg/common/envoy/test"
 	logutil "github.com/llm-d/llm-d-inference-payload-processor/pkg/common/observability/logging"
-	epp "sigs.k8s.io/gateway-api-inference-extension/pkg/epp/framework/interface/plugin"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework"
 )
 
 const testPluginValue = "done"
@@ -42,8 +41,8 @@ type fakeResponsePlugin struct {
 	mutateFn func(ctx context.Context, cycleState *framework.CycleState, response *framework.InferenceResponse) error
 }
 
-func (p *fakeResponsePlugin) TypedName() epp.TypedName {
-	return epp.TypedName{Type: "fake", Name: p.name}
+func (p *fakeResponsePlugin) TypedName() framework.TypedName {
+	return framework.TypedName{Type: "fake", Name: p.name}
 }
 
 func (p *fakeResponsePlugin) ProcessResponse(ctx context.Context, cycleState *framework.CycleState, response *framework.InferenceResponse) error {

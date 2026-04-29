@@ -27,11 +27,11 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"google.golang.org/protobuf/testing/protocmp"
 
-	"github.com/llm-d/llm-d-inference-payload-processor/pkg/bbr/framework"
-	"github.com/llm-d/llm-d-inference-payload-processor/pkg/bbr/plugins/basemodelextractor"
-	"github.com/llm-d/llm-d-inference-payload-processor/pkg/bbr/plugins/bodyfieldtoheader"
 	envoytest "github.com/llm-d/llm-d-inference-payload-processor/pkg/common/envoy/test"
 	logutil "github.com/llm-d/llm-d-inference-payload-processor/pkg/common/observability/logging"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/plugins/basemodelextractor"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/plugins/bodyfieldtoheader"
 	"github.com/llm-d/llm-d-inference-payload-processor/test/utils"
 )
 

@@ -26,9 +26,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
-	"github.com/llm-d/llm-d-inference-payload-processor/pkg/bbr/framework"
 	logutil "github.com/llm-d/llm-d-inference-payload-processor/pkg/common/observability/logging"
-	"sigs.k8s.io/gateway-api-inference-extension/pkg/epp/framework/interface/plugin"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework"
 )
 
 const (
@@ -41,12 +40,12 @@ const (
 var _ framework.RequestProcessor = &BaseModelToHeaderPlugin{}
 
 type BaseModelToHeaderPlugin struct {
-	typedName     plugin.TypedName
+	typedName     framework.TypedName
 	AdaptersStore AdaptersStore
 }
 
 // BaseModelToHeaderPluginFactory defines the factory function for BaseModelToHeaderPlugin
-func BaseModelToHeaderPluginFactory(name string, _ json.RawMessage, handle framework.Handle) (framework.BBRPlugin, error) {
+func BaseModelToHeaderPluginFactory(name string, _ json.RawMessage, handle framework.Handle) (framework.Plugin, error) {
 	plugin, err := NewBaseModelToHeaderPlugin(handle.ReconcilerBuilder, handle.Client())
 	if err != nil {
 		return nil, fmt.Errorf("failed to create plugin '%s' - %w", BaseModelToHeaderPluginType, err)
@@ -68,13 +67,13 @@ func NewBaseModelToHeaderPlugin(reconcilerBuilder func() *builder.Builder, clien
 	}
 
 	return &BaseModelToHeaderPlugin{
-		typedName:     plugin.TypedName{Type: BaseModelToHeaderPluginType, Name: BaseModelToHeaderPluginType},
+		typedName:     framework.TypedName{Type: BaseModelToHeaderPluginType, Name: BaseModelToHeaderPluginType},
 		AdaptersStore: adaptersStore,
 	}, nil
 }
 
 // TypedName returns the type and name tuple of this plugin instance.
-func (p *BaseModelToHeaderPlugin) TypedName() plugin.TypedName {
+func (p *BaseModelToHeaderPlugin) TypedName() framework.TypedName {
 	return p.typedName
 }
 

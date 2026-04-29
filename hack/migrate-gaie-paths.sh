@@ -238,7 +238,14 @@ while IFS= read -r -d '' f; do
         SED_ARGS+=(-e "s|\"${OLD_IMPORTS[$j]}/|\"${NEW_IMPORTS[$j]}/|g")
         SED_ARGS+=(-e "s|\"${OLD_IMPORTS[$j]}\"|\"${NEW_IMPORTS[$j]}\"|g")
       done
-      sed -i "${SED_ARGS[@]}" "${f}"
+      # BSD sed (macOS): -i requires a backup extension; GNU sed allows -i alone.
+      # Using sed -i -e ... on macOS makes -e the "extension" and breaks with:
+      #   sed: -e: No such file or directory
+      if sed --version 2>/dev/null | grep -q GNU; then
+        sed -i "${SED_ARGS[@]}" "${f}"
+      else
+        sed -i '' "${SED_ARGS[@]}" "${f}"
+      fi
       echo "  ${f#"${DEST_DIR}/"}"
       CHANGED=$((CHANGED + 1))
       break

@@ -28,10 +28,9 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/testing/protocmp"
 
-	"github.com/llm-d/llm-d-inference-payload-processor/pkg/bbr/framework"
-	"github.com/llm-d/llm-d-inference-payload-processor/pkg/bbr/plugins/basemodelextractor"
 	envoytest "github.com/llm-d/llm-d-inference-payload-processor/pkg/common/envoy/test"
-	epp "sigs.k8s.io/gateway-api-inference-extension/pkg/epp/framework/interface/plugin"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/plugins/basemodelextractor"
 	"sigs.k8s.io/gateway-api-inference-extension/test/integration"
 )
 
@@ -41,8 +40,8 @@ type bodyMutatingPlugin struct {
 	fieldValue any
 }
 
-func (p *bodyMutatingPlugin) TypedName() epp.TypedName {
-	return epp.TypedName{Type: "test-body-mutator", Name: "test-body-mutator"}
+func (p *bodyMutatingPlugin) TypedName() framework.TypedName {
+	return framework.TypedName{Type: "test-body-mutator", Name: "test-body-mutator"}
 }
 
 func (p *bodyMutatingPlugin) ProcessRequest(_ context.Context, _ *framework.CycleState, request *framework.InferenceRequest) error {

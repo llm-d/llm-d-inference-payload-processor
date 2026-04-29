@@ -30,11 +30,10 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/testing/protocmp"
 
-	"github.com/llm-d/llm-d-inference-payload-processor/pkg/bbr/framework"
-	"github.com/llm-d/llm-d-inference-payload-processor/pkg/bbr/plugins/basemodelextractor"
-	"github.com/llm-d/llm-d-inference-payload-processor/pkg/bbr/plugins/bodyfieldtoheader"
 	envoytest "github.com/llm-d/llm-d-inference-payload-processor/pkg/common/envoy/test"
-	epp "sigs.k8s.io/gateway-api-inference-extension/pkg/epp/framework/interface/plugin"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/plugins/basemodelextractor"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/plugins/bodyfieldtoheader"
 	"sigs.k8s.io/gateway-api-inference-extension/test/integration"
 )
 
@@ -314,8 +313,8 @@ type testResponsePlugin struct {
 	mutateFn func(ctx context.Context, response *framework.InferenceResponse) error
 }
 
-func (p *testResponsePlugin) TypedName() epp.TypedName {
-	return epp.TypedName{Type: "test", Name: p.name}
+func (p *testResponsePlugin) TypedName() framework.TypedName {
+	return framework.TypedName{Type: "test", Name: p.name}
 }
 
 func (p *testResponsePlugin) ProcessResponse(ctx context.Context, _ *framework.CycleState, response *framework.InferenceResponse) error {

@@ -21,8 +21,8 @@ import (
 
 	"github.com/spf13/pflag"
 
-	"github.com/llm-d/llm-d-inference-payload-processor/pkg/bbr/config"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/common/observability/logging"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/config"
 )
 
 const (

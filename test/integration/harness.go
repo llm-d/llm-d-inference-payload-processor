@@ -29,11 +29,11 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	"github.com/llm-d/llm-d-inference-payload-processor/pkg/bbr/framework"
-	"github.com/llm-d/llm-d-inference-payload-processor/pkg/bbr/plugins/basemodelextractor"
-	"github.com/llm-d/llm-d-inference-payload-processor/pkg/bbr/plugins/bodyfieldtoheader"
-	runserver "github.com/llm-d/llm-d-inference-payload-processor/pkg/bbr/server"
 	logutil "github.com/llm-d/llm-d-inference-payload-processor/pkg/common/observability/logging"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/plugins/basemodelextractor"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/plugins/bodyfieldtoheader"
+	runserver "github.com/llm-d/llm-d-inference-payload-processor/pkg/server"
 	"sigs.k8s.io/gateway-api-inference-extension/test/integration"
 )
 

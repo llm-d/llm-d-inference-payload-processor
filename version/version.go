@@ -23,12 +23,3 @@ var (
 	// The build ref from the _PULL_BASE_REF from cloud build trigger.
 	BuildRef string
 )
-
-const (
-	// BundleVersionAnnotation is the annotation key used in the Gateway API inference extension CRDs to specify
-	// the installed Gateway API inference extension version.
-	BundleVersionAnnotation = "inference.networking.k8s.io/bundle-version"
-
-	// BundleVersion is the value used for labeling the version of the gateway-api-inference-extension.
-	BundleVersion = "main-dev"
-)

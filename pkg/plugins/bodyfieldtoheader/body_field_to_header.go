@@ -23,10 +23,9 @@ import (
 
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
-	"github.com/llm-d/llm-d-inference-payload-processor/pkg/bbr/framework"
-	"github.com/llm-d/llm-d-inference-payload-processor/pkg/bbr/metrics"
 	logutil "github.com/llm-d/llm-d-inference-payload-processor/pkg/common/observability/logging"
-	"sigs.k8s.io/gateway-api-inference-extension/pkg/epp/framework/interface/plugin"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/metrics"
 )
 
 const (
@@ -46,7 +45,7 @@ type BodyFieldToHeaderConfig struct {
 }
 
 // BodyFieldToHeaderPluginFactory defines the factory function for NewBodyFieldToHeaderPlugin.
-func BodyFieldToHeaderPluginFactory(name string, rawParameters json.RawMessage, _ framework.Handle) (framework.BBRPlugin, error) {
+func BodyFieldToHeaderPluginFactory(name string, rawParameters json.RawMessage, _ framework.Handle) (framework.Plugin, error) {
 	var config BodyFieldToHeaderConfig
 
 	if len(rawParameters) > 0 {
@@ -74,7 +73,7 @@ func NewBodyFieldToHeaderPlugin(fieldName, headerName string) (*BodyFieldToHeade
 	}
 
 	return &BodyFieldToHeaderPlugin{
-		typedName: plugin.TypedName{
+		typedName: framework.TypedName{
 			Type: BodyFieldToHeaderPluginType,
 			Name: BodyFieldToHeaderPluginType,
 		},
@@ -85,13 +84,13 @@ func NewBodyFieldToHeaderPlugin(fieldName, headerName string) (*BodyFieldToHeade
 
 // BodyFieldToHeaderPlugin extracts value from a given body field and sets it as HTTP header.
 type BodyFieldToHeaderPlugin struct {
-	typedName  plugin.TypedName
+	typedName  framework.TypedName
 	fieldName  string
 	headerName string
 }
 
 // TypedName returns the type and name tuple of this plugin instance.
-func (p *BodyFieldToHeaderPlugin) TypedName() plugin.TypedName {
+func (p *BodyFieldToHeaderPlugin) TypedName() framework.TypedName {
 	return p.typedName
 }
 

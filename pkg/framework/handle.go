@@ -32,27 +32,27 @@ type Handle interface {
 	ReconcilerBuilder() *ctrlbuilder.Builder
 }
 
-// bbrHandle is an implementation of the Handle interface.
-type bbrHandle struct {
+// payloadProcessorHandle is an implementation of the Handle interface.
+type payloadProcessorHandle struct {
 	ctx context.Context
 	mgr ctrl.Manager
 }
 
 // Context returns a context the plugins can use, if they need one
-func (h *bbrHandle) Context() context.Context {
+func (h *payloadProcessorHandle) Context() context.Context {
 	return h.ctx
 }
 
-func (h *bbrHandle) Client() client.Client {
+func (h *payloadProcessorHandle) Client() client.Client {
 	return h.mgr.GetClient()
 }
 
-func (h *bbrHandle) ReconcilerBuilder() *ctrlbuilder.Builder {
+func (h *payloadProcessorHandle) ReconcilerBuilder() *ctrlbuilder.Builder {
 	return ctrl.NewControllerManagedBy(h.mgr)
 }
 
-func NewBbrHandle(ctx context.Context, mgr ctrl.Manager) Handle {
-	return &bbrHandle{
+func NewHandle(ctx context.Context, mgr ctrl.Manager) Handle {
+	return &payloadProcessorHandle{
 		ctx: ctx,
 		mgr: mgr,
 	}

@@ -30,13 +30,12 @@ import (
 	metricsutils "k8s.io/component-base/metrics/testutil"
 	crmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
 
-	"github.com/llm-d/llm-d-inference-payload-processor/pkg/bbr/framework"
-	"github.com/llm-d/llm-d-inference-payload-processor/pkg/bbr/metrics"
-	"github.com/llm-d/llm-d-inference-payload-processor/pkg/bbr/plugins/basemodelextractor"
-	"github.com/llm-d/llm-d-inference-payload-processor/pkg/bbr/plugins/bodyfieldtoheader"
 	envoytest "github.com/llm-d/llm-d-inference-payload-processor/pkg/common/envoy/test"
 	logutil "github.com/llm-d/llm-d-inference-payload-processor/pkg/common/observability/logging"
-	epp "sigs.k8s.io/gateway-api-inference-extension/pkg/epp/framework/interface/plugin"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/metrics"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/plugins/basemodelextractor"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/plugins/bodyfieldtoheader"
 )
 
 const modelField = "model"
@@ -607,8 +606,8 @@ type fakeRequestPlugin struct {
 	mutateFn func(ctx context.Context, request *framework.InferenceRequest) error
 }
 
-func (p *fakeRequestPlugin) TypedName() epp.TypedName {
-	return epp.TypedName{Type: "fake", Name: p.name}
+func (p *fakeRequestPlugin) TypedName() framework.TypedName {
+	return framework.TypedName{Type: "fake", Name: p.name}
 }
 
 func (p *fakeRequestPlugin) ProcessRequest(ctx context.Context, _ *framework.CycleState, request *framework.InferenceRequest) error {
@@ -896,8 +895,8 @@ type bodyMutatingPlugin struct {
 	mutateFn func(ctx context.Context, cycleState *framework.CycleState, request *framework.InferenceRequest) error
 }
 
-func (p *bodyMutatingPlugin) TypedName() epp.TypedName {
-	return epp.TypedName{Type: "fake", Name: p.name}
+func (p *bodyMutatingPlugin) TypedName() framework.TypedName {
+	return framework.TypedName{Type: "fake", Name: p.name}
 }
 
 func (p *bodyMutatingPlugin) ProcessRequest(ctx context.Context, cycleState *framework.CycleState, request *framework.InferenceRequest) error {

@@ -29,8 +29,8 @@ import (
 
 	"github.com/llm-d/llm-d-inference-payload-processor/internal/runnable"
 	tlsutil "github.com/llm-d/llm-d-inference-payload-processor/internal/tls"
-	"github.com/llm-d/llm-d-inference-payload-processor/pkg/bbr/framework"
-	"github.com/llm-d/llm-d-inference-payload-processor/pkg/bbr/handlers"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/handlers"
 )
 
 // ExtProcServerRunner provides methods to manage an external process server.

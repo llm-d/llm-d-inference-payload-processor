@@ -14,8 +14,21 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package request
+package framework
 
 const (
-	RequestIdHeaderKey = "x-request-id"
+	separator = "/"
 )
+
+// TypedName is a utility struct providing a type and a name to plugins.
+type TypedName struct {
+	// Type returns the type of a plugin.
+	Type string
+	// Name returns the name of a plugin instance.
+	Name string
+}
+
+// String returns the type and name rendered as "<name>/<type>".
+func (tn TypedName) String() string {
+	return tn.Name + separator + tn.Type
+}
