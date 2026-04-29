@@ -1,122 +1,68 @@
 version: "2"
+
 run:
-  concurrency: 4
-  go: ""
-  modules-download-mode: readonly
-  issues-exit-code: 1
-  tests: true
-output:
-  formats:
-    text:
-      path: stdout
-      print-linter-name: true
-      print-issued-lines: false
-      colors: false
-linters:
-  default: none
+  timeout: 5m
+  allow-parallel-runners: true
+
+formatters:
   enable:
-    - asasalint
-    - asciicheck
-    - bidichk
+    - goimports
+    - gofmt
+
+linters:
+  enable:
     - bodyclose
-    - contextcheck
+    - copyloopvar
+    - dupword
     - durationcheck
     - errcheck
-    - errname
-    - errorlint
+    - fatcontext
     - ginkgolinter
+    - goconst
     - gocritic
-    - godot
-    - gosec
     - govet
-    - grouper
-    - importas
     - ineffassign
-    - lll
     - loggercheck
     - makezero
     - misspell
     - nakedret
-    - nestif
-    - nilerr
-    - nilnil
-    - noctx
-    - nolintlint
-    - nonamedreturns
-    - nosprintfhostport
+    - perfsprint
     - prealloc
-    - predeclared
-    - promlinter
-    - reassign
     - revive
     - staticcheck
-    # - tagliatelle
-    - testableexamples
-    - testpackage
-    - thelper
-    - tparallel
-    - unconvert
     - unparam
-    - usestdlibvars
-    - varnamelen
-    - whitespace
-  settings:
-    errcheck:
-      check-type-assertions: true
-      check-blank: true
-    gocritic:
-      enabled-tags:
-        - diagnostic
-        - experimental
-        - opinionated
-        - performance
-        - style
-    lll:
-      line-length: 130
-    nakedret:
-      max-func-lines: 1
-    revive:
-      rules:
-        - name: dot-imports
-          disabled: true
-    staticcheck:
-      checks:
-        - all
-    varnamelen:
-      max-distance: 20
-      min-name-length: 2
-      check-type-param: true
-      ignore-type-assert-ok: true
-      ignore-map-index-ok: true
-      ignore-chan-recv-ok: true
-      ignore-decls:
-        - c echo.Context
-        - t *testing.T
-        - w http.ResponseWriter
-        - r *http.Request
+    - unused
+    - unconvert
   exclusions:
-    generated: lax
     presets:
-      - comments
-      - common-false-positives
-      - legacy
-      - std-error-handling
-    paths:
-      - third_party$
-      - builtin$
-      - examples$
+      - comments        # suppress missing comment violations on packages and exported symbols
+      - std-error-handling  # suppress unchecked errors on well-known stdlib patterns (e.g. Close())
+    rules:
+      # Package names inherited from GAIE upstream (common, types, utils, http) are intentional
+      - linters: [revive]
+        text: "avoid meaningless package names"
+      - linters: [revive]
+        text: "avoid package names that conflict with Go standard library package names"
+      # goconst and prealloc findings in tests are low-value noise
+      - linters: [goconst, prealloc]
+        path: "_test\\.go"
+  settings:
+    revive: # see https://github.com/mgechev/revive#available-rules for all options
+      rules:
+        - name: blank-imports
+        - name: context-keys-type
+        - name: dot-imports
+        - name: error-return
+        - name: error-strings
+        - name: error-naming
+        - name: package-comments
+        - name: range
+        - name: time-naming
+        - name: errorf
+
 issues:
+  # do not limit the number of issues, ensure even identical are reported
   max-issues-per-linter: 0
   max-same-issues: 0
-  uniq-by-line: false
-  fix: false
-formatters:
-  enable:
-    - gofumpt
-    - goimports
-  exclusions:
-    generated: lax
-    paths:
-      - third_party$
-      - builtin$
-      - examples$
+  # Note: 'new' setting is controlled via Makefile LINT_NEW_ONLY variable
+  # Set to true to only check new code, false (default) to check all code
