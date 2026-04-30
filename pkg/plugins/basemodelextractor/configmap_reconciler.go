@@ -29,22 +29,22 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 )
 
-const bbrManagedLabel = "inference.networking.k8s.io/bbr-managed"
+const ippManagedLabel = "inference.llm-d.io/ipp-managed"
 
-func hasBbrManagedLabel(object client.Object) bool {
-	return object.GetLabels()[bbrManagedLabel] == "true"
+func hasIPPManagedLabel(object client.Object) bool {
+	return object.GetLabels()[ippManagedLabel] == "true"
 }
 
-// bbrManagedPredicate filters events to only ConfigMaps labeled with
-// "inference.networking.k8s.io/bbr-managed" = "true".
-func bbrManagedPredicate() predicate.Predicate {
+// ippManagedPredicate filters events to only ConfigMaps labeled with
+// "inference.llm-d.io/ipp-managed" = "true".
+func ippManagedPredicate() predicate.Predicate {
 	return predicate.Funcs{
-		CreateFunc: func(e event.CreateEvent) bool { return hasBbrManagedLabel(e.Object) },
+		CreateFunc: func(e event.CreateEvent) bool { return hasIPPManagedLabel(e.Object) },
 		UpdateFunc: func(e event.UpdateEvent) bool {
-			return hasBbrManagedLabel(e.ObjectOld) || hasBbrManagedLabel(e.ObjectNew)
+			return hasIPPManagedLabel(e.ObjectOld) || hasIPPManagedLabel(e.ObjectNew)
 		},
-		DeleteFunc:  func(e event.DeleteEvent) bool { return hasBbrManagedLabel(e.Object) },
-		GenericFunc: func(e event.GenericEvent) bool { return hasBbrManagedLabel(e.Object) },
+		DeleteFunc:  func(e event.DeleteEvent) bool { return hasIPPManagedLabel(e.Object) },
+		GenericFunc: func(e event.GenericEvent) bool { return hasIPPManagedLabel(e.Object) },
 	}
 }
 
@@ -65,7 +65,7 @@ func (c *ConfigMapReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, fmt.Errorf("unable to get ConfigMap - %w", err)
 	}
 
-	if errors.IsNotFound(err) || !configmap.DeletionTimestamp.IsZero() || !hasBbrManagedLabel(configmap) {
+	if errors.IsNotFound(err) || !configmap.DeletionTimestamp.IsZero() || !hasIPPManagedLabel(configmap) {
 		// ConfigMap object got deleted or is marked for deletion.
 		c.AdaptersStore.configMapDelete(configmap)
 		return ctrl.Result{}, nil

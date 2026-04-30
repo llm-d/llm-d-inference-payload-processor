@@ -27,56 +27,11 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/test/bufconn"
-	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/runtime"
-	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
-
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
-	v1 "sigs.k8s.io/gateway-api-inference-extension/api/v1"
-	"sigs.k8s.io/gateway-api-inference-extension/apix/v1alpha2"
-	"sigs.k8s.io/gateway-api-inference-extension/pkg/epp/backend/metrics"
-	"sigs.k8s.io/gateway-api-inference-extension/pkg/epp/datastore"
-	pooltuil "sigs.k8s.io/gateway-api-inference-extension/pkg/epp/util/pool"
-	testutil "sigs.k8s.io/gateway-api-inference-extension/pkg/epp/util/testing"
 )
 
 const bufSize = 1024 * 1024
 
 var testListener *bufconn.Listener
-
-func PrepareForTestStreamingServer(objectives []*v1alpha2.InferenceObjective, pods []*corev1.Pod, poolName string, namespace string,
-	poolPort int32) (context.Context, context.CancelFunc, datastore.Datastore, *metrics.FakePodMetricsClient) {
-	ctx, cancel := context.WithCancel(context.Background())
-
-	pmc := &metrics.FakePodMetricsClient{}
-	pmf := metrics.NewPodMetricsFactory(pmc, time.Second)
-	ds := datastore.NewDatastore(ctx, pmf, 0)
-
-	initObjs := make([]client.Object, 0, len(objectives)+len(pods))
-	for _, objective := range objectives {
-		initObjs = append(initObjs, objective)
-		ds.ObjectiveSet(objective)
-	}
-	for _, pod := range pods {
-		initObjs = append(initObjs, pod)
-		ds.PodUpdateOrAddIfNotExist(ctx, pod)
-	}
-
-	scheme := runtime.NewScheme()
-	_ = clientgoscheme.AddToScheme(scheme)
-	_ = v1alpha2.Install(scheme)
-	_ = v1.Install(scheme)
-	fakeClient := fake.NewClientBuilder().
-		WithScheme(scheme).
-		WithObjects(initObjs...).
-		Build()
-	pool := testutil.MakeInferencePool(poolName).Namespace(namespace).ObjRef()
-	pool.Spec.TargetPorts = []v1.Port{{Number: v1.PortNumber(poolPort)}}
-	_ = ds.PoolSet(context.Background(), fakeClient, pooltuil.InferencePoolToEndpointPool(pool))
-
-	return ctx, cancel, ds, pmc
-}
 
 func SetupTestStreamingServer(t *testing.T, ctx context.Context, streamingServer pb.ExternalProcessorServer) (*bufconn.Listener, chan error) {
 	testListener = bufconn.Listen(bufSize)
@@ -119,14 +74,13 @@ func GetStreamingServerClient(ctx context.Context, t *testing.T) (pb.ExternalPro
 	return process, conn
 }
 
-// LaunchTestGRPCServer actually starts the server (enables testing)
+// LaunchTestGRPCServer starts a gRPC server for testing purposes.
 func LaunchTestGRPCServer(s pb.ExternalProcessorServer, ctx context.Context, listener net.Listener) error {
 	grpcServer := grpc.NewServer()
 
 	pb.RegisterExternalProcessorServer(grpcServer, s)
 
-	// Shutdown on context closed.
-	// Terminate the server on context closed.
+	// Shutdown gracefully on context cancellation.
 	go func() {
 		<-ctx.Done()
 		grpcServer.GracefulStop()

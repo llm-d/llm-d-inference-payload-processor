@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package bbr
+package integration
 
 import (
 	"encoding/json"
@@ -26,9 +26,9 @@ import (
 
 // --- Response Expectations (Streaming) ---
 
-// ExpectBBRHeader asserts that BBR set the specific model header and cleared the route cache.
+// ExpectHeader asserts that the payload processor set the specific model header and cleared the route cache.
 // baseModelName is the expected base model name (e.g., "qwen" for both "qwen" and "sql-lora-sheddable")
-func ExpectBBRHeader(modelName, baseModelName string, contentLength string) *extProcPb.ProcessingResponse {
+func ExpectHeader(modelName, baseModelName string, contentLength string) *extProcPb.ProcessingResponse {
 	return &extProcPb.ProcessingResponse{
 		Response: &extProcPb.ProcessingResponse_RequestHeaders{
 			RequestHeaders: &extProcPb.HeadersResponse{
@@ -62,9 +62,9 @@ func ExpectBBRHeader(modelName, baseModelName string, contentLength string) *ext
 	}
 }
 
-// ExpectBBRBodyPassThrough asserts that BBR reconstructs and passes the body through.
-// BBR buffers the body to inspect it, then sends it downstream as a single chunk (usually).
-func ExpectBBRBodyPassThrough(prompt, model string) *extProcPb.ProcessingResponse {
+// ExpectBodyPassThrough asserts that the payload processor reconstructs and passes the body through.
+// The payload processor buffers the body to inspect it, then sends it downstream as a single chunk (usually).
+func ExpectBodyPassThrough(prompt, model string) *extProcPb.ProcessingResponse {
 	j := map[string]any{
 		"max_tokens": 100, "prompt": prompt, "temperature": 0,
 	}
@@ -93,7 +93,7 @@ func ExpectBBRBodyPassThrough(prompt, model string) *extProcPb.ProcessingRespons
 
 // --- Response Phase Expectations ---
 
-// ExpectResponseHeadersPassThrough asserts that BBR passed response headers through with no mutations.
+// ExpectResponseHeadersPassThrough asserts that the payload processor passed response headers through with no mutations.
 func ExpectResponseHeadersPassThrough() *extProcPb.ProcessingResponse {
 	return &extProcPb.ProcessingResponse{
 		Response: &extProcPb.ProcessingResponse_ResponseHeaders{
@@ -102,7 +102,7 @@ func ExpectResponseHeadersPassThrough() *extProcPb.ProcessingResponse {
 	}
 }
 
-// ExpectResponseBodyPassThrough asserts that BBR passed the response body through with no mutations
+// ExpectResponseBodyPassThrough asserts that the payload processor passed the response body through with no mutations
 // (i.e., no response plugins configured).
 func ExpectResponseBodyPassThrough() *extProcPb.ProcessingResponse {
 	return &extProcPb.ProcessingResponse{
@@ -144,9 +144,9 @@ func ExpectResponseBodyMutation(body map[string]any) *extProcPb.ProcessingRespon
 
 // --- Request Phase Expectations (Unary) ---
 
-// ExpectBBRUnaryResponse creates expected response for unary tests where the body is mutated directly.
+// ExpectUnaryResponse creates expected response for unary tests where the body is mutated directly.
 // baseModelName is the expected base model name (e.g., "qwen" for both "qwen" and "sql-lora-sheddable")
-func ExpectBBRUnaryResponse(modelName, baseModelName string) *extProcPb.ProcessingResponse {
+func ExpectUnaryResponse(modelName, baseModelName string) *extProcPb.ProcessingResponse {
 	resp := &extProcPb.ProcessingResponse{}
 
 	if modelName != "" {

@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package bbr
+package integration
 
 import (
 	"context"
@@ -59,7 +59,7 @@ func TestBodyMutation_Unary(t *testing.T) {
 
 	plugin := &bodyMutatingPlugin{fieldName: "injected", fieldValue: "test-value"}
 	baseModelToHeaderPlugin := &basemodelextractor.BaseModelToHeaderPlugin{AdaptersStore: basemodelextractor.NewAdaptersStore()}
-	h := NewBBRHarnessWithPlugins(t, ctx, false, []framework.RequestProcessor{plugin, baseModelToHeaderPlugin}, []framework.ResponseProcessor{})
+	h := NewHarnessWithPlugins(t, ctx, false, []framework.RequestProcessor{plugin, baseModelToHeaderPlugin}, []framework.ResponseProcessor{})
 
 	body := map[string]any{"prompt": "hello"}
 	bodyBytes, _ := json.Marshal(body)
@@ -120,7 +120,7 @@ func TestBodyMutation_Streaming(t *testing.T) {
 
 	plugin := &bodyMutatingPlugin{fieldName: "injected", fieldValue: "test-value"}
 	baseModelToHeaderPlugin := &basemodelextractor.BaseModelToHeaderPlugin{AdaptersStore: basemodelextractor.NewAdaptersStore()}
-	h := NewBBRHarnessWithPlugins(t, ctx, true, []framework.RequestProcessor{plugin, baseModelToHeaderPlugin}, []framework.ResponseProcessor{})
+	h := NewHarnessWithPlugins(t, ctx, true, []framework.RequestProcessor{plugin, baseModelToHeaderPlugin}, []framework.ResponseProcessor{})
 
 	body := map[string]any{"prompt": "hello"}
 	bodyBytes, _ := json.Marshal(body)

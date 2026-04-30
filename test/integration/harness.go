@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package bbr
+package integration
 
 import (
 	"context"
@@ -41,8 +41,8 @@ const modelField = "model"
 
 var logger = logutil.NewTestLogger().V(logutil.VERBOSE)
 
-// BBRHarness encapsulates the environment for a single isolated BBR test run.
-type BBRHarness struct {
+// Harness encapsulates the environment for a single isolated payload processor test run.
+type Harness struct {
 	t      *testing.T
 	Client extProcPb.ExternalProcessor_ProcessClient
 
@@ -51,9 +51,9 @@ type BBRHarness struct {
 	grpcConn *grpc.ClientConn
 }
 
-// NewBBRHarness boots up an isolated BBR server on a random port with the default
+// NewHarness boots up an isolated payload processor server on a random port with the default
 // BodyFieldToHeaderPlugin for model extraction and no response plugins.
-func NewBBRHarness(t *testing.T, ctx context.Context, streaming bool) *BBRHarness {
+func NewHarness(t *testing.T, ctx context.Context, streaming bool) *Harness {
 	t.Helper()
 	modelToHeaderPlugin, err := bodyfieldtoheader.NewBodyFieldToHeaderPlugin(modelField, bodyfieldtoheader.ModelHeader)
 	require.NoError(t, err, "failed to create body-field-to-header plugin")
@@ -63,7 +63,7 @@ func NewBBRHarness(t *testing.T, ctx context.Context, streaming bool) *BBRHarnes
 			Name:      "test-model-mappings",
 			Namespace: "default",
 			Labels: map[string]string{
-				"inference.networking.k8s.io/bbr-managed": "true",
+				"inference.llm-d.io/ipp-managed": "true",
 			},
 		},
 		Data: map[string]string{
@@ -94,25 +94,25 @@ func NewBBRHarness(t *testing.T, ctx context.Context, streaming bool) *BBRHarnes
 
 	baseModelToHeaderPlugin := &basemodelextractor.BaseModelToHeaderPlugin{AdaptersStore: store}
 
-	return NewBBRHarnessWithPlugins(t, ctx, streaming, []framework.RequestProcessor{modelToHeaderPlugin, baseModelToHeaderPlugin}, []framework.ResponseProcessor{})
+	return NewHarnessWithPlugins(t, ctx, streaming, []framework.RequestProcessor{modelToHeaderPlugin, baseModelToHeaderPlugin}, []framework.ResponseProcessor{})
 }
 
-// NewBBRHarnessWithPlugins boots up an isolated BBR server on a random port
+// NewHarnessWithPlugins boots up an isolated payload processor server on a random port
 // with the given request and response plugins.
-func NewBBRHarnessWithPlugins(
+func NewHarnessWithPlugins(
 	t *testing.T,
 	ctx context.Context,
 	streaming bool,
 	requestPlugins []framework.RequestProcessor,
 	responsePlugins []framework.ResponseProcessor,
-) *BBRHarness {
+) *Harness {
 	t.Helper()
 
 	// 1. Allocate Free Port
 	port, err := integration.GetFreePort()
-	require.NoError(t, err, "failed to acquire free port for BBR server")
+	require.NoError(t, err, "failed to acquire free port for payload processor server")
 
-	// 2. Configure BBR Server with plugins
+	// 2. Configure payload processor server with plugins
 	runner := runserver.NewDefaultExtProcServerRunner(port, false)
 	runner.SecureServing = false
 	runner.Streaming = streaming
@@ -122,7 +122,7 @@ func NewBBRHarnessWithPlugins(
 	// 3. Start Server in Background
 	serverCtx, serverCancel := context.WithCancel(ctx)
 
-	runnable := runner.AsRunnable(logger.WithName("bbr-server")).Start
+	runnable := runner.AsRunnable(logger.WithName("payload-processor-server")).Start
 	client, conn := integration.StartExtProcServer(
 		t,
 		serverCtx,
@@ -131,7 +131,7 @@ func NewBBRHarnessWithPlugins(
 		logger,
 	)
 
-	h := &BBRHarness{
+	h := &Harness{
 		t:        t,
 		Client:   client,
 		server:   runner,
@@ -140,7 +140,7 @@ func NewBBRHarnessWithPlugins(
 
 	// 4. Register Cleanup
 	t.Cleanup(func() {
-		logger.Info("Tearing down BBR server", "port", port)
+		logger.Info("Tearing down payload processor server", "port", port)
 		serverCancel()
 		if err := h.grpcConn.Close(); err != nil {
 			t.Logf("Warning: failed to close grpc connection: %v", err)

@@ -14,8 +14,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Package bbr contains integration tests for the body-based routing extension.
-package bbr
+// Package payloadprocessor contains integration tests for the payload processor extension.
+package integration
 
 import (
 	"context"
@@ -37,7 +37,7 @@ import (
 	"sigs.k8s.io/gateway-api-inference-extension/test/integration"
 )
 
-// TestBodyBasedRouting validates the "Unary" (Non-Streaming) request-phase behavior of BBR.
+// TestBodyBasedRouting validates the "Unary" (Non-Streaming) request-phase behavior of the payload processor.
 // This simulates scenarios where Envoy buffers the body before sending it to ext_proc.
 func TestBodyBasedRouting(t *testing.T) {
 	t.Parallel()
@@ -52,7 +52,7 @@ func TestBodyBasedRouting(t *testing.T) {
 		{
 			name:         "success: extracts model and sets header",
 			req:          integration.ReqLLMUnary(logger, "test", "qwen"),
-			wantResponse: ExpectBBRUnaryResponse("qwen", "qwen"),
+			wantResponse: ExpectUnaryResponse("qwen", "qwen"),
 		},
 		{
 			name: "no model parameter in body - skips gracefully",
@@ -75,7 +75,7 @@ func TestBodyBasedRouting(t *testing.T) {
 			t.Parallel()
 
 			ctx := context.Background()
-			h := NewBBRHarness(t, ctx, false)
+			h := NewHarness(t, ctx, false)
 
 			res, err := integration.SendRequest(t, h.Client, tc.req)
 			require.NoError(t, err, "unexpected error during request processing")
@@ -136,14 +136,14 @@ func TestResponsePlugins(t *testing.T) {
 
 	tests := []struct {
 		name          string
-		createHarness func(t *testing.T, ctx context.Context) *BBRHarness
+		createHarness func(t *testing.T, ctx context.Context) *Harness
 		reqs          []*extProcPb.ProcessingRequest
 		wantResponses []*extProcPb.ProcessingResponse
 	}{
 		{
 			name: "no plugins: response passes through unchanged",
-			createHarness: func(t *testing.T, ctx context.Context) *BBRHarness {
-				return NewBBRHarness(t, ctx, false)
+			createHarness: func(t *testing.T, ctx context.Context) *Harness {
+				return NewHarness(t, ctx, false)
 			},
 			reqs: []*extProcPb.ProcessingRequest{
 				integration.ReqLLMUnary(logger, "test", "qwen"),
@@ -151,19 +151,19 @@ func TestResponsePlugins(t *testing.T) {
 				respBodyReq(map[string]any{"choices": []any{map[string]any{"text": "Hi there!"}}}),
 			},
 			wantResponses: []*extProcPb.ProcessingResponse{
-				ExpectBBRUnaryResponse("qwen", "qwen"),
+				ExpectUnaryResponse("qwen", "qwen"),
 				ExpectResponseHeadersPassThrough(),
 				ExpectResponseBodyPassThrough(),
 			},
 		},
 		{
 			name: "response plugin mutates response body",
-			createHarness: func(t *testing.T, ctx context.Context) *BBRHarness {
+			createHarness: func(t *testing.T, ctx context.Context) *Harness {
 				t.Helper()
 				modelToHeaderPlugin, err := bodyfieldtoheader.NewBodyFieldToHeaderPlugin(modelField, bodyfieldtoheader.ModelHeader)
 				require.NoError(t, err, "failed to create body-field-to-header plugin")
 				baseModelPlugin := &basemodelextractor.BaseModelToHeaderPlugin{AdaptersStore: basemodelextractor.NewAdaptersStore()}
-				return NewBBRHarnessWithPlugins(t, ctx, false,
+				return NewHarnessWithPlugins(t, ctx, false,
 					[]framework.RequestProcessor{modelToHeaderPlugin, baseModelPlugin},
 					[]framework.ResponseProcessor{responsePlugin},
 				)
@@ -174,7 +174,7 @@ func TestResponsePlugins(t *testing.T) {
 				respBodyReq(map[string]any{"choices": []any{map[string]any{"text": "Hello!"}}}),
 			},
 			wantResponses: []*extProcPb.ProcessingResponse{
-				ExpectBBRUnaryResponse("test-model", ""),
+				ExpectUnaryResponse("test-model", ""),
 				ExpectResponseHeadersPassThrough(),
 				ExpectResponseBodyMutation(map[string]any{
 					"choices":   []any{map[string]any{"text": "Hello!"}},
@@ -204,8 +204,8 @@ func TestResponsePlugins(t *testing.T) {
 	}
 }
 
-// TestFullDuplexStreamed_BodyBasedRouting validates the "Streaming" behavior of BBR.
-// This validates that BBR correctly buffers streamed chunks, inspects the body, and injects the header.
+// TestFullDuplexStreamed_BodyBasedRouting validates the "Streaming" behavior of the payload processor.
+// This validates that the payload processor correctly buffers streamed chunks, inspects the body, and injects the header.
 func TestFullDuplexStreamed_BodyBasedRouting(t *testing.T) {
 	t.Parallel()
 
@@ -221,8 +221,8 @@ func TestFullDuplexStreamed_BodyBasedRouting(t *testing.T) {
 			name: "success: adds model header from simple body",
 			reqs: integration.ReqLLM(logger, "test", "foo", "bar"),
 			wantResponses: []*extProcPb.ProcessingResponse{
-				ExpectBBRHeader("foo", "qwen", "64"),
-				ExpectBBRBodyPassThrough("test", "foo"),
+				ExpectHeader("foo", "qwen", "64"),
+				ExpectBodyPassThrough("test", "foo"),
 			},
 		},
 		{
@@ -233,8 +233,8 @@ func TestFullDuplexStreamed_BodyBasedRouting(t *testing.T) {
 				`ra-sheddable","prompt":"test","temperature":0}`,
 			),
 			wantResponses: []*extProcPb.ProcessingResponse{
-				ExpectBBRHeader("sql-lora-sheddable", "qwen", "79"),
-				ExpectBBRBodyPassThrough("test", "sql-lora-sheddable"),
+				ExpectHeader("sql-lora-sheddable", "qwen", "79"),
+				ExpectBodyPassThrough("test", "sql-lora-sheddable"),
 			},
 		},
 		{
@@ -260,7 +260,7 @@ func TestFullDuplexStreamed_BodyBasedRouting(t *testing.T) {
 						},
 					},
 				},
-				ExpectBBRBodyPassThrough("test", ""),
+				ExpectBodyPassThrough("test", ""),
 			},
 		},
 	}
@@ -270,7 +270,7 @@ func TestFullDuplexStreamed_BodyBasedRouting(t *testing.T) {
 			t.Parallel()
 
 			ctx := context.Background()
-			h := NewBBRHarness(t, ctx, true)
+			h := NewHarness(t, ctx, true)
 
 			expectedCount := len(tc.wantResponses)
 			if tc.wantStatusCode != 0 || tc.wantErr {

@@ -62,7 +62,7 @@ func NewBaseModelToHeaderPlugin(reconcilerBuilder func() *builder.Builder, clien
 		AdaptersStore: adaptersStore,
 	}
 
-	if err := reconcilerBuilder().For(&corev1.ConfigMap{}).WithEventFilter(bbrManagedPredicate()).Complete(configMapReconciler); err != nil {
+	if err := reconcilerBuilder().For(&corev1.ConfigMap{}).WithEventFilter(ippManagedPredicate()).Complete(configMapReconciler); err != nil {
 		return nil, fmt.Errorf("failed to register configmap reconciler for plugin '%s' - %w", BaseModelToHeaderPluginType, err)
 	}
 
