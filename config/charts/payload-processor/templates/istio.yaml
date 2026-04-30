@@ -3,7 +3,7 @@
 apiVersion: networking.istio.io/v1alpha3
 kind: EnvoyFilter
 metadata:
-  name: {{ .Values.bbr.name }}
+  name: {{ .Values.payloadProcessor.name }}
   namespace: {{ .Release.Namespace }}
 spec:
   targetRefs:
@@ -25,7 +25,7 @@ spec:
     patch:
       operation: {{ .Values.provider.istio.envoyFilter.operation }}
       value:
-        name: envoy.filters.http.ext_proc.bbr
+        name: envoy.filters.http.ext_proc.payload-processor
         typed_config:
           "@type": type.googleapis.com/envoy.extensions.filters.http.ext_proc.v3.ExternalProcessor
           failure_mode_allow: false
@@ -39,15 +39,15 @@ spec:
             response_trailer_mode: {{ if .Values.provider.supportedEvents.responseTrailers }}"SEND"{{ else }}"SKIP"{{ end }}
           grpc_service:
             envoy_grpc:
-              cluster_name: outbound|{{ .Values.bbr.port }}||{{ .Values.bbr.name }}.{{ .Release.Namespace }}.svc.cluster.local
+              cluster_name: outbound|{{ .Values.payloadProcessor.port }}||{{ .Values.payloadProcessor.name }}.{{ .Release.Namespace }}.svc.cluster.local
 ---
 apiVersion: networking.istio.io/v1
 kind: DestinationRule
 metadata:
-  name: {{ .Values.bbr.name }}
+  name: {{ .Values.payloadProcessor.name }}
   namespace: {{ .Release.Namespace }}
 spec:
-  host: {{ .Values.bbr.name }}.{{ .Release.Namespace }}.svc.cluster.local
+  host: {{ .Values.payloadProcessor.name }}.{{ .Release.Namespace }}.svc.cluster.local
   trafficPolicy:
       tls:
         mode: SIMPLE
