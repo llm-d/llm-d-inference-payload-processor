@@ -63,7 +63,7 @@ func NewHarness(t *testing.T, ctx context.Context, streaming bool) *Harness {
 			Name:      "test-model-mappings",
 			Namespace: "default",
 			Labels: map[string]string{
-				"inference.llm-d.io/ipp-managed": "true",
+				"inference.llm-d.ai/ipp-managed": "true",
 			},
 		},
 		Data: map[string]string{

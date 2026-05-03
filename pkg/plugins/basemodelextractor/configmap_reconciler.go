@@ -29,14 +29,14 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 )
 
-const ippManagedLabel = "inference.llm-d.io/ipp-managed"
+const ippManagedLabel = "inference.llm-d.ai/ipp-managed"
 
 func hasIPPManagedLabel(object client.Object) bool {
 	return object.GetLabels()[ippManagedLabel] == "true"
 }
 
 // ippManagedPredicate filters events to only ConfigMaps labeled with
-// "inference.llm-d.io/ipp-managed" = "true".
+// "inference.llm-d.ai/ipp-managed" = "true".
 func ippManagedPredicate() predicate.Predicate {
 	return predicate.Funcs{
 		CreateFunc: func(e event.CreateEvent) bool { return hasIPPManagedLabel(e.Object) },
