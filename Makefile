@@ -36,26 +36,15 @@ test-coverage: ## Run tests with coverage report
 	go tool cover -html=coverage.out -o coverage.html
 
 .PHONY: lint
-lint: lint-go lint-python ## Run all linters
+lint: lint-go ## Run all linters
 
 .PHONY: lint-go
 lint-go: ## Run Go linter (golangci-lint v2)
 	golangci-lint run
 
-.PHONY: lint-python
-lint-python: ## Run Python linter (ruff) — skipped if no Python files found
-	@if ls *.py **/*.py 2>/dev/null | head -1 > /dev/null 2>&1; then \
-		ruff check . && ruff format --check .; \
-	else \
-		echo "No Python files found, skipping Python lint"; \
-	fi
-
 .PHONY: fmt
-fmt: ## Format Go and Python code
+fmt: ## Format Go code
 	gofmt -w .
-	@if ls *.py **/*.py 2>/dev/null | head -1 > /dev/null 2>&1; then \
-		ruff format .; \
-	fi
 
 .PHONY: generate
 generate: ## Run go generate
@@ -68,10 +57,6 @@ vet: ## Run go vet
 .PHONY: tidy
 tidy: ## Run go mod tidy
 	go mod tidy
-
-.PHONY: pre-commit
-pre-commit: ## Run pre-commit hooks on all files
-	pre-commit run --all-files
 
 ##@ Container
 
