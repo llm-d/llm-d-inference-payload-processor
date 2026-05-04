@@ -9,6 +9,12 @@ PLATFORMS ?= linux/amd64,linux/arm64
 GOFLAGS ?=
 LDFLAGS ?= -s -w -X main.version=$(VERSION)
 
+# E2E configuration
+E2E_IMAGE ?= $(IMAGE):e2e
+E2E_MANIFEST_PATH ?= $(CURDIR)/test/testdata/deepseek-model-server.yaml
+E2E_USE_KIND ?= true
+KIND_CLUSTER_NAME ?= pp-e2e
+
 # Tools
 GOLANGCI_LINT_VERSION ?= v2.8.0
 
@@ -68,6 +74,16 @@ image-build: ## Build multi-arch container image (local only)
 		--tag $(IMAGE):latest \
 		.
 
+.PHONY: image-build-local
+image-build-local: ## Build container image for local architecture (used by e2e)
+	docker build \
+		--tag $(E2E_IMAGE) \
+		.
+
+.PHONY: image-kind
+image-kind: image-build-local ## Build image and load into Kind cluster
+	kind load docker-image $(E2E_IMAGE) --name $(KIND_CLUSTER_NAME)
+
 .PHONY: image-push
 image-push: ## Build and push multi-arch container image
 	docker buildx build \
@@ -85,6 +101,16 @@ image-push: ## Build and push multi-arch container image
 ci-lint: ## CI: install and run golangci-lint
 	@which golangci-lint > /dev/null 2>&1 || go install github.com/golangci/golangci-lint/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
 	golangci-lint run
+
+##@ E2E Testing
+
+.PHONY: test-e2e
+test-e2e: ## Run e2e tests (requires Kind or an existing cluster)
+	E2E_IMAGE=$(E2E_IMAGE) \
+	MANIFEST_PATH=$(E2E_MANIFEST_PATH) \
+	USE_KIND=$(E2E_USE_KIND) \
+	KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
+	./hack/test-e2e.sh
 
 .PHONY: clean
 clean: ## Remove build artifacts
