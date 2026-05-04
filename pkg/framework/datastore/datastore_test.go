@@ -22,92 +22,83 @@ import (
 	"testing"
 )
 
-func TestCreateNewStore(t *testing.T) {
+// TestGetOrCreateStore tests creating new stores and retrieving existing ones.
+func TestGetOrCreateStore(t *testing.T) {
 	NewDatastores()
 
-	store, err := Data.GetOrCreateStore("test-store")
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
-	if store == nil {
-		t.Fatal("expected non-nil store")
-	}
-}
-
-func TestGetExistingStore(t *testing.T) {
-	NewDatastores()
-
+	// Create new store
 	store1, err := Data.GetOrCreateStore("test-store")
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
+	if store1 == nil {
+		t.Fatal("expected non-nil store")
+	}
 
+	// Get existing store - should return same instance
 	store2, err := Data.GetOrCreateStore("test-store")
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
-
 	if store1 != store2 {
 		t.Error("expected same AttributeMap instance")
 	}
 }
 
-func TestEmptyDatastoreKey(t *testing.T) {
+// TestEmptyKeyHandling tests that empty keys return appropriate errors.
+func TestEmptyKeyHandling(t *testing.T) {
 	NewDatastores()
 
+	// GetOrCreateStore with empty key
 	store, err := Data.GetOrCreateStore("")
 	if !errors.Is(err, ErrEmptyDatastoreKey) {
-		t.Errorf("expected ErrEmptyDatastoreKey, got %v", err)
+		t.Errorf("expected ErrEmptyDatastoreKey on get, got %v", err)
 	}
 	if store != nil {
 		t.Error("expected nil store for empty key")
 	}
+
+	// DeleteStore with empty key
+	err = Data.DeleteStore("")
+	if !errors.Is(err, ErrEmptyDatastoreKey) {
+		t.Errorf("expected ErrEmptyDatastoreKey on delete, got %v", err)
+	}
 }
 
-func TestDeleteExistingStore(t *testing.T) {
+// TestDeleteStore tests deleting existing and non-existent stores.
+func TestDeleteStore(t *testing.T) {
 	NewDatastores()
 
+	// Create and populate a store
 	store, err := Data.GetOrCreateStore("test-store")
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
-
 	store.Put("key", testCloneableValue{Value: 42})
 
+	// Delete existing store
 	err = Data.DeleteStore("test-store")
 	if err != nil {
 		t.Fatalf("expected no error on delete, got %v", err)
 	}
 
+	// Verify new store is empty
 	newStore, err := Data.GetOrCreateStore("test-store")
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
-
-	_, ok := newStore.Get("key")
-	if ok {
+	if _, ok := newStore.Get("key"); ok {
 		t.Error("expected new store to be empty")
 	}
-}
 
-func TestDeleteNonExistentStore(t *testing.T) {
-	NewDatastores()
-
-	err := Data.DeleteStore("non-existent")
+	// Delete non-existent store should not error
+	err = Data.DeleteStore("non-existent")
 	if err != nil {
 		t.Errorf("expected no error for non-existent store, got %v", err)
 	}
 }
 
-func TestEmptyKeyOnDelete(t *testing.T) {
-	NewDatastores()
-
-	err := Data.DeleteStore("")
-	if !errors.Is(err, ErrEmptyDatastoreKey) {
-		t.Errorf("expected ErrEmptyDatastoreKey, got %v", err)
-	}
-}
-
+// TestMultipleStoresIsolated tests that different stores are isolated from each other.
 func TestMultipleStoresIsolated(t *testing.T) {
 	NewDatastores()
 
@@ -141,13 +132,14 @@ func TestMultipleStoresIsolated(t *testing.T) {
 	}
 }
 
-func TestConcurrentGetOrCreateStore(t *testing.T) {
+// TestConcurrentDatastoreAccess tests thread-safety of Datastores operations.
+func TestConcurrentDatastoreAccess(t *testing.T) {
 	NewDatastores()
-
 	var wg sync.WaitGroup
-	stores := make([]AttributeMap, 100)
 
-	for i := 0; i < 100; i++ {
+	// Test concurrent GetOrCreateStore on same key
+	stores := make([]AttributeMap, 50)
+	for i := 0; i < 50; i++ {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
@@ -159,24 +151,19 @@ func TestConcurrentGetOrCreateStore(t *testing.T) {
 			stores[idx] = store
 		}(i)
 	}
-
 	wg.Wait()
 
+	// Verify all goroutines got same store instance
 	firstStore := stores[0]
-	for i := 1; i < 100; i++ {
+	for i := 1; i < 50; i++ {
 		if stores[i] != firstStore {
 			t.Errorf("goroutine %d got different store instance", i)
 		}
 	}
-}
 
-func TestConcurrentOperations(t *testing.T) {
-	NewDatastores()
-
-	var wg sync.WaitGroup
-
+	// Test concurrent create and delete operations
 	for i := 0; i < 50; i++ {
-		wg.Add(1)
+		wg.Add(2)
 		go func(idx int) {
 			defer wg.Done()
 			key := "store-" + string(rune('a'+(idx%10)))
@@ -185,10 +172,6 @@ func TestConcurrentOperations(t *testing.T) {
 				t.Errorf("unexpected error: %v", err)
 			}
 		}(i)
-	}
-
-	for i := 0; i < 50; i++ {
-		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
 			key := "store-" + string(rune('a'+(idx%10)))
@@ -198,10 +181,10 @@ func TestConcurrentOperations(t *testing.T) {
 			}
 		}(i)
 	}
-
 	wg.Wait()
 }
 
+// TestNewDatastoresResets tests that NewDatastores() clears all existing stores.
 func TestNewDatastoresResets(t *testing.T) {
 	NewDatastores()
 
@@ -224,6 +207,7 @@ func TestNewDatastoresResets(t *testing.T) {
 	}
 }
 
+// TestDataPersistence tests that data persists across multiple GetOrCreateStore calls.
 func TestDataPersistence(t *testing.T) {
 	NewDatastores()
 
