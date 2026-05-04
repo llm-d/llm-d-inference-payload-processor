@@ -1,0 +1,40 @@
+name: Build and Push Container Image
+
+on:
+  workflow_call:
+    inputs:
+      image-name:
+        required: true
+        type: string
+        default: "llm-d-inference-payload-processor"
+      tag:
+        required: true
+        type: string
+      prerelease:
+        required: true
+        type: string
+    secrets:
+      GHCR_TOKEN:
+        required: true
+
+jobs:
+  build-and-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Build and push image
+        uses: ./.github/actions/docker-build-and-push
+        with:
+          docker-file: Dockerfile
+          tag: ${{ inputs.tag }}
+          image-name: ${{ inputs.image-name }}
+          registry: ghcr.io/llm-d
+          github-token: ${{ secrets.GHCR_TOKEN }}
+          prerelease: ${{ inputs.prerelease }}
+      
+      - name: Run Trivy scan on image
+        uses: ./.github/actions/trivy-scan
+        with:
+          image: ghcr.io/llm-d/${{ inputs.image-name }}:${{ inputs.tag }}

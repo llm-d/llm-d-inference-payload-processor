@@ -1,11 +1,9 @@
-name: CI - Release
+name: CI - Dev
 
 on:
   push:
-    tags:
-      - 'v*'
-  release:
-    types: [published]
+    branches:
+      - main
 
 permissions:
   contents: read
@@ -31,16 +29,8 @@ jobs:
       - name: Determine tag
         id: tag
         run: |
-          if [[ "${GITHUB_EVENT_NAME}" == "release" ]]; then
-            echo "tag=${GITHUB_REF##refs/tags/}" >> "$GITHUB_OUTPUT"
-            echo "prerelease=${{ github.event.release.prerelease }}" >> "$GITHUB_OUTPUT"
-          elif [[ "${GITHUB_REF}" == refs/tags/* ]]; then
-            echo "tag=${GITHUB_REF##refs/tags/}" >> "$GITHUB_OUTPUT"
-            echo "prerelease=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "tag=latest" >> "$GITHUB_OUTPUT"
-            echo "prerelease=false" >> "$GITHUB_OUTPUT"
-          fi
+          echo "tag=latest" >> "$GITHUB_OUTPUT"
+          echo "prerelease=true" >> "$GITHUB_OUTPUT"
         shell: bash
 
   docker-build-and-push:
