@@ -36,7 +36,6 @@ func TestNewOptionsDefaults(t *testing.T) {
 		{"GRPCHealthPort", opts.GRPCHealthPort, DefaultGrpcHealthPort},
 		{"MetricsPort", opts.MetricsPort, 9090},
 		{"MetricsEndpointAuth", opts.MetricsEndpointAuth, true},
-		{"Streaming", opts.Streaming, false},
 		{"SecureServing", opts.SecureServing, true},
 		{"EnablePprof", opts.EnablePprof, true},
 		{"LogVerbosity", opts.LogVerbosity, 2}, // logging.DEFAULT
@@ -57,7 +56,6 @@ func TestAddFlagsOverridesDefaults(t *testing.T) {
 		"--grpc-port", "5000",
 		"--grpc-health-port", "5001",
 		"--metrics-port", "5002",
-		"--streaming",
 		"--secure-serving=false",
 		"--metrics-endpoint-auth=false",
 		"--enable-pprof=false",
@@ -75,7 +73,6 @@ func TestAddFlagsOverridesDefaults(t *testing.T) {
 		{"GRPCPort", opts.GRPCPort, 5000},
 		{"GRPCHealthPort", opts.GRPCHealthPort, 5001},
 		{"MetricsPort", opts.MetricsPort, 5002},
-		{"Streaming", opts.Streaming, true},
 		{"SecureServing", opts.SecureServing, false},
 		{"MetricsEndpointAuth", opts.MetricsEndpointAuth, false},
 		{"EnablePprof", opts.EnablePprof, false},

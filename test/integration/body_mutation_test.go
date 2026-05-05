@@ -51,76 +51,15 @@ func (p *bodyMutatingPlugin) ProcessRequest(_ context.Context, _ *framework.Cycl
 
 var _ framework.RequestProcessor = &bodyMutatingPlugin{}
 
-// TestBodyMutation_Unary verifies that when a plugin mutates the body, the response
-// includes a BodyMutation with the serialized body and an updated Content-Length header.
-func TestBodyMutation_Unary(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-
-	plugin := &bodyMutatingPlugin{fieldName: "injected", fieldValue: "test-value"}
-	baseModelToHeaderPlugin := &basemodelextractor.BaseModelToHeaderPlugin{AdaptersStore: basemodelextractor.NewAdaptersStore()}
-	h := NewHarnessWithPlugins(t, ctx, false, []framework.RequestProcessor{plugin, baseModelToHeaderPlugin}, []framework.ResponseProcessor{})
-
-	body := map[string]any{"prompt": "hello"}
-	bodyBytes, _ := json.Marshal(body)
-
-	req := &extProcPb.ProcessingRequest{
-		Request: &extProcPb.ProcessingRequest_RequestBody{
-			RequestBody: &extProcPb.HttpBody{
-				Body:        bodyBytes,
-				EndOfStream: true,
-			},
-		},
-	}
-
-	resp, err := integration.SendRequest(t, h.Client, req)
-	require.NoError(t, err, "unexpected error during request processing")
-
-	wantBody, _ := json.Marshal(map[string]any{
-		"prompt":   "hello",
-		"injected": "test-value",
-	})
-	want := &extProcPb.ProcessingResponse{
-		Response: &extProcPb.ProcessingResponse_RequestBody{
-			RequestBody: &extProcPb.BodyResponse{
-				Response: &extProcPb.CommonResponse{
-					ClearRouteCache: true,
-					HeaderMutation: &extProcPb.HeaderMutation{
-						SetHeaders: []*envoyCorev3.HeaderValueOption{
-							{
-								Header: &envoyCorev3.HeaderValue{
-									Key:      "Content-Length",
-									RawValue: []byte(strconv.Itoa(len(wantBody))),
-								},
-							},
-						},
-					},
-					BodyMutation: &extProcPb.BodyMutation{
-						Mutation: &extProcPb.BodyMutation_Body{
-							Body: wantBody,
-						},
-					},
-				},
-			},
-		},
-	}
-
-	envoytest.SortSetHeadersInResponses([]*extProcPb.ProcessingResponse{want})
-	envoytest.SortSetHeadersInResponses([]*extProcPb.ProcessingResponse{resp})
-	if diff := cmp.Diff(want, resp, protocmp.Transform()); diff != "" {
-		t.Errorf("Response mismatch (-want +got): %v", diff)
-	}
-}
-
-// TestBodyMutation_Streaming verifies the streaming path: when a plugin mutates the body,
+// TestBodyMutation verifies that when a plugin mutates the body,
 // the header response includes Content-Length and the body response carries the mutated bytes.
-func TestBodyMutation_Streaming(t *testing.T) {
+func TestBodyMutation(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
 	plugin := &bodyMutatingPlugin{fieldName: "injected", fieldValue: "test-value"}
 	baseModelToHeaderPlugin := &basemodelextractor.BaseModelToHeaderPlugin{AdaptersStore: basemodelextractor.NewAdaptersStore()}
-	h := NewHarnessWithPlugins(t, ctx, true, []framework.RequestProcessor{plugin, baseModelToHeaderPlugin}, []framework.ResponseProcessor{})
+	h := NewHarnessWithPlugins(t, ctx, []framework.RequestProcessor{plugin, baseModelToHeaderPlugin}, []framework.ResponseProcessor{})
 
 	body := map[string]any{"prompt": "hello"}
 	bodyBytes, _ := json.Marshal(body)

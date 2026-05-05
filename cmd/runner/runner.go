@@ -222,7 +222,6 @@ func (r *Runner) Run(ctx context.Context) error {
 	serverRunner := &runserver.ExtProcServerRunner{
 		GrpcPort:        opts.GRPCPort,
 		SecureServing:   opts.SecureServing,
-		Streaming:       opts.Streaming,
 		RequestPlugins:  r.requestPlugins,
 		ResponsePlugins: r.responsePlugins,
 	}
