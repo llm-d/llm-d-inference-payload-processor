@@ -1,0 +1,44 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm-deepseek-r1
+  namespace: $E2E_NS
+  labels:
+    app: vllm-deepseek-r1
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vllm-deepseek-r1
+  template:
+    metadata:
+      labels:
+        app: vllm-deepseek-r1
+    spec:
+      containers:
+        - name: sim
+          image: $E2E_SIM_IMAGE
+          imagePullPolicy: IfNotPresent
+          args:
+            - --port=8000
+            - --model=deepseek-ai/DeepSeek-R1
+          ports:
+            - containerPort: 8000
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 2
+            periodSeconds: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vllm-deepseek-r1
+  namespace: $E2E_NS
+spec:
+  selector:
+    app: vllm-deepseek-r1
+  ports:
+    - port: 8000
+      targetPort: 8000

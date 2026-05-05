@@ -1,0 +1,74 @@
+name: CI - E2E Tests
+
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  check-code-changes:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      has_code_changes: ${{ steps.filter.outputs.code }}
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Check for code changes
+        uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            code:
+              - '!docs/**'
+              - '!**/*.md'
+              - '!LICENSE'
+              - '!OWNERS'
+
+  e2e:
+    runs-on: ubuntu-latest
+    needs: check-code-changes
+    if: needs.check-code-changes.outputs.has_code_changes == 'true'
+    timeout-minutes: 30
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Extract Go version from go.mod
+        run: sed -En 's/^go (.*)$/GO_VERSION=\1/p' go.mod >> $GITHUB_ENV
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: "${{ env.GO_VERSION }}"
+          cache-dependency-path: ./go.sum
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Install Kind
+        run: go install sigs.k8s.io/kind@latest
+
+      - name: Create Kind cluster
+        run: kind create cluster --name pp-e2e --wait 60s
+
+      - name: Build and load image
+        run: |
+          docker build --tag ghcr.io/llm-d/llm-d-inference-payload-processor:e2e .
+          kind load docker-image ghcr.io/llm-d/llm-d-inference-payload-processor:e2e --name pp-e2e
+
+      - name: Run E2E tests
+        run: |
+          E2E_IMAGE=ghcr.io/llm-d/llm-d-inference-payload-processor:e2e \
+          MANIFEST_PATH=${{ github.workspace }}/test/testdata/deepseek-model-server.yaml \
+          USE_KIND=false \
+          go test -tags e2e -v -timeout 20m ./test/e2e/ -ginkgo.v
+
+      - name: Delete Kind cluster
+        if: always()
+        run: kind delete cluster --name pp-e2e

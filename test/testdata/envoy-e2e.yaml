@@ -1,0 +1,179 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: envoy-config
+  namespace: $E2E_NS
+data:
+  envoy.yaml: |
+    static_resources:
+      listeners:
+        - name: listener_0
+          address:
+            socket_address:
+              address: 0.0.0.0
+              port_value: 8081
+          filter_chains:
+            - filters:
+                - name: envoy.filters.network.http_connection_manager
+                  typed_config:
+                    "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+                    stat_prefix: ingress_http
+                    codec_type: AUTO
+                    http_filters:
+                      - name: envoy.filters.http.ext_proc
+                        typed_config:
+                          "@type": type.googleapis.com/envoy.extensions.filters.http.ext_proc.v3.ExternalProcessor
+                          failure_mode_allow: false
+                          allow_mode_override: true
+                          grpc_service:
+                            envoy_grpc:
+                              cluster_name: ext_proc_cluster
+                            timeout: 10s
+                          message_timeout: 10s
+                          processing_mode:
+                            request_header_mode: SEND
+                            request_body_mode: FULL_DUPLEX_STREAMED
+                            response_header_mode: SKIP
+                            response_body_mode: NONE
+                            request_trailer_mode: SEND
+                            response_trailer_mode: SKIP
+                      - name: envoy.filters.http.router
+                        typed_config:
+                          "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+                    route_config:
+                      name: local_route
+                      virtual_hosts:
+                        - name: backend
+                          domains: ["*"]
+                          routes:
+                            - match:
+                                prefix: "/"
+                                headers:
+                                  - name: X-Gateway-Base-Model-Name
+                                    string_match:
+                                      exact: "meta-llama/Llama-3.1-8B-Instruct"
+                              route:
+                                cluster: llama_cluster
+                              response_headers_to_add:
+                                - header:
+                                    key: x-pp-routed-pool
+                                    value: llama
+                            - match:
+                                prefix: "/"
+                                headers:
+                                  - name: X-Gateway-Base-Model-Name
+                                    string_match:
+                                      exact: "deepseek-ai/DeepSeek-R1"
+                              route:
+                                cluster: deepseek_cluster
+                              response_headers_to_add:
+                                - header:
+                                    key: x-pp-routed-pool
+                                    value: deepseek
+                            - match:
+                                prefix: "/"
+                              route:
+                                cluster: llama_cluster
+                              response_headers_to_add:
+                                - header:
+                                    key: x-pp-routed-pool
+                                    value: default
+      clusters:
+        - name: ext_proc_cluster
+          connect_timeout: 5s
+          type: STRICT_DNS
+          lb_policy: ROUND_ROBIN
+          typed_extension_protocol_options:
+            envoy.extensions.upstreams.http.v3.HttpProtocolOptions:
+              "@type": type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions
+              explicit_http_config:
+                http2_protocol_options: {}
+          load_assignment:
+            cluster_name: ext_proc_cluster
+            endpoints:
+              - lb_endpoints:
+                  - endpoint:
+                      address:
+                        socket_address:
+                          address: payload-processor.$E2E_NS.svc.cluster.local
+                          port_value: 9004
+        - name: llama_cluster
+          connect_timeout: 5s
+          type: STRICT_DNS
+          lb_policy: ROUND_ROBIN
+          load_assignment:
+            cluster_name: llama_cluster
+            endpoints:
+              - lb_endpoints:
+                  - endpoint:
+                      address:
+                        socket_address:
+                          address: vllm-llama3-8b-instruct.$E2E_NS.svc.cluster.local
+                          port_value: 8000
+        - name: deepseek_cluster
+          connect_timeout: 5s
+          type: STRICT_DNS
+          lb_policy: ROUND_ROBIN
+          load_assignment:
+            cluster_name: deepseek_cluster
+            endpoints:
+              - lb_endpoints:
+                  - endpoint:
+                      address:
+                        socket_address:
+                          address: vllm-deepseek-r1.$E2E_NS.svc.cluster.local
+                          port_value: 8000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: envoy
+  namespace: $E2E_NS
+  labels:
+    app: envoy
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: envoy
+  template:
+    metadata:
+      labels:
+        app: envoy
+    spec:
+      containers:
+        - name: envoy
+          image: envoyproxy/envoy:v1.33-latest
+          imagePullPolicy: IfNotPresent
+          args:
+            - -c
+            - /etc/envoy/envoy.yaml
+            - --log-level
+            - info
+          ports:
+            - containerPort: 8081
+          volumeMounts:
+            - name: envoy-config
+              mountPath: /etc/envoy
+              readOnly: true
+          readinessProbe:
+            tcpSocket:
+              port: 8081
+            initialDelaySeconds: 3
+            periodSeconds: 5
+      volumes:
+        - name: envoy-config
+          configMap:
+            name: envoy-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: envoy
+  namespace: $E2E_NS
+spec:
+  selector:
+    app: envoy
+  ports:
+    - port: 8081
+      targetPort: 8081
