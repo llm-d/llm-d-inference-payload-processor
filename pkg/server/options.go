@@ -35,8 +35,7 @@ type Options struct {
 	//
 	// ext_proc configuration.
 	//
-	GRPCPort  int  // gRPC port for communicating with Envoy proxy.
-	Streaming bool // Enables streaming support for Envoy full-duplex streaming mode.
+	GRPCPort int // gRPC port for communicating with Envoy proxy.
 	//
 	// Diagnostics.
 	//
@@ -87,8 +86,6 @@ func (opts *Options) AddFlags(fs *pflag.FlagSet) {
 	fs.BoolVar(&opts.Tracing, "tracing", opts.Tracing, "Enables emitting traces.")
 	fs.BoolVar(&opts.MetricsEndpointAuth, "metrics-endpoint-auth", opts.MetricsEndpointAuth,
 		"Enables authentication and authorization of the metrics endpoint.")
-	fs.BoolVar(&opts.Streaming, "streaming", opts.Streaming,
-		"Enables streaming support for Envoy full-duplex streaming mode.")
 	fs.BoolVar(&opts.SecureServing, "secure-serving", opts.SecureServing,
 		"Enables secure serving.")
 	fs.BoolVar(&opts.EnablePprof, "enable-pprof", opts.EnablePprof,

@@ -19,7 +19,6 @@ spec:
         image: {{ .Values.payloadProcessor.image.registry }}/{{ .Values.payloadProcessor.image.repository }}:{{ .Values.payloadProcessor.image.tag }}
         imagePullPolicy: {{ .Values.payloadProcessor.image.pullPolicy }}
         args:
-        - "--streaming"
         # Pass additional flags via the payloadProcessor.flags field in values.yaml.
         {{- range $key, $value := .Values.payloadProcessor.flags }}
         - --{{ $key }}={{ $value }}

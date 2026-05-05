@@ -35,7 +35,7 @@ import (
 
 // HandleRequestHeaders extracts request headers into reqCtx and returns
 // the ext-proc header response.
-func (s *Server) HandleRequestHeaders(ctx context.Context, reqCtx *RequestContext, headers *eppb.HttpHeaders, streaming bool) []*eppb.ProcessingResponse {
+func (s *Server) HandleRequestHeaders(ctx context.Context, reqCtx *RequestContext, headers *eppb.HttpHeaders) []*eppb.ProcessingResponse {
 	reqCtx.RequestReceivedTimestamp = time.Now()
 
 	if headers != nil && headers.Headers != nil {
@@ -44,12 +44,11 @@ func (s *Server) HandleRequestHeaders(ctx context.Context, reqCtx *RequestContex
 		}
 	}
 
-	if streaming && !headers.GetEndOfStream() {
+	if !headers.GetEndOfStream() {
 		log.FromContext(ctx).V(logutil.VERBOSE).Info("captured request headers, deferring response until body arrives...")
 		return nil
 	}
-	// if we're here, that means we're in non-streaming, or we're in streaming and got end of stream(means no body).
-	// in both cases we can return HeadersResponse
+	// EndOfStream means no body is expected, return HeadersResponse immediately
 	return []*eppb.ProcessingResponse{
 		{
 			Response: &eppb.ProcessingResponse_RequestHeaders{
@@ -80,61 +79,32 @@ func (s *Server) HandleRequestBody(ctx context.Context, reqCtx *RequestContext, 
 			return nil, err
 		}
 		reqCtx.Request.SetHeader(contentLengthHeader, strconv.Itoa(len(mutatedBodyBytes)))
-	} else if s.streaming {
-		// In streaming mode, always set Content-Length even if body is not mutated
-		// to inform Envoy of the body size that will follow
+	} else {
+		// Always set Content-Length to inform Envoy of the body size that will follow
 		reqCtx.Request.SetHeader(contentLengthHeader, strconv.Itoa(len(requestBodyBytes)))
 	}
 
 	metrics.RecordSuccessCounter()
 
-	if s.streaming {
-		ret = append(ret, &eppb.ProcessingResponse{
-			Response: &eppb.ProcessingResponse_RequestHeaders{
-				RequestHeaders: &eppb.HeadersResponse{
-					Response: &eppb.CommonResponse{
-						ClearRouteCache: true,
-						HeaderMutation: &eppb.HeaderMutation{
-							SetHeaders:    envoy.GenerateHeadersMutation(reqCtx.Request.MutatedHeaders()),
-							RemoveHeaders: reqCtx.Request.RemovedHeaders(),
-						},
+	ret = append(ret, &eppb.ProcessingResponse{
+		Response: &eppb.ProcessingResponse_RequestHeaders{
+			RequestHeaders: &eppb.HeadersResponse{
+				Response: &eppb.CommonResponse{
+					ClearRouteCache: true,
+					HeaderMutation: &eppb.HeaderMutation{
+						SetHeaders:    envoy.GenerateHeadersMutation(reqCtx.Request.MutatedHeaders()),
+						RemoveHeaders: reqCtx.Request.RemovedHeaders(),
 					},
 				},
 			},
-		})
-		if bodyMutated {
-			ret = addStreamedBodyResponse(ret, mutatedBodyBytes)
-		} else {
-			ret = addStreamedBodyResponse(ret, requestBodyBytes)
-		}
-		return ret, nil
-	}
-
-	// Necessary so that the new headers are used in the routing decision.
-	response := &eppb.CommonResponse{
-		ClearRouteCache: true,
-		HeaderMutation: &eppb.HeaderMutation{
-			SetHeaders:    envoy.GenerateHeadersMutation(reqCtx.Request.MutatedHeaders()),
-			RemoveHeaders: reqCtx.Request.RemovedHeaders(),
 		},
-	}
+	})
 	if bodyMutated {
-		response.BodyMutation = &eppb.BodyMutation{
-			Mutation: &eppb.BodyMutation_Body{
-				Body: mutatedBodyBytes,
-			},
-		}
+		ret = addStreamedBodyResponse(ret, mutatedBodyBytes)
+	} else {
+		ret = addStreamedBodyResponse(ret, requestBodyBytes)
 	}
-
-	return []*eppb.ProcessingResponse{
-		{
-			Response: &eppb.ProcessingResponse_RequestBody{
-				RequestBody: &eppb.BodyResponse{
-					Response: response,
-				},
-			},
-		},
-	}, nil
+	return ret, nil
 }
 
 // runRequestPlugins executes request plugins in the order they were registered.
