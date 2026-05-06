@@ -26,7 +26,7 @@ type Cloneable interface {
 }
 
 // AttributeMap is used to store flexible metadata or traits
-// across different aspects of an inference server.
+// across different aspects of a model.
 // Stored values must be Cloneable.
 //
 // All operations are goroutine-safe.
