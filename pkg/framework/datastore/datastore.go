@@ -30,7 +30,7 @@ var ErrEmptyDatastoreKey = errors.New("datastore key cannot be empty")
 // All operations are thread-safe using RWMutex.
 type Datastores struct {
 	mu      sync.RWMutex
-	keyName map[string]AttributeMap
+	topic map[string]AttributeMap
 }
 
 // NewDatastores creates and returns a new Datastores instance.
