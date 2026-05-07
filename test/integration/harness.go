@@ -53,7 +53,7 @@ type Harness struct {
 
 // NewHarness boots up an isolated payload processor server on a random port with the default
 // BodyFieldToHeaderPlugin for model extraction and no response plugins.
-func NewHarness(t *testing.T, ctx context.Context, streaming bool) *Harness {
+func NewHarness(t *testing.T, ctx context.Context) *Harness {
 	t.Helper()
 	modelToHeaderPlugin, err := bodyfieldtoheader.NewBodyFieldToHeaderPlugin(modelField, bodyfieldtoheader.ModelHeader)
 	require.NoError(t, err, "failed to create body-field-to-header plugin")
@@ -94,7 +94,7 @@ func NewHarness(t *testing.T, ctx context.Context, streaming bool) *Harness {
 
 	baseModelToHeaderPlugin := &basemodelextractor.BaseModelToHeaderPlugin{AdaptersStore: store}
 
-	return NewHarnessWithPlugins(t, ctx, streaming, []framework.RequestProcessor{modelToHeaderPlugin, baseModelToHeaderPlugin}, []framework.ResponseProcessor{})
+	return NewHarnessWithPlugins(t, ctx, []framework.RequestProcessor{modelToHeaderPlugin, baseModelToHeaderPlugin}, []framework.ResponseProcessor{})
 }
 
 // NewHarnessWithPlugins boots up an isolated payload processor server on a random port
@@ -102,7 +102,6 @@ func NewHarness(t *testing.T, ctx context.Context, streaming bool) *Harness {
 func NewHarnessWithPlugins(
 	t *testing.T,
 	ctx context.Context,
-	streaming bool,
 	requestPlugins []framework.RequestProcessor,
 	responsePlugins []framework.ResponseProcessor,
 ) *Harness {
@@ -113,9 +112,8 @@ func NewHarnessWithPlugins(
 	require.NoError(t, err, "failed to acquire free port for payload processor server")
 
 	// 2. Configure payload processor server with plugins
-	runner := runserver.NewDefaultExtProcServerRunner(port, false)
+	runner := runserver.NewDefaultExtProcServerRunner(port)
 	runner.SecureServing = false
-	runner.Streaming = streaming
 	runner.RequestPlugins = requestPlugins
 	runner.ResponsePlugins = responsePlugins
 

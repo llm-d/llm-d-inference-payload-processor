@@ -45,9 +45,8 @@ const (
 	responsePluginExtensionPoint = "response"
 )
 
-func NewServer(streaming bool, requestPlugins []framework.RequestProcessor, responsePlugins []framework.ResponseProcessor) *Server {
+func NewServer(requestPlugins []framework.RequestProcessor, responsePlugins []framework.ResponseProcessor) *Server {
 	return &Server{
-		streaming:       streaming,
 		requestPlugins:  requestPlugins,
 		responsePlugins: responsePlugins,
 	}
@@ -56,7 +55,6 @@ func NewServer(streaming bool, requestPlugins []framework.RequestProcessor, resp
 // Server implements the Envoy external processing server.
 // https://www.envoyproxy.io/docs/envoy/latest/api-v3/service/ext_proc/v3/external_processor.proto
 type Server struct {
-	streaming       bool
 	requestPlugins  []framework.RequestProcessor
 	responsePlugins []framework.ResponseProcessor
 }
@@ -123,12 +121,12 @@ func (s *Server) Process(srv extProcPb.ExternalProcessor_ProcessServer) error {
 				loggerVerbose = logger.V(logutil.VERBOSE)
 				ctx = log.IntoContext(ctx, logger)
 			}
-			responses = s.HandleRequestHeaders(ctx, reqCtx, v.RequestHeaders, s.streaming)
+			responses = s.HandleRequestHeaders(ctx, reqCtx, v.RequestHeaders)
 			loggerVerbose.Info("processing request headers complete")
 		case *extProcPb.ProcessingRequest_RequestBody:
 			loggerVerbose.Info("Incoming request body chunk", "EoS", v.RequestBody.EndOfStream)
 			requestBody = append(requestBody, v.RequestBody.Body...)
-			if s.streaming && !v.RequestBody.EndOfStream {
+			if !v.RequestBody.EndOfStream {
 				continue
 			}
 			responses, err = s.HandleRequestBody(ctx, reqCtx, requestBody)
@@ -136,12 +134,12 @@ func (s *Server) Process(srv extProcPb.ExternalProcessor_ProcessServer) error {
 		case *extProcPb.ProcessingRequest_RequestTrailers:
 			responses, err = s.HandleRequestTrailers(v.RequestTrailers)
 		case *extProcPb.ProcessingRequest_ResponseHeaders:
-			responses = s.HandleResponseHeaders(ctx, reqCtx, v.ResponseHeaders, s.streaming)
+			responses = s.HandleResponseHeaders(ctx, reqCtx, v.ResponseHeaders)
 			loggerVerbose.Info("processing response headers complete")
 		case *extProcPb.ProcessingRequest_ResponseBody:
 			loggerVerbose.Info("Incoming response body chunk", "EoS", v.ResponseBody.EndOfStream)
 			responseBody = append(responseBody, v.ResponseBody.Body...)
-			if s.streaming && !v.ResponseBody.EndOfStream {
+			if !v.ResponseBody.EndOfStream {
 				continue
 			}
 			responses, err = s.HandleResponseBody(ctx, reqCtx, responseBody)

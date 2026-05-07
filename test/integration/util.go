@@ -18,7 +18,6 @@ package integration
 
 import (
 	"encoding/json"
-	"strconv"
 
 	envoyCorev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	extProcPb "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
@@ -89,94 +88,4 @@ func ExpectBodyPassThrough(prompt, model string) *extProcPb.ProcessingResponse {
 			},
 		},
 	}
-}
-
-// --- Response Phase Expectations ---
-
-// ExpectResponseHeadersPassThrough asserts that the payload processor passed response headers through with no mutations.
-func ExpectResponseHeadersPassThrough() *extProcPb.ProcessingResponse {
-	return &extProcPb.ProcessingResponse{
-		Response: &extProcPb.ProcessingResponse_ResponseHeaders{
-			ResponseHeaders: &extProcPb.HeadersResponse{},
-		},
-	}
-}
-
-// ExpectResponseBodyPassThrough asserts that the payload processor passed the response body through with no mutations
-// (i.e., no response plugins configured).
-func ExpectResponseBodyPassThrough() *extProcPb.ProcessingResponse {
-	return &extProcPb.ProcessingResponse{
-		Response: &extProcPb.ProcessingResponse_ResponseBody{
-			ResponseBody: &extProcPb.BodyResponse{},
-		},
-	}
-}
-
-// ExpectResponseBodyMutation asserts that a response plugin mutated the response body (unary mode).
-// Includes the Content-Length header mutation.
-func ExpectResponseBodyMutation(body map[string]any) *extProcPb.ProcessingResponse {
-	b, _ := json.Marshal(body)
-	return &extProcPb.ProcessingResponse{
-		Response: &extProcPb.ProcessingResponse_ResponseBody{
-			ResponseBody: &extProcPb.BodyResponse{
-				Response: &extProcPb.CommonResponse{
-					ClearRouteCache: true,
-					HeaderMutation: &extProcPb.HeaderMutation{
-						SetHeaders: []*envoyCorev3.HeaderValueOption{
-							{
-								Header: &envoyCorev3.HeaderValue{
-									Key:      "Content-Length",
-									RawValue: []byte(strconv.Itoa(len(b))),
-								},
-							},
-						},
-					},
-					BodyMutation: &extProcPb.BodyMutation{
-						Mutation: &extProcPb.BodyMutation_Body{
-							Body: b,
-						},
-					},
-				},
-			},
-		},
-	}
-}
-
-// --- Request Phase Expectations (Unary) ---
-
-// ExpectUnaryResponse creates expected response for unary tests where the body is mutated directly.
-// baseModelName is the expected base model name (e.g., "qwen" for both "qwen" and "sql-lora-sheddable")
-func ExpectUnaryResponse(modelName, baseModelName string) *extProcPb.ProcessingResponse {
-	resp := &extProcPb.ProcessingResponse{}
-
-	if modelName != "" {
-		resp.Response = &extProcPb.ProcessingResponse_RequestBody{
-			RequestBody: &extProcPb.BodyResponse{
-				Response: &extProcPb.CommonResponse{
-					ClearRouteCache: true,
-					HeaderMutation: &extProcPb.HeaderMutation{
-						SetHeaders: []*envoyCorev3.HeaderValueOption{
-							{
-								Header: &envoyCorev3.HeaderValue{
-									Key:      "X-Gateway-Model-Name",
-									RawValue: []byte(modelName),
-								},
-							},
-							{
-								Header: &envoyCorev3.HeaderValue{
-									Key:      "X-Gateway-Base-Model-Name",
-									RawValue: []byte(baseModelName),
-								},
-							},
-						},
-					},
-				},
-			},
-		}
-	} else {
-		resp.Response = &extProcPb.ProcessingResponse_RequestBody{
-			RequestBody: &extProcPb.BodyResponse{},
-		}
-	}
-	return resp
 }

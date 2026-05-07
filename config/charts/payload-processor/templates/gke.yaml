@@ -3,7 +3,7 @@
 kind: GCPRoutingExtension
 apiVersion: networking.gke.io/v1
 metadata:
-  name: {{ .Values.bbr.name }}
+  name: {{ .Values.payloadProcessor.name }}
   namespace: {{ .Release.Namespace }}
 spec:
   targetRefs:
@@ -44,13 +44,13 @@ spec:
       backendRef:
         group: ""
         kind: Service
-        name: {{ .Values.bbr.name }}
-        port: {{ .Values.bbr.port }}
+        name: {{ .Values.payloadProcessor.name }}
+        port: {{ .Values.payloadProcessor.port }}
 ---
 apiVersion: networking.gke.io/v1
 kind: HealthCheckPolicy
 metadata:
-  name: bbr-healthcheck
+  name: payload-processor-healthcheck
   namespace: {{ .Release.Namespace }}
 spec:
   default:
@@ -60,10 +60,10 @@ spec:
       type: "GRPC"
       grpcHealthCheck:
         portSpecification: "USE_FIXED_PORT"
-        port: {{ .Values.bbr.healthCheckPort }}
+        port: {{ .Values.payloadProcessor.healthCheckPort }}
   targetRef:
     group: ""
     kind: Service
-    name: {{ .Values.bbr.name }}
+    name: {{ .Values.payloadProcessor.name }}
     namespace: {{ .Release.Namespace }}
 {{- end }}

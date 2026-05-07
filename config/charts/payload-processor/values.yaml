@@ -1,9 +1,9 @@
-bbr:
-  name: body-based-router
+payloadProcessor:
+  name: payload-processor
   replicas: 1
   image:
-    registry: us-central1-docker.pkg.dev/k8s-staging-images
-    repository: gateway-api-inference-extension/bbr
+    registry: ghcr.io/llm-d
+    repository: llm-d-inference-payload-processor
     tag: main
     pullPolicy: Always
   port: 9004
@@ -14,7 +14,7 @@ bbr:
     # Log verbosity
     v: 3
 
-  # BBR plugins configuration.
+  # Payload processor plugins configuration.
   # When plugins are explicitly specified, the runner's default auto-load is skipped.
   # Both plugins below replicate the default behavior.
   # Format: type (registered plugin type), name (instance name), json (optional config object)
@@ -29,7 +29,7 @@ bbr:
 
   tracing:
     enabled: false
-    otelServiceName: "gateway-api-inference-extension/bbr"
+    otelServiceName: "inference.llm-d.ai/inference-payload-processor"
     otelExporterEndpoint: "http://localhost:4317"
     sampling:
       sampler: "parentbased_traceidratio"
@@ -39,7 +39,7 @@ provider:
   name: none
 
   # ext_proc events configuration.
-  # Controls which HTTP lifecycle events are sent to BBR for processing.
+  # Controls which HTTP lifecycle events are sent to the payload processor.
   # Enable only the events that plugins actually need to process.
   supportedEvents:
     requestHeaders: true
