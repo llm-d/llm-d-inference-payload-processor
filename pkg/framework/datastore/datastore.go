@@ -50,7 +50,7 @@ func (ds *Datastores) GetOrCreateStore(datastoreKey string) (AttributeMap, error
 
 	// Fast path: check if store exists with read lock
 	ds.mu.RLock()
-	store, ok := ds.keyName[datastoreKey]
+	store, ok := ds.topic[datastoreKey]
 	ds.mu.RUnlock()
 	if ok {
 		return store, nil
