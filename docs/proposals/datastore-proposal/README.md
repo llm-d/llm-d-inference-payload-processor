@@ -24,7 +24,7 @@ The existing `CycleState` mechanism provides per-request plugin communication bu
 
 - Persistent storage (disk, database) — the datastore is in-memory only; data is lost on pod restart.
 - TTL or automatic expiration — entries remain until a data collector explicitly deletes them.
-- Distributed or shared storage across IPP replicas — each pod maintains its own independent datastore instance.
+- Distributed or shared storage across IPP replicas — each pod maintains its own independent datastore instance. To be revisited in a future proposal.
 - Search, filtering, or query language — only direct lookup by key.
 - Authentication or authorization — callers (plugins) are trusted.
 - Schema validation — values must implement `Cloneable` but no further type enforcement is applied.
