@@ -67,7 +67,7 @@ func (ds *Datastores) GetOrCreateStore(datastoreKey string) (AttributeMap, error
 	}
 
 	store = NewAttributes()
-	ds.keyName[datastoreKey] = store
+	ds.topic[datastoreKey] = store
 	return store, nil
 }
 
