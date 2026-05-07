@@ -69,14 +69,12 @@ The concrete implementation (`Attributes`) uses `sync.Map` internally, providing
 ### Datastores
 
 ```go
-var Data *Datastores
-
 type Datastores struct {
     mu      sync.RWMutex
     keyName map[string]AttributeMap
 }
 
-func NewDatastores()
+func NewDatastores() *Datastores
 func (ds *Datastores) GetOrCreateStore(datastoreKey string) (AttributeMap, error)
 func (ds *Datastores) DeleteStore(datastoreKey string) error
 ```
@@ -92,8 +90,6 @@ Plugins access the datastore through the `Handle` interface:
 ```go
 store, err := handle.GetAttributeMap("inference-pool-latency")
 ```
-
-This keeps the global `Data` variable hidden from plugins and makes the access point mockable in tests.
 
 ### Relationship to CycleState
 
@@ -123,8 +119,8 @@ This section provides detailed algorithms for all datastore operations.
 
 #### NewDatastores Algorithm
 
-1. Instantiate package-level variable `Data` to new `Datastores` instance, and empty `keyName` map
-2. No return value
+1. Create new `Datastores` instance with empty `keyName` map
+2. Return pointer to the new `Datastores` instance
 
 #### GetOrCreateStore Algorithm
 
@@ -228,7 +224,7 @@ This section provides detailed algorithms for all datastore operations.
 
 **Test Rules:**
 - All tests use `testCloneableValue` struct implementing Cloneable
-- Mock no external components (datastore is self-contained)
+- No external dependencies to mock (datastore has no external dependencies)
 - Every field in Expected column must be asserted
 - Concurrent tests verify thread safety with race detector
 
