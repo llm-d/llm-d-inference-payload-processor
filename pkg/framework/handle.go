@@ -31,6 +31,8 @@ type Handle interface {
 	Context() context.Context
 	Client() client.Client
 	ReconcilerBuilder() *ctrlbuilder.Builder
+	// GetDatastore returns the Datastores instance for plugin access
+	GetDatastore() *datastore.Datastores
 }
 
 // payloadProcessorHandle is an implementation of the Handle interface.
@@ -51,6 +53,10 @@ func (h *payloadProcessorHandle) Client() client.Client {
 
 func (h *payloadProcessorHandle) ReconcilerBuilder() *ctrlbuilder.Builder {
 	return ctrl.NewControllerManagedBy(h.mgr)
+}
+
+func (h *payloadProcessorHandle) GetDatastore() *datastore.Datastores {
+	return h.datastores
 }
 
 func NewHandle(ctx context.Context, mgr ctrl.Manager, datastores *datastore.Datastores) Handle {
