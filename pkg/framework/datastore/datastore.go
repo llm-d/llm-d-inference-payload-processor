@@ -82,6 +82,6 @@ func (ds *Datastores) DeleteStore(datastoreKey string) error {
 	ds.mu.Lock()
 	defer ds.mu.Unlock()
 
-	delete(ds.keyName, datastoreKey)
+	delete(ds.topic, datastoreKey)
 	return nil
 }
