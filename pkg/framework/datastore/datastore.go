@@ -21,10 +21,6 @@ import (
 	"sync"
 )
 
-// Global package-level variable to hold all collector data stores.
-// Initialized by calling NewDatastores() at server startup.
-var Data *Datastores
-
 // ErrEmptyDatastoreKey is returned when a datastoreKey is empty.
 var ErrEmptyDatastoreKey = errors.New("datastore key cannot be empty")
 
@@ -37,9 +33,10 @@ type Datastores struct {
 	keyName map[string]AttributeMap
 }
 
-// NewDatastores initializes the global Data variable with a new Datastores instance.
-func NewDatastores() {
-	Data = &Datastores{
+// NewDatastores creates and returns a new Datastores instance.
+// Each caller should create and manage their own instance.
+func NewDatastores() *Datastores {
+	return &Datastores{
 		keyName: make(map[string]AttributeMap),
 	}
 }

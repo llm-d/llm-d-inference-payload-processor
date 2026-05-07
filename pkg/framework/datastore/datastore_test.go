@@ -24,10 +24,10 @@ import (
 
 // TestGetOrCreateStore tests creating new stores and retrieving existing ones.
 func TestGetOrCreateStore(t *testing.T) {
-	NewDatastores()
+	ds := NewDatastores()
 
 	// Create new store
-	store1, err := Data.GetOrCreateStore("test-store")
+	store1, err := ds.GetOrCreateStore("test-store")
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -36,7 +36,7 @@ func TestGetOrCreateStore(t *testing.T) {
 	}
 
 	// Get existing store - should return same instance
-	store2, err := Data.GetOrCreateStore("test-store")
+	store2, err := ds.GetOrCreateStore("test-store")
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -47,10 +47,10 @@ func TestGetOrCreateStore(t *testing.T) {
 
 // TestEmptyKeyHandling tests that empty keys return appropriate errors.
 func TestEmptyKeyHandling(t *testing.T) {
-	NewDatastores()
+	ds := NewDatastores()
 
 	// GetOrCreateStore with empty key
-	store, err := Data.GetOrCreateStore("")
+	store, err := ds.GetOrCreateStore("")
 	if !errors.Is(err, ErrEmptyDatastoreKey) {
 		t.Errorf("expected ErrEmptyDatastoreKey on get, got %v", err)
 	}
@@ -59,7 +59,7 @@ func TestEmptyKeyHandling(t *testing.T) {
 	}
 
 	// DeleteStore with empty key
-	err = Data.DeleteStore("")
+	err = ds.DeleteStore("")
 	if !errors.Is(err, ErrEmptyDatastoreKey) {
 		t.Errorf("expected ErrEmptyDatastoreKey on delete, got %v", err)
 	}
@@ -67,23 +67,23 @@ func TestEmptyKeyHandling(t *testing.T) {
 
 // TestDeleteStore tests deleting existing and non-existent stores.
 func TestDeleteStore(t *testing.T) {
-	NewDatastores()
+	ds := NewDatastores()
 
 	// Create and populate a store
-	store, err := Data.GetOrCreateStore("test-store")
+	store, err := ds.GetOrCreateStore("test-store")
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
 	store.Put("key", testCloneableValue{Value: 42})
 
 	// Delete existing store
-	err = Data.DeleteStore("test-store")
+	err = ds.DeleteStore("test-store")
 	if err != nil {
 		t.Fatalf("expected no error on delete, got %v", err)
 	}
 
 	// Verify new store is empty
-	newStore, err := Data.GetOrCreateStore("test-store")
+	newStore, err := ds.GetOrCreateStore("test-store")
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -92,7 +92,7 @@ func TestDeleteStore(t *testing.T) {
 	}
 
 	// Delete non-existent store should not error
-	err = Data.DeleteStore("non-existent")
+	err = ds.DeleteStore("non-existent")
 	if err != nil {
 		t.Errorf("expected no error for non-existent store, got %v", err)
 	}
@@ -100,14 +100,14 @@ func TestDeleteStore(t *testing.T) {
 
 // TestMultipleStoresIsolated tests that different stores are isolated from each other.
 func TestMultipleStoresIsolated(t *testing.T) {
-	NewDatastores()
+	ds := NewDatastores()
 
-	store1, err := Data.GetOrCreateStore("store-1")
+	store1, err := ds.GetOrCreateStore("store-1")
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
 
-	store2, err := Data.GetOrCreateStore("store-2")
+	store2, err := ds.GetOrCreateStore("store-2")
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -134,7 +134,7 @@ func TestMultipleStoresIsolated(t *testing.T) {
 
 // TestConcurrentDatastoreAccess tests thread-safety of Datastores operations.
 func TestConcurrentDatastoreAccess(t *testing.T) {
-	NewDatastores()
+	ds := NewDatastores()
 	var wg sync.WaitGroup
 
 	// Test concurrent GetOrCreateStore on same key
@@ -143,7 +143,7 @@ func TestConcurrentDatastoreAccess(t *testing.T) {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
-			store, err := Data.GetOrCreateStore("same-key")
+			store, err := ds.GetOrCreateStore("same-key")
 			if err != nil {
 				t.Errorf("unexpected error: %v", err)
 				return
@@ -167,7 +167,7 @@ func TestConcurrentDatastoreAccess(t *testing.T) {
 		go func(idx int) {
 			defer wg.Done()
 			key := "store-" + string(rune('a'+(idx%10)))
-			_, err := Data.GetOrCreateStore(key)
+			_, err := ds.GetOrCreateStore(key)
 			if err != nil {
 				t.Errorf("unexpected error: %v", err)
 			}
@@ -175,7 +175,7 @@ func TestConcurrentDatastoreAccess(t *testing.T) {
 		go func(idx int) {
 			defer wg.Done()
 			key := "store-" + string(rune('a'+(idx%10)))
-			err := Data.DeleteStore(key)
+			err := ds.DeleteStore(key)
 			if err != nil {
 				t.Errorf("unexpected error: %v", err)
 			}
@@ -184,40 +184,52 @@ func TestConcurrentDatastoreAccess(t *testing.T) {
 	wg.Wait()
 }
 
-// TestNewDatastoresResets tests that NewDatastores() clears all existing stores.
-func TestNewDatastoresResets(t *testing.T) {
-	NewDatastores()
+// TestNewDatastoresCreatesIndependentInstances tests that each NewDatastores() call
+// creates an independent instance with its own isolated stores.
+func TestNewDatastoresCreatesIndependentInstances(t *testing.T) {
+	ds1 := NewDatastores()
 
-	store, err := Data.GetOrCreateStore("test-store")
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
-	store.Put("key", testCloneableValue{Value: 42})
-
-	NewDatastores()
-
-	newStore, err := Data.GetOrCreateStore("test-store")
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
-
-	_, ok := newStore.Get("key")
-	if ok {
-		t.Error("expected new store to be empty after NewDatastores()")
-	}
-}
-
-// TestDataPersistence tests that data persists across multiple GetOrCreateStore calls.
-func TestDataPersistence(t *testing.T) {
-	NewDatastores()
-
-	store1, err := Data.GetOrCreateStore("test-store")
+	store1, err := ds1.GetOrCreateStore("test-store")
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
 	store1.Put("key", testCloneableValue{Value: 42})
 
-	store2, err := Data.GetOrCreateStore("test-store")
+	// Create a second independent instance
+	ds2 := NewDatastores()
+
+	// The second instance should have an empty store with the same key
+	store2, err := ds2.GetOrCreateStore("test-store")
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	_, ok := store2.Get("key")
+	if ok {
+		t.Error("expected second instance to have empty store")
+	}
+
+	// Verify first instance still has its data
+	val, ok := store1.Get("key")
+	if !ok {
+		t.Fatal("expected key to still exist in first instance")
+	}
+	if val.(testCloneableValue).Value != 42 {
+		t.Errorf("expected value 42 in first instance, got %d", val.(testCloneableValue).Value)
+	}
+}
+
+// TestDataPersistence tests that data persists across multiple GetOrCreateStore calls.
+func TestDataPersistence(t *testing.T) {
+	ds := NewDatastores()
+
+	store1, err := ds.GetOrCreateStore("test-store")
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	store1.Put("key", testCloneableValue{Value: 42})
+
+	store2, err := ds.GetOrCreateStore("test-store")
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
