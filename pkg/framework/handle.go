@@ -19,6 +19,7 @@ package framework
 import (
 	"context"
 
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/datastore"
 	ctrl "sigs.k8s.io/controller-runtime"
 	ctrlbuilder "sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -34,8 +35,9 @@ type Handle interface {
 
 // payloadProcessorHandle is an implementation of the Handle interface.
 type payloadProcessorHandle struct {
-	ctx context.Context
-	mgr ctrl.Manager
+	ctx        context.Context
+	mgr        ctrl.Manager
+	datastores *datastore.Datastores
 }
 
 // Context returns a context the plugins can use, if they need one
@@ -51,9 +53,10 @@ func (h *payloadProcessorHandle) ReconcilerBuilder() *ctrlbuilder.Builder {
 	return ctrl.NewControllerManagedBy(h.mgr)
 }
 
-func NewHandle(ctx context.Context, mgr ctrl.Manager) Handle {
+func NewHandle(ctx context.Context, mgr ctrl.Manager, datastores *datastore.Datastores) Handle {
 	return &payloadProcessorHandle{
-		ctx: ctx,
-		mgr: mgr,
+		ctx:        ctx,
+		mgr:        mgr,
+		datastores: datastores,
 	}
 }
