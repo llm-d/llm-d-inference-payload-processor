@@ -39,6 +39,7 @@ import (
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/common/observability/profiling"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/common/observability/tracing"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/datastore"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/metrics"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/plugins/basemodelextractor"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/plugins/bodyfieldtoheader"
@@ -169,7 +170,8 @@ func (r *Runner) Run(ctx context.Context) error {
 		}
 	}
 
-	handle := framework.NewHandle(ctx, mgr)
+	datastores := datastore.NewDatastores()
+	handle := framework.NewHandle(ctx, mgr, datastores)
 
 	// Register factories for all known in-tree plugins
 	r.registerInTreePlugins()
