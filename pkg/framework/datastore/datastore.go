@@ -37,7 +37,7 @@ type Datastores struct {
 // Each caller should create and manage their own instance.
 func NewDatastores() *Datastores {
 	return &Datastores{
-		keyName: make(map[string]AttributeMap),
+		topic: make(map[string]AttributeMap),
 	}
 }
 
