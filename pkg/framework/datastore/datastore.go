@@ -61,7 +61,7 @@ func (ds *Datastores) GetOrCreateStore(datastoreKey string) (AttributeMap, error
 	defer ds.mu.Unlock()
 
 	// Double-check in case another goroutine created it
-	store, ok = ds.keyName[datastoreKey]
+	store, ok = ds.topic[datastoreKey]
 	if ok {
 		return store, nil
 	}
