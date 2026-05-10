@@ -17,6 +17,7 @@ While the upstream scheduler selects an **endpoint** for a request, the ModelSel
 - The system should be extensible via pluggable ModelSelector components (Filter, Score, Pick)
 - State management
   - Per-request state is managed via in-memory state that is shared across plugins during a single selection run
+  - Global state is managed by the IPP data layer, and is shared with the plugin
 
 ## Definitions
 - **ModelSelector Framework** — A pluggable system for implementing model selection logic.
@@ -67,7 +68,7 @@ Picker selects the model(s) from the provided list of scored models. Picker MUST
 
 ### Metrics and Runtime Feedback
 
-Filters and Scorers may consume runtime metrics collected by ResponseProcessor plugins and stored in-memory. This enables data-driven selection decisions based on observed model behavior (latency, error rates, rate limit status) rather than static configuration alone.
+Filters and Scorers may consume runtime metrics from the data layer stored in-memory. This enables data-driven selection decisions based on observed model behavior (latency, error rates, rate limit status) rather than static configuration alone.
 
 ### Example Flow
 
