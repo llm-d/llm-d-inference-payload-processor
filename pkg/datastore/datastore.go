@@ -58,7 +58,7 @@ func (s *Store) GetOrCreateModel(name string) *datalayer.Model {
 }
 
 // Delete removes a model by name. No-op if it does not exist.
-func (s *Store) Delete(name string) {
+func (s *Store) DeleteModel(name string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.models, name)
