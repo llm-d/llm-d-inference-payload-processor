@@ -22,24 +22,31 @@ import (
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/datalayer"
 )
 
-// Store is a thread-safe registry of Model entries keyed by model name.
+// Datastore is the interface for reading and updating the model store.
+type Datastore interface {
+	GetOrCreateModel(name string) *datalayer.Model
+	DeleteModel(name string)
+	Models() []string
+}
+
+// store is a thread-safe registry of Model entries keyed by model name.
 // The outer key is the model name; each Model holds an AttributeMap for
 // dynamic runtime metrics (e.g. "running-requests", "pool-latency") and
 // any static metadata added in future (e.g. vendor, family).
 //
 // All operations are thread-safe using RWMutex.
-type Store struct {
+type store struct {
 	mu     sync.RWMutex
 	models map[string]*datalayer.Model
 }
 
-// NewStore creates and returns a new Store instance.
-func NewStore() *Store {
-	return &Store{models: make(map[string]*datalayer.Model)}
+// NewStore creates and returns a new Datastore instance.
+func NewStore() Datastore {
+	return &store{models: make(map[string]*datalayer.Model)}
 }
 
 // GetOrCreateModel returns the Model for name, creating it atomically if it does not exist.
-func (s *Store) GetOrCreateModel(name string) *datalayer.Model {
+func (s *store) GetOrCreateModel(name string) *datalayer.Model {
 	s.mu.RLock()
 	m, ok := s.models[name]
 	s.mu.RUnlock()
@@ -58,14 +65,14 @@ func (s *Store) GetOrCreateModel(name string) *datalayer.Model {
 }
 
 // DeleteModel removes a model by name. No-op if it does not exist.
-func (s *Store) DeleteModel(name string) {
+func (s *store) DeleteModel(name string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.models, name)
 }
 
 // Models returns the names of all tracked models. Order is not guaranteed.
-func (s *Store) Models() []string {
+func (s *store) Models() []string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	names := make([]string, 0, len(s.models))
