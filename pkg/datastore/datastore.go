@@ -47,16 +47,15 @@ func NewStore() Datastore {
 
 // GetOrCreateModel returns the Model for name, creating it atomically if it does not exist.
 func (s *store) GetOrCreateModel(name string) *datalayer.Model {
-    s.mu.Lock()
-    defer s.mu.Unlock()
-    if m, ok := s.models[name]; ok {
-        return m
-    }
-    m := datalayer.NewModel(name)
-    s.models[name] = m
-    return m
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if m, ok := s.models[name]; ok {
+		return m
+	}
+	m := datalayer.NewModel(name)
+	s.models[name] = m
+	return m
 }
-
 
 // DeleteModel removes a model by name. No-op if it does not exist.
 func (s *store) DeleteModel(name string) {
