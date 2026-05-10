@@ -39,7 +39,7 @@ func NewStore() *Store {
 }
 
 // GetOrCreate returns the Model for name, creating it atomically if it does not exist.
-func (s *Store) GetOrCreate(name string) *datalayer.Model {
+func (s *Store) GetOrCreateModel(name string) *datalayer.Model {
 	s.mu.RLock()
 	m, ok := s.models[name]
 	s.mu.RUnlock()
