@@ -16,7 +16,12 @@ limitations under the License.
 
 package modelselector
 
-import "github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/modelselector"
+import (
+	"fmt"
+	"strings"
+
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/modelselector"
+)
 
 // NewSchedulerProfile creates a new SchedulerProfile object and returns its pointer.
 func NewModelSelectorProfile() *ModelSelectorProfile {
@@ -32,4 +37,22 @@ type ModelSelectorProfile struct {
 	filters []modelselector.Filter
 	scorers []*WeightedScorer
 	picker  modelselector.Picker
+}
+
+func (p *ModelSelectorProfile) String() string {
+	filterNames := make([]string, len(p.filters))
+	for i, filter := range p.filters {
+		filterNames[i] = filter.TypedName().String()
+	}
+	scorerNames := make([]string, len(p.scorers))
+	for i, scorer := range p.scorers {
+		scorerNames[i] = fmt.Sprintf("%s: %f", scorer.TypedName(), scorer.Weight())
+	}
+
+	return fmt.Sprintf(
+		"{Filters: [%s], Scorers: [%s], Picker: %s}",
+		strings.Join(filterNames, ", "),
+		strings.Join(scorerNames, ", "),
+		p.picker.TypedName(),
+	)
 }
