@@ -17,234 +17,154 @@ limitations under the License.
 package datastore
 
 import (
-	"errors"
 	"sync"
 	"testing"
 
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/datalayer"
 )
 
-type testCloneableValue struct{ Value int }
+type testValue struct{ Value int }
 
-func (t testCloneableValue) Clone() datalayer.Cloneable { return testCloneableValue{Value: t.Value} }
+func (t testValue) Clone() datalayer.Cloneable { return testValue{Value: t.Value} }
 
-// TestGetOrCreateStore tests creating new stores and retrieving existing ones.
-func TestGetOrCreateStore(t *testing.T) {
-	ds := NewDatastores()
+// TestGetOrCreate tests that a model is created with the correct name and non-nil Attributes.
+func TestGetOrCreate(t *testing.T) {
+	s := NewStore()
 
-	// Create new store
-	store1, err := ds.GetOrCreateStore("test-store")
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
+	m := s.GetOrCreate("llama-3")
+	if m == nil {
+		t.Fatal("expected non-nil model")
 	}
-	if store1 == nil {
-		t.Fatal("expected non-nil store")
+	if m.Name != "llama-3" {
+		t.Errorf("expected Name %q, got %q", "llama-3", m.Name)
 	}
-
-	// Get existing store - should return same instance
-	store2, err := ds.GetOrCreateStore("test-store")
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
-	if store1 != store2 {
-		t.Error("expected same AttributeMap instance")
+	if m.Attributes == nil {
+		t.Fatal("expected non-nil Attributes")
 	}
 }
 
-// TestEmptyKeyHandling tests that empty keys return appropriate errors.
-func TestEmptyKeyHandling(t *testing.T) {
-	ds := NewDatastores()
+// TestGetOrCreateReturnsSameInstance tests that repeated calls return the same *Model.
+func TestGetOrCreateReturnsSameInstance(t *testing.T) {
+	s := NewStore()
 
-	// GetOrCreateStore with empty key
-	store, err := ds.GetOrCreateStore("")
-	if !errors.Is(err, ErrEmptyDatastoreKey) {
-		t.Errorf("expected ErrEmptyDatastoreKey on get, got %v", err)
-	}
-	if store != nil {
-		t.Error("expected nil store for empty key")
-	}
-
-	// DeleteStore with empty key
-	err = ds.DeleteStore("")
-	if !errors.Is(err, ErrEmptyDatastoreKey) {
-		t.Errorf("expected ErrEmptyDatastoreKey on delete, got %v", err)
+	m1 := s.GetOrCreate("llama-3")
+	m2 := s.GetOrCreate("llama-3")
+	if m1 != m2 {
+		t.Error("expected same *Model instance on repeated calls")
 	}
 }
 
-// TestDeleteStore tests deleting existing and non-existent stores.
-func TestDeleteStore(t *testing.T) {
-	ds := NewDatastores()
+// TestDelete tests that deleting a model and calling GetOrCreate returns a fresh empty model.
+func TestDelete(t *testing.T) {
+	s := NewStore()
 
-	// Create and populate a store
-	store, err := ds.GetOrCreateStore("test-store")
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
-	store.Put("key", testCloneableValue{Value: 42})
+	s.GetOrCreate("llama-3").Attributes.Put("key", testValue{Value: 42})
+	s.Delete("llama-3")
 
-	// Delete existing store
-	err = ds.DeleteStore("test-store")
-	if err != nil {
-		t.Fatalf("expected no error on delete, got %v", err)
-	}
-
-	// Verify new store is empty
-	newStore, err := ds.GetOrCreateStore("test-store")
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
-	if _, ok := newStore.Get("key"); ok {
-		t.Error("expected new store to be empty")
-	}
-
-	// Delete non-existent store should not error
-	err = ds.DeleteStore("non-existent")
-	if err != nil {
-		t.Errorf("expected no error for non-existent store, got %v", err)
+	if _, ok := s.GetOrCreate("llama-3").Attributes.Get("key"); ok {
+		t.Error("expected fresh Attributes after Delete + GetOrCreate")
 	}
 }
 
-// TestMultipleStoresIsolated tests that different stores are isolated from each other.
-func TestMultipleStoresIsolated(t *testing.T) {
-	ds := NewDatastores()
+// TestDeleteNonExistent tests that deleting a missing model does not panic.
+func TestDeleteNonExistent(t *testing.T) {
+	s := NewStore()
+	s.Delete("does-not-exist")
+}
 
-	store1, err := ds.GetOrCreateStore("store-1")
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
+// TestModelsIsolated tests that different models have independent Attributes.
+func TestModelsIsolated(t *testing.T) {
+	s := NewStore()
+
+	s.GetOrCreate("gpt-4").Attributes.Put("metric", testValue{Value: 1})
+	s.GetOrCreate("llama-3").Attributes.Put("metric", testValue{Value: 2})
+
+	v1, ok := s.GetOrCreate("gpt-4").Attributes.Get("metric")
+	if !ok || v1.(testValue).Value != 1 {
+		t.Errorf("expected 1 for gpt-4, got %v", v1)
 	}
 
-	store2, err := ds.GetOrCreateStore("store-2")
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
+	v2, ok := s.GetOrCreate("llama-3").Attributes.Get("metric")
+	if !ok || v2.(testValue).Value != 2 {
+		t.Errorf("expected 2 for llama-3, got %v", v2)
 	}
+}
 
-	store1.Put("key", testCloneableValue{Value: 1})
-	store2.Put("key", testCloneableValue{Value: 2})
+// TestAttributePersistence tests that attributes survive multiple GetOrCreate calls.
+func TestAttributePersistence(t *testing.T) {
+	s := NewStore()
 
-	val1, ok := store1.Get("key")
+	s.GetOrCreate("llama-3").Attributes.Put("running-requests", testValue{Value: 5})
+
+	v, ok := s.GetOrCreate("llama-3").Attributes.Get("running-requests")
 	if !ok {
-		t.Fatal("expected key in store1")
+		t.Fatal("expected attribute to persist across GetOrCreate calls")
 	}
-	if val1.(testCloneableValue).Value != 1 {
-		t.Errorf("expected value 1 in store1, got %d", val1.(testCloneableValue).Value)
-	}
-
-	val2, ok := store2.Get("key")
-	if !ok {
-		t.Fatal("expected key in store2")
-	}
-	if val2.(testCloneableValue).Value != 2 {
-		t.Errorf("expected value 2 in store2, got %d", val2.(testCloneableValue).Value)
+	if v.(testValue).Value != 5 {
+		t.Errorf("expected 5, got %d", v.(testValue).Value)
 	}
 }
 
-// TestConcurrentDatastoreAccess tests thread-safety of Datastores operations.
-func TestConcurrentDatastoreAccess(t *testing.T) {
-	ds := NewDatastores()
+// TestIndependentStoreInstances tests that two Store instances are fully isolated.
+func TestIndependentStoreInstances(t *testing.T) {
+	s1 := NewStore()
+	s2 := NewStore()
+
+	s1.GetOrCreate("llama-3").Attributes.Put("key", testValue{Value: 1})
+
+	if _, ok := s2.GetOrCreate("llama-3").Attributes.Get("key"); ok {
+		t.Error("expected s2 to be independent from s1")
+	}
+}
+
+// TestModels tests that Models() returns all tracked model names.
+func TestModels(t *testing.T) {
+	s := NewStore()
+	s.GetOrCreate("gpt-4")
+	s.GetOrCreate("llama-3")
+	s.GetOrCreate("mistral")
+
+	names := s.Models()
+	if len(names) != 3 {
+		t.Errorf("expected 3 models, got %d", len(names))
+	}
+}
+
+// TestConcurrentAccess tests thread-safety of Store operations.
+func TestConcurrentAccess(t *testing.T) {
+	s := NewStore()
 	var wg sync.WaitGroup
 
-	// Test concurrent GetOrCreateStore on same key
-	stores := make([]datalayer.AttributeMap, 50)
+	// All goroutines GetOrCreate the same name — must return same instance.
+	models := make([]*datalayer.Model, 50)
 	for i := 0; i < 50; i++ {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
-			store, err := ds.GetOrCreateStore("same-key")
-			if err != nil {
-				t.Errorf("unexpected error: %v", err)
-				return
-			}
-			stores[idx] = store
+			models[idx] = s.GetOrCreate("same-model")
 		}(i)
 	}
 	wg.Wait()
 
-	// Verify all goroutines got same store instance
-	firstStore := stores[0]
+	first := models[0]
 	for i := 1; i < 50; i++ {
-		if stores[i] != firstStore {
-			t.Errorf("goroutine %d got different store instance", i)
+		if models[i] != first {
+			t.Errorf("goroutine %d got a different *Model instance", i)
 		}
 	}
 
-	// Test concurrent create and delete operations
+	// Concurrent create and delete must not race.
 	for i := 0; i < 50; i++ {
 		wg.Add(2)
-		go func(idx int) {
+		name := string(rune('a' + i%10))
+		go func(n string) {
 			defer wg.Done()
-			key := "store-" + string(rune('a'+(idx%10)))
-			_, err := ds.GetOrCreateStore(key)
-			if err != nil {
-				t.Errorf("unexpected error: %v", err)
-			}
-		}(i)
-		go func(idx int) {
+			s.GetOrCreate(n)
+		}(name)
+		go func(n string) {
 			defer wg.Done()
-			key := "store-" + string(rune('a'+(idx%10)))
-			err := ds.DeleteStore(key)
-			if err != nil {
-				t.Errorf("unexpected error: %v", err)
-			}
-		}(i)
+			s.Delete(n)
+		}(name)
 	}
 	wg.Wait()
-}
-
-// TestNewDatastoresCreatesIndependentInstances tests that each NewDatastores() call
-// creates an independent instance with its own isolated stores.
-func TestNewDatastoresCreatesIndependentInstances(t *testing.T) {
-	ds1 := NewDatastores()
-
-	store1, err := ds1.GetOrCreateStore("test-store")
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
-	store1.Put("key", testCloneableValue{Value: 42})
-
-	// Create a second independent instance
-	ds2 := NewDatastores()
-
-	// The second instance should have an empty store with the same key
-	store2, err := ds2.GetOrCreateStore("test-store")
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
-
-	_, ok := store2.Get("key")
-	if ok {
-		t.Error("expected second instance to have empty store")
-	}
-
-	// Verify first instance still has its data
-	val, ok := store1.Get("key")
-	if !ok {
-		t.Fatal("expected key to still exist in first instance")
-	}
-	if val.(testCloneableValue).Value != 42 {
-		t.Errorf("expected value 42 in first instance, got %d", val.(testCloneableValue).Value)
-	}
-}
-
-// TestDataPersistence tests that data persists across multiple GetOrCreateStore calls.
-func TestDataPersistence(t *testing.T) {
-	ds := NewDatastores()
-
-	store1, err := ds.GetOrCreateStore("test-store")
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
-	store1.Put("key", testCloneableValue{Value: 42})
-
-	store2, err := ds.GetOrCreateStore("test-store")
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
-
-	val, ok := store2.Get("key")
-	if !ok {
-		t.Fatal("expected key to exist")
-	}
-	if val.(testCloneableValue).Value != 42 {
-		t.Errorf("expected value 42, got %d", val.(testCloneableValue).Value)
-	}
 }

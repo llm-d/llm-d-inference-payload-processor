@@ -17,73 +17,60 @@ limitations under the License.
 package datastore
 
 import (
-	"errors"
 	"sync"
 
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/datalayer"
 )
 
-// ErrEmptyDatastoreKey is returned when a datastoreKey is empty.
-var ErrEmptyDatastoreKey = errors.New("datastore key cannot be empty")
-
-// Datastores manages multiple named data stores, each identified by a datastoreKey string.
-// Provides the top-level registry for all topic-specific AttributeMaps.
+// Store is a thread-safe registry of Model entries keyed by model name.
+// The outer key is the model name; each Model holds an AttributeMap for
+// dynamic runtime metrics (e.g. "running-requests", "pool-latency") and
+// any static metadata added in future (e.g. vendor, family).
 //
 // All operations are thread-safe using RWMutex.
-type Datastores struct {
-	mu    sync.RWMutex
-	topic map[string]datalayer.AttributeMap
+type Store struct {
+	mu     sync.RWMutex
+	models map[string]*datalayer.Model
 }
 
-// NewDatastores creates and returns a new Datastores instance.
-// Each caller should create and manage their own instance.
-func NewDatastores() *Datastores {
-	return &Datastores{
-		topic: make(map[string]datalayer.AttributeMap),
-	}
+// NewStore creates and returns a new Store instance.
+func NewStore() *Store {
+	return &Store{models: make(map[string]*datalayer.Model)}
 }
 
-// GetOrCreateStore returns an existing AttributeMap or creates a new one atomically.
-// Returns ErrEmptyDatastoreKey if datastoreKey is empty.
-func (ds *Datastores) GetOrCreateStore(datastoreKey string) (datalayer.AttributeMap, error) {
-	if datastoreKey == "" {
-		return nil, ErrEmptyDatastoreKey
-	}
-
-	// Fast path: check if store exists with read lock
-	ds.mu.RLock()
-	store, ok := ds.topic[datastoreKey]
-	ds.mu.RUnlock()
+// GetOrCreate returns the Model for name, creating it atomically if it does not exist.
+func (s *Store) GetOrCreate(name string) *datalayer.Model {
+	s.mu.RLock()
+	m, ok := s.models[name]
+	s.mu.RUnlock()
 	if ok {
-		return store, nil
+		return m
 	}
 
-	// Slow path: create new store with write lock
-	ds.mu.Lock()
-	defer ds.mu.Unlock()
-
-	// Double-check in case another goroutine created it
-	store, ok = ds.topic[datastoreKey]
-	if ok {
-		return store, nil
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if m, ok = s.models[name]; ok {
+		return m
 	}
-
-	store = datalayer.NewAttributes()
-	ds.topic[datastoreKey] = store
-	return store, nil
+	m = datalayer.NewModel(name)
+	s.models[name] = m
+	return m
 }
 
-// DeleteStore removes a datastore by key.
-// Returns ErrEmptyDatastoreKey if datastoreKey is empty.
-// No-op if the key doesn't exist.
-func (ds *Datastores) DeleteStore(datastoreKey string) error {
-	if datastoreKey == "" {
-		return ErrEmptyDatastoreKey
+// Delete removes a model by name. No-op if it does not exist.
+func (s *Store) Delete(name string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.models, name)
+}
+
+// Models returns the names of all tracked models. Order is not guaranteed.
+func (s *Store) Models() []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	names := make([]string, 0, len(s.models))
+	for n := range s.models {
+		names = append(names, n)
 	}
-
-	ds.mu.Lock()
-	defer ds.mu.Unlock()
-
-	delete(ds.topic, datastoreKey)
-	return nil
+	return names
 }
