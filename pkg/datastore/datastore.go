@@ -38,7 +38,7 @@ func NewStore() *Store {
 	return &Store{models: make(map[string]*datalayer.Model)}
 }
 
-// GetOrCreate returns the Model for name, creating it atomically if it does not exist.
+// GetOrCreateModel returns the Model for name, creating it atomically if it does not exist.
 func (s *Store) GetOrCreateModel(name string) *datalayer.Model {
 	s.mu.RLock()
 	m, ok := s.models[name]
@@ -57,7 +57,7 @@ func (s *Store) GetOrCreateModel(name string) *datalayer.Model {
 	return m
 }
 
-// Delete removes a model by name. No-op if it does not exist.
+// DeleteModel removes a model by name. No-op if it does not exist.
 func (s *Store) DeleteModel(name string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
