@@ -14,32 +14,25 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package datalayer
+package modelselector
 
-type Model interface {
-	GetName() string
-	GetAttributes() AttributeMap
+import (
+	"context"
+
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/datalayer"
+)
+
+type ScoredModel struct {
+	datalayer.Model
+	Score float64
 }
 
-// compile-time type validation
-var _ Model = &model{}
-
-func NewModel(name string) Model {
-	return &model{
-		name:       name,
-		attributes: NewAttributes(),
-	}
+// ProfileRunResult captures the profile run result.
+type ProfileRunResult struct {
+	TargetModels []datalayer.Model
 }
 
-type model struct {
-	name       string
-	attributes AttributeMap
-}
-
-func (m *model) GetName() string {
-	return m.name
-}
-
-func (m *model) GetAttributes() AttributeMap {
-	return m.attributes
+type ModelSelectorProfile interface {
+	Run(ctx context.Context, request *framework.InferenceRequest, cycleState *framework.CycleState, candidateModels []datalayer.Model) (*ProfileRunResult, error)
 }
