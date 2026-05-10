@@ -19,6 +19,8 @@ package datastore
 import (
 	"errors"
 	"sync"
+
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/datalayer"
 )
 
 // ErrEmptyDatastoreKey is returned when a datastoreKey is empty.
@@ -30,20 +32,20 @@ var ErrEmptyDatastoreKey = errors.New("datastore key cannot be empty")
 // All operations are thread-safe using RWMutex.
 type Datastores struct {
 	mu    sync.RWMutex
-	topic map[string]AttributeMap
+	topic map[string]datalayer.AttributeMap
 }
 
 // NewDatastores creates and returns a new Datastores instance.
 // Each caller should create and manage their own instance.
 func NewDatastores() *Datastores {
 	return &Datastores{
-		topic: make(map[string]AttributeMap),
+		topic: make(map[string]datalayer.AttributeMap),
 	}
 }
 
 // GetOrCreateStore returns an existing AttributeMap or creates a new one atomically.
 // Returns ErrEmptyDatastoreKey if datastoreKey is empty.
-func (ds *Datastores) GetOrCreateStore(datastoreKey string) (AttributeMap, error) {
+func (ds *Datastores) GetOrCreateStore(datastoreKey string) (datalayer.AttributeMap, error) {
 	if datastoreKey == "" {
 		return nil, ErrEmptyDatastoreKey
 	}
@@ -66,7 +68,7 @@ func (ds *Datastores) GetOrCreateStore(datastoreKey string) (AttributeMap, error
 		return store, nil
 	}
 
-	store = NewAttributes()
+	store = datalayer.NewAttributes()
 	ds.topic[datastoreKey] = store
 	return store, nil
 }

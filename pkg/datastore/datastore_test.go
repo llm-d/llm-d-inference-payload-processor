@@ -20,7 +20,13 @@ import (
 	"errors"
 	"sync"
 	"testing"
+
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/datalayer"
 )
+
+type testCloneableValue struct{ Value int }
+
+func (t testCloneableValue) Clone() datalayer.Cloneable { return testCloneableValue{Value: t.Value} }
 
 // TestGetOrCreateStore tests creating new stores and retrieving existing ones.
 func TestGetOrCreateStore(t *testing.T) {
@@ -138,7 +144,7 @@ func TestConcurrentDatastoreAccess(t *testing.T) {
 	var wg sync.WaitGroup
 
 	// Test concurrent GetOrCreateStore on same key
-	stores := make([]AttributeMap, 50)
+	stores := make([]datalayer.AttributeMap, 50)
 	for i := 0; i < 50; i++ {
 		wg.Add(1)
 		go func(idx int) {
