@@ -5,6 +5,12 @@ IMAGE ?= $(REGISTRY)/$(PROJECT_NAME)
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 PLATFORMS ?= linux/amd64,linux/arm64
 
+# Container configuration
+CONTAINER_RUNTIME ?= docker
+TARGETARCH ?= amd64
+GIT_COMMIT_SHA ?= $(shell git rev-parse HEAD 2>/dev/null || echo "unknown")
+BUILD_REF ?= $(VERSION)
+
 # Go configuration
 GOFLAGS ?=
 LDFLAGS ?= -s -w -X main.version=$(VERSION)
@@ -61,9 +67,11 @@ tidy: ## Run go mod tidy
 ##@ Container
 
 .PHONY: image-build
-image-build: ## Build multi-arch container image (local only)
-	docker buildx build \
-		--platform $(PLATFORMS) \
+image-build: ## Build container image for local development
+	$(CONTAINER_RUNTIME) build \
+		--platform linux/$(TARGETARCH) \
+		--build-arg COMMIT_SHA=$(GIT_COMMIT_SHA) \
+		--build-arg BUILD_REF=$(BUILD_REF) \
 		--tag $(IMAGE):$(VERSION) \
 		--tag $(IMAGE):latest \
 		.
