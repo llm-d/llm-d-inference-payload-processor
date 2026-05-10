@@ -201,7 +201,8 @@ func (r *Runner) Run(ctx context.Context) error {
 		for _, s := range opts.PluginSpecs {
 			factory, ok := framework.Registry[s.Type]
 			if !ok {
-				setupLog.Error(err, fmt.Sprintf("unknown plugin type %q (no factory registered)\n", s.Type))
+				err := fmt.Errorf("unknown plugin type %q (no factory registered)", s.Type)
+				setupLog.Error(err, "Failed to find plugin factory", "pluginType", s.Type)
 				return err
 			}
 			instance, err := factory(s.Name, s.JSON, handle)
