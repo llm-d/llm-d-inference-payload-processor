@@ -30,7 +30,7 @@ const (
 	DefaultGrpcHealthPort = 9005
 )
 
-// Options contains the command-line configuration for the BBR server.
+// Options contains the command-line configuration for the IPP server.
 type Options struct {
 	//
 	// ext_proc configuration.
@@ -41,7 +41,7 @@ type Options struct {
 	//
 	logging.LoggingOptions      // Logging configuration.
 	Tracing                bool // Enable emitting traces
-	MetricsPort            int  // The metrics port exposed by BBR.
+	MetricsPort            int  // The metrics port exposed by IPP.
 	GRPCHealthPort         int  // The port for gRPC liveness and readiness probes.
 	EnablePprof            bool // Enables pprof handlers.
 	SecureServing          bool // Enables secure serving.
@@ -49,7 +49,7 @@ type Options struct {
 	//
 	// Plugins.
 	//
-	PluginSpecs config.BBRPluginSpecs // Repeatable --plugin <type>:<name>[:<json>] flag values.
+	PluginSpecs config.IPPPluginSpecs // Repeatable --plugin <type>:<name>[:<json>] flag values.
 
 	// internal
 	fs *pflag.FlagSet // FlagSet used in AddFlags()
@@ -82,7 +82,7 @@ func (opts *Options) AddFlags(fs *pflag.FlagSet) {
 	fs.IntVar(&opts.GRPCHealthPort, "grpc-health-port", opts.GRPCHealthPort,
 		"The port used for gRPC liveness and readiness probes.")
 	fs.IntVar(&opts.MetricsPort, "metrics-port", opts.MetricsPort,
-		"The metrics port exposed by BBR.")
+		"The metrics port exposed by IPP.")
 	fs.BoolVar(&opts.Tracing, "tracing", opts.Tracing, "Enables emitting traces.")
 	fs.BoolVar(&opts.MetricsEndpointAuth, "metrics-endpoint-auth", opts.MetricsEndpointAuth,
 		"Enables authentication and authorization of the metrics endpoint.")

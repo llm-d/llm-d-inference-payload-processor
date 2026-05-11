@@ -499,21 +499,21 @@ func TestHandleRequestBody_BuiltInPlugins(t *testing.T) {
 		})
 	}
 
-	// Assert BBR metrics: 1 model not in body, 1 model empty string, 5 successful model-from-body cases.
+	// Assert IPP metrics: 1 model not in body, 1 model empty string, 5 successful model-from-body cases.
 	wantMetrics := `
-	# HELP bbr_body_field_empty_total [ALPHA] Count of times a field was found in a request body but was empty.
-	# TYPE bbr_body_field_empty_total counter
-	bbr_body_field_empty_total{field="model"} 1
-	# HELP bbr_body_field_not_found_total [ALPHA] Count of times a field wasn't found in a request body.
-	# TYPE bbr_body_field_not_found_total counter
-	bbr_body_field_not_found_total{field="model"} 1
-	# HELP bbr_success_total [ALPHA] Count of time the request was processed successfully.
-	# TYPE bbr_success_total counter
-	bbr_success_total{} 5
+	# HELP ipp_body_field_empty_total [ALPHA] Count of times a field was found in a request body but was empty.
+	# TYPE ipp_body_field_empty_total counter
+	ipp_body_field_empty_total{field="model"} 1
+	# HELP ipp_body_field_not_found_total [ALPHA] Count of times a field wasn't found in a request body.
+	# TYPE ipp_body_field_not_found_total counter
+	ipp_body_field_not_found_total{field="model"} 1
+	# HELP ipp_success_total [ALPHA] Count of time the request was processed successfully.
+	# TYPE ipp_success_total counter
+	ipp_success_total{} 5
 	`
 
 	if err := metricsutils.GatherAndCompare(crmetrics.Registry, strings.NewReader(wantMetrics),
-		"bbr_body_field_empty_total", "bbr_body_field_not_found_total", "bbr_success_total"); err != nil {
+		"ipp_body_field_empty_total", "ipp_body_field_not_found_total", "ipp_success_total"); err != nil {
 		t.Error(err)
 	}
 }
@@ -546,7 +546,7 @@ func TestHandleRequestBodyWithPluginMetrics(t *testing.T) {
 
 	pluginsWithMetrics := 0
 	for _, mf := range mfs {
-		if mf.GetName() == "bbr_plugin_duration_seconds" {
+		if mf.GetName() == "ipp_plugin_duration_seconds" {
 			for _, m := range mf.GetMetric() {
 				labels := map[string]string{}
 				for _, lp := range m.GetLabel() {

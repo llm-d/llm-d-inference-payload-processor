@@ -27,15 +27,15 @@ import (
 	metricsutil "github.com/llm-d/llm-d-inference-payload-processor/pkg/common/observability/metrics"
 )
 
-const component = "bbr"
+const component = "ipp"
 
 var (
 	// --- Info Metrics ---
-	bbrInfo = prometheus.NewGaugeVec(
+	ippInfo = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Subsystem: component,
 			Name:      "info",
-			Help:      metricsutil.HelpMsgWithStability("General information of the current build of BBR.", compbasemetrics.ALPHA),
+			Help:      metricsutil.HelpMsgWithStability("General information of the current build of IPP.", compbasemetrics.ALPHA),
 		},
 		[]string{"commit", "build_ref"},
 	)
@@ -85,7 +85,7 @@ var registerMetrics sync.Once
 // Register all metrics.
 func Register(customCollectors ...prometheus.Collector) {
 	registerMetrics.Do(func() {
-		metrics.Registry.MustRegister(bbrInfo)
+		metrics.Registry.MustRegister(ippInfo)
 		metrics.Registry.MustRegister(successCounter)
 		metrics.Registry.MustRegister(bodyFieldNotFoundCounter)
 		metrics.Registry.MustRegister(bodyFieldEmptyCounter)
@@ -96,9 +96,9 @@ func Register(customCollectors ...prometheus.Collector) {
 	})
 }
 
-// RecordBBRInfo records bbr build info.
-func RecordBBRInfo(commitSha, buildRef string) {
-	bbrInfo.WithLabelValues(commitSha, buildRef).Set(1)
+// RecordIPPInfo records ipp build info.
+func RecordIPPInfo(commitSha, buildRef string) {
+	ippInfo.WithLabelValues(commitSha, buildRef).Set(1)
 }
 
 // RecordSuccessCounter records the number of times the request was processed successfully.
@@ -116,7 +116,7 @@ func RecordBodyFieldEmpty(fieldName string) {
 	bodyFieldEmptyCounter.WithLabelValues(fieldName).Inc()
 }
 
-// RecordPluginProcessingLatency records the processing latency for a BBR plugin.
+// RecordPluginProcessingLatency records the processing latency for an IPP plugin.
 func RecordPluginProcessingLatency(extensionPoint, pluginType, pluginName string, duration time.Duration) {
 	pluginProcessingLatencies.WithLabelValues(extensionPoint, pluginType, pluginName).Observe(duration.Seconds())
 }

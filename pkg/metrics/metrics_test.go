@@ -72,7 +72,7 @@ func TestPluginProcessingLatency(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err := testutil.GatherAndCompare(crmetrics.Registry, wantPluginLatencies, "bbr_plugin_duration_seconds"); err != nil {
+			if err := testutil.GatherAndCompare(crmetrics.Registry, wantPluginLatencies, "ipp_plugin_duration_seconds"); err != nil {
 				t.Error(err)
 			}
 		})

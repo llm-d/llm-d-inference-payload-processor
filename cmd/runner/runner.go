@@ -130,7 +130,7 @@ func (r *Runner) Run(ctx context.Context) error {
 
 	// --- Setup Metrics Server ---
 	metrics.Register(r.customCollectors...)
-	metrics.RecordBBRInfo(version.CommitSHA, version.BuildRef)
+	metrics.RecordIPPInfo(version.CommitSHA, version.BuildRef)
 	// Register metrics handler.
 	// Metrics endpoint is enabled in 'config/default/kustomization.yaml'. The Metrics options configure the server.
 	// More info:

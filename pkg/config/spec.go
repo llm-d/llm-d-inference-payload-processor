@@ -22,19 +22,19 @@ import (
 	"strings"
 )
 
-// BBRPluginSpec implements flag.Value interface and defines a repeatable configuration block specified in CLI: --plugin <type>:<name>:<json>
-type BBRPluginSpec struct {
+// IPPPluginSpec implements flag.Value interface and defines a repeatable configuration block specified in CLI: --plugin <type>:<name>:<json>
+type IPPPluginSpec struct {
 	Type string
 	Name string
 	JSON json.RawMessage // raw JSON representing parameters for the plugin factory
 	Raw  string          // original parameters string (for error messages)
 }
 
-// BBRPluginSpecs Slice (because the plugin flag is repeatable)
-type BBRPluginSpecs []BBRPluginSpec
+// IPPPluginSpecs Slice (because the plugin flag is repeatable)
+type IPPPluginSpecs []IPPPluginSpec
 
-func (p *BBRPluginSpecs) Set(s string) error {
-	spec := BBRPluginSpec{Raw: s}
+func (p *IPPPluginSpecs) Set(s string) error {
+	spec := IPPPluginSpec{Raw: s}
 
 	// Accept either:
 	//   <type>:<name>
@@ -47,10 +47,10 @@ func (p *BBRPluginSpecs) Set(s string) error {
 	spec.Name = strings.TrimSpace(segments[1])
 
 	if spec.Type == "" {
-		return errors.New("bbr plugin type cannot be empty")
+		return errors.New("ipp plugin type cannot be empty")
 	}
 	if spec.Name == "" {
-		return errors.New("bbr plugin name cannot be empty")
+		return errors.New("ipp plugin name cannot be empty")
 	}
 
 	// If the third segment is provided, validate JSON if non-empty.
@@ -70,9 +70,9 @@ func (p *BBRPluginSpecs) Set(s string) error {
 }
 
 // Type returns the flag type name for the pflag.Value interface.
-func (p *BBRPluginSpecs) Type() string { return "plugin" }
+func (p *IPPPluginSpecs) Type() string { return "plugin" }
 
-func (p *BBRPluginSpecs) String() string {
+func (p *IPPPluginSpecs) String() string {
 	specs := *p
 	out := make([]string, 0, len(specs)) // preallocate memory
 

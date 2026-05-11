@@ -77,7 +77,7 @@ func (p *BaseModelToHeaderPlugin) TypedName() framework.TypedName {
 	return p.typedName
 }
 
-// WithName sets the name of the BBR plugin instance.
+// WithName sets the name of the IPP plugin instance.
 func (p *BaseModelToHeaderPlugin) WithName(name string) *BaseModelToHeaderPlugin {
 	p.typedName.Name = name
 	return p

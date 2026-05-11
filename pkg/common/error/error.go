@@ -24,7 +24,7 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// Error is an error struct for errors returned by the epp/bbr server.
+// Error is an error struct for errors returned by the epp/ipp server.
 type Error struct {
 	Code string
 	Msg  string
