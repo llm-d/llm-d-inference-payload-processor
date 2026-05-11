@@ -78,6 +78,27 @@ var (
 		},
 		[]string{"extension_point", "plugin_type", "plugin_name"},
 	)
+
+	modelSelectorE2ELatency = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Subsystem: component,
+			Name:      "model_selector_e2e_duration_seconds",
+			Help:      metricsutil.HelpMsgWithStability("End-to-end model selection latency distribution in seconds.", compbasemetrics.ALPHA),
+			Buckets: []float64{
+				0.0001, 0.0002, 0.0005, 0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1,
+			},
+		},
+		[]string{},
+	)
+
+	modelSelectorAttemptTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Subsystem: component,
+			Name:      "model_selector_attempt_total",
+			Help:      metricsutil.HelpMsgWithStability("Count of model selection attempts by status.", compbasemetrics.ALPHA),
+		},
+		[]string{"status"},
+	)
 )
 
 var registerMetrics sync.Once
@@ -90,6 +111,8 @@ func Register(customCollectors ...prometheus.Collector) {
 		metrics.Registry.MustRegister(bodyFieldNotFoundCounter)
 		metrics.Registry.MustRegister(bodyFieldEmptyCounter)
 		metrics.Registry.MustRegister(pluginProcessingLatencies)
+		metrics.Registry.MustRegister(modelSelectorE2ELatency)
+		metrics.Registry.MustRegister(modelSelectorAttemptTotal)
 		for _, collector := range customCollectors {
 			metrics.Registry.MustRegister(collector)
 		}
@@ -119,4 +142,18 @@ func RecordBodyFieldEmpty(fieldName string) {
 // RecordPluginProcessingLatency records the processing latency for a BBR plugin.
 func RecordPluginProcessingLatency(extensionPoint, pluginType, pluginName string, duration time.Duration) {
 	pluginProcessingLatencies.WithLabelValues(extensionPoint, pluginType, pluginName).Observe(duration.Seconds())
+}
+
+// RecordModelSelectorE2ELatency records the end-to-end latency of model selection.
+func RecordModelSelectorE2ELatency(duration time.Duration) {
+	modelSelectorE2ELatency.WithLabelValues().Observe(duration.Seconds())
+}
+
+// RecordModelSelectorAttempt records a model selection attempt with success or failure status.
+func RecordModelSelectorAttempt(err error) {
+	if err != nil {
+		modelSelectorAttemptTotal.WithLabelValues("failure").Inc()
+		return
+	}
+	modelSelectorAttemptTotal.WithLabelValues("success").Inc()
 }
