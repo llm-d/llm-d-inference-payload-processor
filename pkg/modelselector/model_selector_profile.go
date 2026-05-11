@@ -31,6 +31,9 @@ import (
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/metrics"
 )
 
+// compile-time interface validation
+var _ modelselector.ModelSelectorProfile = &ModelSelectorProfile{}
+
 const (
 	filterExtensionPoint = "ModelSelectorFilter"
 	scorerExtensionPoint = "ModelSelectorScorer"
@@ -105,16 +108,25 @@ func (p *ModelSelectorProfile) String() string {
 		scorerNames[i] = fmt.Sprintf("%s: %f", scorer.TypedName(), scorer.Weight())
 	}
 
+	pickerName := "<none>"
+	if p.picker != nil {
+		pickerName = p.picker.TypedName().String()
+	}
+
 	return fmt.Sprintf(
 		"{Filters: [%s], Scorers: [%s], Picker: %s}",
 		strings.Join(filterNames, ", "),
 		strings.Join(scorerNames, ", "),
-		p.picker.TypedName(),
+		pickerName,
 	)
 }
 
 // Run runs the ModelSelectorProfile pipeline: Filter → Score → Pick.
 func (p *ModelSelectorProfile) Run(ctx context.Context, request *framework.InferenceRequest, cycleState *framework.CycleState, candidateModels []datalayer.Model) (*modelselector.ProfileRunResult, error) {
+	if p.picker == nil {
+		return nil, fmt.Errorf("no picker plugin configured")
+	}
+
 	models := p.runFilterPlugins(ctx, request, cycleState, candidateModels)
 	if len(models) == 0 {
 		return nil, fmt.Errorf("no models available after filtering")
@@ -162,7 +174,9 @@ func (p *ModelSelectorProfile) runScorerPlugins(ctx context.Context, request *fr
 		scores := scorer.Score(ctx, cycleState, request, models)
 		metrics.RecordPluginProcessingLatency(scorerExtensionPoint, scorer.TypedName().Type, scorer.TypedName().Name, time.Since(before))
 		for model, score := range scores {
-			weightedScorePerModel[model] += enforceScoreRange(score) * scorer.Weight()
+			if _, exists := weightedScorePerModel[model]; exists {
+				weightedScorePerModel[model] += enforceScoreRange(score) * scorer.Weight()
+			}
 		}
 		logger.V(logutil.DEBUG).Info("Completed running scorer plugin", "plugin", scorer.TypedName())
 	}

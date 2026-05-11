@@ -66,6 +66,11 @@ func (s *ModelSelector) Select(ctx context.Context, request *framework.Inference
 		return nil, err
 	}
 
+	if result == nil || result.TargetModel == nil {
+		err = fmt.Errorf("model selection returned no result")
+		return nil, err
+	}
+
 	logger.V(logutil.VERBOSE).Info("Model selection completed", "selectedModel", result.TargetModel.GetName())
 
 	return result, nil

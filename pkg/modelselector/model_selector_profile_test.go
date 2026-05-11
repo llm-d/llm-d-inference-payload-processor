@@ -314,6 +314,16 @@ func TestScoreRangeEnforcement(t *testing.T) {
 	}
 }
 
+func TestRunWithNoPicker(t *testing.T) {
+	profile := NewModelSelectorProfile()
+	modelA := datalayer.NewModel("model-a")
+
+	_, err := profile.Run(context.Background(), framework.NewInferenceRequest(), framework.NewCycleState(), []datalayer.Model{modelA})
+	if err == nil {
+		t.Fatal("expected error when no picker is configured")
+	}
+}
+
 func TestAddPlugins(t *testing.T) {
 	t.Run("scorer without weight returns error", func(t *testing.T) {
 		profile := NewModelSelectorProfile()
