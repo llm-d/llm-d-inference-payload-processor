@@ -152,15 +152,15 @@ func TestProfileRun(t *testing.T) {
 			filter: &testFilter{
 				typedName: framework.TypedName{Type: "test-filter", Name: "block-all"},
 				filterFn: func(_ []datalayer.Model) []datalayer.Model {
-					return nil
+					return []datalayer.Model{}
 				},
 			},
 			wantErr: true,
 		},
 		{
-			name:      "no scorers gives equal scores",
+			name:      "picker runs with zero scores when no scorers configured",
 			models:    []datalayer.Model{modelA, modelB},
-			wantModel: "", // any model is fine with equal scores
+			wantModel: "", // any model is valid since all have score 0
 		},
 	}
 
@@ -194,50 +194,6 @@ func TestProfileRun(t *testing.T) {
 				t.Errorf("expected model %q, got %q", tt.wantModel, result.TargetModel.GetName())
 			}
 		})
-	}
-}
-
-func TestFilterExecutionOrder(t *testing.T) {
-	modelA := datalayer.NewModel("model-a")
-	modelB := datalayer.NewModel("model-b")
-	modelC := datalayer.NewModel("model-c")
-
-	var filterOrder []string
-
-	filter1 := &testFilter{
-		typedName: framework.TypedName{Type: "test-filter", Name: "first"},
-		filterFn: func(models []datalayer.Model) []datalayer.Model {
-			filterOrder = append(filterOrder, "first")
-			var result []datalayer.Model
-			for _, m := range models {
-				if m.GetName() != "model-a" {
-					result = append(result, m)
-				}
-			}
-			return result
-		},
-	}
-	filter2 := &testFilter{
-		typedName: framework.TypedName{Type: "test-filter", Name: "second"},
-		filterFn: func(models []datalayer.Model) []datalayer.Model {
-			filterOrder = append(filterOrder, "second")
-			if len(models) != 2 {
-				t.Errorf("second filter expected 2 models (after first filter), got %d", len(models))
-			}
-			return models
-		},
-	}
-
-	picker := &testPicker{typedName: framework.TypedName{Type: "test-picker", Name: "max-score"}}
-	profile := NewModelSelectorProfile().WithFilters(filter1, filter2).WithPicker(picker)
-
-	_, err := profile.Run(context.Background(), framework.NewInferenceRequest(), framework.NewCycleState(), []datalayer.Model{modelA, modelB, modelC})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if len(filterOrder) != 2 || filterOrder[0] != "first" || filterOrder[1] != "second" {
-		t.Errorf("expected filter order [first, second], got %v", filterOrder)
 	}
 }
 

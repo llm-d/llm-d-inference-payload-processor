@@ -155,7 +155,7 @@ func (p *ModelSelectorProfile) runFilterPlugins(ctx context.Context, request *fr
 			break
 		}
 	}
-	logger.V(logutil.VERBOSE).Info("Completed running filter plugins", "remainingModels", len(filteredModels))
+	logger.V(logutil.VERBOSE).Info("Completed running filter plugins")
 
 	return filteredModels
 }

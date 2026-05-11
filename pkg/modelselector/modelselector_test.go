@@ -75,7 +75,7 @@ func TestSelect(t *testing.T) {
 
 			selector := NewModelSelector(profile)
 
-			result, err := selector.Select(context.Background(), framework.NewInferenceRequest(), tt.models)
+			result, err := selector.Select(context.Background(), framework.NewInferenceRequest(), framework.NewCycleState(), tt.models)
 
 			if tt.wantErr {
 				if err == nil {
@@ -139,7 +139,7 @@ func TestSelectWithFilterAndScorer(t *testing.T) {
 
 	selector := NewModelSelector(profile)
 
-	result, err := selector.Select(context.Background(), framework.NewInferenceRequest(), []datalayer.Model{modelA, modelB, modelC})
+	result, err := selector.Select(context.Background(), framework.NewInferenceRequest(), framework.NewCycleState(), []datalayer.Model{modelA, modelB, modelC})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

@@ -43,7 +43,7 @@ type ModelSelector struct {
 }
 
 // Select runs the model selection pipeline (Filter → Score → Pick) and returns the selected model.
-func (s *ModelSelector) Select(ctx context.Context, request *framework.InferenceRequest, candidateModels []datalayer.Model) (result *modelselector.ProfileRunResult, err error) {
+func (s *ModelSelector) Select(ctx context.Context, request *framework.InferenceRequest, cycleState *framework.CycleState, candidateModels []datalayer.Model) (result *modelselector.ProfileRunResult, err error) {
 	logger := log.FromContext(ctx)
 	logger.V(logutil.VERBOSE).Info("Starting model selection", "candidateModels", len(candidateModels))
 
@@ -57,8 +57,6 @@ func (s *ModelSelector) Select(ctx context.Context, request *framework.Inference
 		err = fmt.Errorf("no candidate models provided")
 		return nil, err
 	}
-
-	cycleState := framework.NewCycleState()
 
 	result, err = s.profile.Run(ctx, request, cycleState, candidateModels)
 	if err != nil {
