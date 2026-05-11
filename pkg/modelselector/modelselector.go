@@ -18,7 +18,7 @@ package modelselector
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"time"
 
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -54,7 +54,7 @@ func (s *ModelSelector) Select(ctx context.Context, request *framework.Inference
 	}()
 
 	if len(candidateModels) == 0 {
-		err = fmt.Errorf("no candidate models provided")
+		err = errors.New("no candidate models provided")
 		return nil, err
 	}
 
@@ -65,7 +65,7 @@ func (s *ModelSelector) Select(ctx context.Context, request *framework.Inference
 	}
 
 	if result == nil || result.TargetModel == nil {
-		err = fmt.Errorf("model selection returned no result")
+		err = errors.New("model selection returned no result")
 		return nil, err
 	}
 

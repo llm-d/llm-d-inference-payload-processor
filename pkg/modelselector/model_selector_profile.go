@@ -18,6 +18,7 @@ package modelselector
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -124,12 +125,12 @@ func (p *ModelSelectorProfile) String() string {
 // Run runs the ModelSelectorProfile pipeline: Filter → Score → Pick.
 func (p *ModelSelectorProfile) Run(ctx context.Context, request *framework.InferenceRequest, cycleState *framework.CycleState, candidateModels []datalayer.Model) (*modelselector.ProfileRunResult, error) {
 	if p.picker == nil {
-		return nil, fmt.Errorf("no picker plugin configured")
+		return nil, errors.New("no picker plugin configured")
 	}
 
 	models := p.runFilterPlugins(ctx, request, cycleState, candidateModels)
 	if len(models) == 0 {
-		return nil, fmt.Errorf("no models available after filtering")
+		return nil, errors.New("no models available after filtering")
 	}
 
 	weightedScorePerModel := p.runScorerPlugins(ctx, request, cycleState, models)
