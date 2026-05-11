@@ -30,7 +30,7 @@ type ScoredModel struct {
 
 // ProfileRunResult captures the profile run result.
 type ProfileRunResult struct {
-	TargetModels []datalayer.Model
+	TargetModel datalayer.Model
 }
 
 type ModelSelectorProfile interface {

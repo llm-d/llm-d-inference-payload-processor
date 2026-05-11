@@ -23,7 +23,7 @@ import (
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/modelselector"
 )
 
-// NewSchedulerProfile creates a new SchedulerProfile object and returns its pointer.
+// NewModelSelectorProfile creates a new ModelSelectorProfile object and returns its pointer.
 func NewModelSelectorProfile() *ModelSelectorProfile {
 	return &ModelSelectorProfile{
 		filters: []modelselector.Filter{},
