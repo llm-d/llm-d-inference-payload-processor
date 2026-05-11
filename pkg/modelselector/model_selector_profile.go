@@ -79,22 +79,38 @@ func (p *ModelSelectorProfile) WithPicker(picker modelselector.Picker) *ModelSel
 // Special Case: In order to add a scorer, one must use NewWeightedScorer in order to provide a weight.
 // If a scorer implements more than one interface, supplying a WeightedScorer is sufficient.
 func (p *ModelSelectorProfile) AddPlugins(pluginObjects ...framework.Plugin) error {
-	for _, plugin := range pluginObjects {
-		if weightedScorer, ok := plugin.(*WeightedScorer); ok {
-			p.scorers = append(p.scorers, weightedScorer)
-			plugin = weightedScorer.Scorer
-		} else if scorer, ok := plugin.(modelselector.Scorer); ok {
+	// Validate all plugins before modifying state to avoid inconsistent profile
+	var newFilters []modelselector.Filter
+	var newScorers []*WeightedScorer
+	var newPicker modelselector.Picker
+
+	for _, plug := range pluginObjects {
+		if weightedScorer, ok := plug.(*WeightedScorer); ok {
+			newScorers = append(newScorers, weightedScorer)
+			plug = weightedScorer.Scorer
+		} else if scorer, ok := plug.(modelselector.Scorer); ok {
 			return fmt.Errorf("failed to register scorer '%s' without a weight. use NewWeightedScorer to register a scorer", scorer.TypedName())
 		}
-		if filter, ok := plugin.(modelselector.Filter); ok {
-			p.filters = append(p.filters, filter)
+		if filter, ok := plug.(modelselector.Filter); ok {
+			newFilters = append(newFilters, filter)
 		}
-		if picker, ok := plugin.(modelselector.Picker); ok {
-			if p.picker != nil {
-				return fmt.Errorf("failed to set '%s' as picker, already have a registered picker plugin '%s'", picker.TypedName(), p.picker.TypedName())
+		if picker, ok := plug.(modelselector.Picker); ok {
+			if p.picker != nil || newPicker != nil {
+				existing := p.picker
+				if newPicker != nil {
+					existing = newPicker
+				}
+				return fmt.Errorf("failed to set '%s' as picker, already have a registered picker plugin '%s'", picker.TypedName(), existing.TypedName())
 			}
-			p.picker = picker
+			newPicker = picker
 		}
+	}
+
+	// Apply after successful validation
+	p.filters = append(p.filters, newFilters...)
+	p.scorers = append(p.scorers, newScorers...)
+	if newPicker != nil {
+		p.picker = newPicker
 	}
 	return nil
 }
@@ -136,6 +152,9 @@ func (p *ModelSelectorProfile) Run(ctx context.Context, request *framework.Infer
 	weightedScorePerModel := p.runScorerPlugins(ctx, request, cycleState, models)
 
 	result := p.runPickerPlugin(ctx, cycleState, weightedScorePerModel)
+	if result == nil || result.TargetModel == nil {
+		return nil, errors.New("picker returned no result")
+	}
 
 	return result, nil
 }
@@ -161,12 +180,12 @@ func (p *ModelSelectorProfile) runFilterPlugins(ctx context.Context, request *fr
 	return filteredModels
 }
 
-func (p *ModelSelectorProfile) runScorerPlugins(ctx context.Context, request *framework.InferenceRequest, cycleState *framework.CycleState, models []datalayer.Model) map[datalayer.Model]float64 {
+func (p *ModelSelectorProfile) runScorerPlugins(ctx context.Context, request *framework.InferenceRequest, cycleState *framework.CycleState, models []datalayer.Model) map[string]scoredModelEntry {
 	logger := log.FromContext(ctx)
 
-	weightedScorePerModel := make(map[datalayer.Model]float64, len(models))
+	entries := make(map[string]scoredModelEntry, len(models))
 	for _, model := range models {
-		weightedScorePerModel[model] = 0
+		entries[model.GetName()] = scoredModelEntry{model: model, score: 0}
 	}
 
 	for _, scorer := range p.scorers {
@@ -175,23 +194,29 @@ func (p *ModelSelectorProfile) runScorerPlugins(ctx context.Context, request *fr
 		scores := scorer.Score(ctx, cycleState, request, models)
 		metrics.RecordPluginProcessingLatency(scorerExtensionPoint, scorer.TypedName().Type, scorer.TypedName().Name, time.Since(before))
 		for model, score := range scores {
-			if _, exists := weightedScorePerModel[model]; exists {
-				weightedScorePerModel[model] += enforceScoreRange(score) * scorer.Weight()
+			if entry, exists := entries[model.GetName()]; exists {
+				entry.score += enforceScoreRange(score) * scorer.Weight()
+				entries[model.GetName()] = entry
 			}
 		}
 		logger.V(logutil.DEBUG).Info("Completed running scorer plugin", "plugin", scorer.TypedName())
 	}
 	logger.V(logutil.VERBOSE).Info("Completed running scorer plugins")
 
-	return weightedScorePerModel
+	return entries
 }
 
-func (p *ModelSelectorProfile) runPickerPlugin(ctx context.Context, cycleState *framework.CycleState, weightedScorePerModel map[datalayer.Model]float64) *modelselector.ProfileRunResult {
+type scoredModelEntry struct {
+	model datalayer.Model
+	score float64
+}
+
+func (p *ModelSelectorProfile) runPickerPlugin(ctx context.Context, cycleState *framework.CycleState, entries map[string]scoredModelEntry) *modelselector.ProfileRunResult {
 	logger := log.FromContext(ctx)
 
-	scoredModels := make([]*modelselector.ScoredModel, 0, len(weightedScorePerModel))
-	for model, score := range weightedScorePerModel {
-		scoredModels = append(scoredModels, &modelselector.ScoredModel{Model: model, Score: score})
+	scoredModels := make([]*modelselector.ScoredModel, 0, len(entries))
+	for _, entry := range entries {
+		scoredModels = append(scoredModels, &modelselector.ScoredModel{Model: entry.model, Score: entry.score})
 	}
 
 	logger.V(logutil.VERBOSE).Info("Running picker plugin", "plugin", p.picker.TypedName())
