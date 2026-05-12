@@ -140,10 +140,6 @@ func (p *ModelSelectorProfile) String() string {
 
 // Run runs the ModelSelectorProfile pipeline: Filter → Score → Pick.
 func (p *ModelSelectorProfile) Run(ctx context.Context, request *framework.InferenceRequest, cycleState *framework.CycleState, candidateModels []datalayer.Model) (*modelselector.ProfileRunResult, error) {
-	if p.picker == nil {
-		return nil, errors.New("no picker plugin configured")
-	}
-
 	models := p.runFilterPlugins(ctx, request, cycleState, candidateModels)
 	if len(models) == 0 {
 		return nil, errors.New("no models available after filtering")
@@ -152,9 +148,6 @@ func (p *ModelSelectorProfile) Run(ctx context.Context, request *framework.Infer
 	weightedScorePerModel := p.runScorerPlugins(ctx, request, cycleState, models)
 
 	result := p.runPickerPlugin(ctx, cycleState, weightedScorePerModel)
-	if result == nil || result.TargetModel == nil {
-		return nil, errors.New("picker returned no result")
-	}
 
 	return result, nil
 }
@@ -180,12 +173,12 @@ func (p *ModelSelectorProfile) runFilterPlugins(ctx context.Context, request *fr
 	return filteredModels
 }
 
-func (p *ModelSelectorProfile) runScorerPlugins(ctx context.Context, request *framework.InferenceRequest, cycleState *framework.CycleState, models []datalayer.Model) map[string]scoredModelEntry {
+func (p *ModelSelectorProfile) runScorerPlugins(ctx context.Context, request *framework.InferenceRequest, cycleState *framework.CycleState, models []datalayer.Model) map[string]*modelselector.ScoredModel {
 	logger := log.FromContext(ctx)
 
-	entries := make(map[string]scoredModelEntry, len(models))
+	scoredModels := make(map[string]*modelselector.ScoredModel, len(models))
 	for _, model := range models {
-		entries[model.GetName()] = scoredModelEntry{model: model, score: 0}
+		scoredModels[model.GetName()] = &modelselector.ScoredModel{Model: model, Score: 0}
 	}
 
 	for _, scorer := range p.scorers {
@@ -194,29 +187,25 @@ func (p *ModelSelectorProfile) runScorerPlugins(ctx context.Context, request *fr
 		scores := scorer.Score(ctx, cycleState, request, models)
 		metrics.RecordPluginProcessingLatency(scorerExtensionPoint, scorer.TypedName().Type, scorer.TypedName().Name, time.Since(before))
 		for model, score := range scores {
-			if entry, exists := entries[model.GetName()]; exists {
-				entry.score += enforceScoreRange(score) * scorer.Weight()
-				entries[model.GetName()] = entry
+			if sm, exists := scoredModels[model.GetName()]; exists {
+				sm.Score += enforceScoreRange(score) * scorer.Weight()
 			}
 		}
 		logger.V(logutil.DEBUG).Info("Completed running scorer plugin", "plugin", scorer.TypedName())
 	}
 	logger.V(logutil.VERBOSE).Info("Completed running scorer plugins")
 
-	return entries
+	return scoredModels
 }
 
-type scoredModelEntry struct {
-	model datalayer.Model
-	score float64
-}
-
-func (p *ModelSelectorProfile) runPickerPlugin(ctx context.Context, cycleState *framework.CycleState, entries map[string]scoredModelEntry) *modelselector.ProfileRunResult {
+func (p *ModelSelectorProfile) runPickerPlugin(ctx context.Context, cycleState *framework.CycleState, scoredModelMap map[string]*modelselector.ScoredModel) *modelselector.ProfileRunResult {
 	logger := log.FromContext(ctx)
 
-	scoredModels := make([]*modelselector.ScoredModel, 0, len(entries))
-	for _, entry := range entries {
-		scoredModels = append(scoredModels, &modelselector.ScoredModel{Model: entry.model, Score: entry.score})
+	scoredModels := make([]*modelselector.ScoredModel, len(scoredModelMap))
+	i := 0
+	for _, sm := range scoredModelMap {
+		scoredModels[i] = sm
+		i++
 	}
 
 	logger.V(logutil.VERBOSE).Info("Running picker plugin", "plugin", p.picker.TypedName())
