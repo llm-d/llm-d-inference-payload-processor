@@ -24,7 +24,7 @@ import (
 
 // Datastore is the interface for reading and updating the model store.
 type Datastore interface {
-	GetOrCreateModel(name string) *datalayer.Model
+	GetOrCreateModel(name string) datalayer.Model
 	DeleteModel(name string)
 	Models() []string
 }
@@ -37,16 +37,16 @@ type Datastore interface {
 // All operations are thread-safe using RWMutex.
 type store struct {
 	mu     sync.RWMutex
-	models map[string]*datalayer.Model
+	models map[string]datalayer.Model
 }
 
 // NewStore creates and returns a new Datastore instance.
 func NewStore() Datastore {
-	return &store{models: make(map[string]*datalayer.Model)}
+	return &store{models: make(map[string]datalayer.Model)}
 }
 
 // GetOrCreateModel returns the Model for name, creating it atomically if it does not exist.
-func (s *store) GetOrCreateModel(name string) *datalayer.Model {
+func (s *store) GetOrCreateModel(name string) datalayer.Model {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if m, ok := s.models[name]; ok {
