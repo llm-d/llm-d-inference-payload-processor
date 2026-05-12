@@ -32,6 +32,7 @@ type DataStore interface {
 type DataSource interface {
 	Plugin
 	Start(ctx context.Context) error
+	// Stop signals the component to shut down and blocks until it has fully stopped.
 	Stop()
 }
 
