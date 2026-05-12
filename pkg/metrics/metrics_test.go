@@ -1,5 +1,5 @@
 /*
-Copyright 2026 The Kubernetes Authors.
+Copyright 2026 The llm-d Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -72,7 +72,7 @@ func TestPluginProcessingLatency(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err := testutil.GatherAndCompare(crmetrics.Registry, wantPluginLatencies, "bbr_plugin_duration_seconds"); err != nil {
+			if err := testutil.GatherAndCompare(crmetrics.Registry, wantPluginLatencies, "ipp_plugin_duration_seconds"); err != nil {
 				t.Error(err)
 			}
 		})

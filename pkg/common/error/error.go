@@ -1,5 +1,5 @@
 /*
-Copyright 2025 The Kubernetes Authors.
+Copyright 2026 The llm-d Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -24,7 +24,7 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// Error is an error struct for errors returned by the epp/bbr server.
+// Error is an error struct for errors returned by the epp/ipp server.
 type Error struct {
 	Code string
 	Msg  string

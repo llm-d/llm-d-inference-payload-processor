@@ -1,5 +1,5 @@
 /*
-Copyright 2026 The Kubernetes Authors.
+Copyright 2026 The llm-d Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -77,7 +77,7 @@ func (p *BaseModelToHeaderPlugin) TypedName() framework.TypedName {
 	return p.typedName
 }
 
-// WithName sets the name of the BBR plugin instance.
+// WithName sets the name of the IPP plugin instance.
 func (p *BaseModelToHeaderPlugin) WithName(name string) *BaseModelToHeaderPlugin {
 	p.typedName.Name = name
 	return p
