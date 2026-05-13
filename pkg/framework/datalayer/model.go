@@ -16,6 +16,8 @@ limitations under the License.
 
 package datalayer
 
+import "fmt"
+
 type Model interface {
 	GetName() string
 	GetAttributes() AttributeMap
@@ -42,4 +44,22 @@ func (m *model) GetName() string {
 
 func (m *model) GetAttributes() AttributeMap {
 	return m.attributes
+}
+
+// Reads model attribute by a given key and asserts the value to the type T.
+// Returns an error if the key is not found or the type assertion fails.
+func ReadModelKey[T any](m Model, key string) (T, error) {
+	var zero T
+
+	raw, ok := m.GetAttributes().Get(key)
+	if !ok {
+		return zero, fmt.Errorf("attribute %q: not found", key)
+	}
+
+	val, ok := raw.(T)
+	if !ok {
+		return zero, fmt.Errorf("unexpected type for key %q: got %T", key, raw)
+	}
+
+	return val, nil
 }
