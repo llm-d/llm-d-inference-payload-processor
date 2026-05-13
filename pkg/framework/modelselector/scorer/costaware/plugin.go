@@ -47,8 +47,8 @@ type PriceValue struct {
 }
 
 // Clone implements the Cloneable interface
-func (p PriceValue) Clone() datalayer.Cloneable {
-	return PriceValue{Value: p.Value}
+func (p *PriceValue) Clone() datalayer.Cloneable {
+	return &PriceValue{Value: p.Value}
 }
 
 // compile-time type assertion
