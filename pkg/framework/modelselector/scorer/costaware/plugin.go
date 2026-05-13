@@ -90,12 +90,12 @@ func (s *CostScorer) WithName(name string) *CostScorer {
 //   - Score formula: 1.0 - (price - minPrice) / (maxPrice - minPrice)
 func (s *CostScorer) Score(_ context.Context, _ *framework.CycleState, _ *framework.InferenceRequest, models []datalayer.Model) map[datalayer.Model]float64 {
 	priceValue, _ := models[0].GetAttributes().Get(PriceAttributeKey)
-	minPrice := priceValue.(PriceValue).Value
+	minPrice := priceValue.(*PriceValue).Value
 	maxPrice := minPrice
 
 	for _, model := range models {
 		priceValue, _ := model.GetAttributes().Get(PriceAttributeKey)
-		price := priceValue.(PriceValue).Value
+		price := priceValue.(*PriceValue).Value
 		if price < minPrice {
 			minPrice = price
 		}
@@ -110,7 +110,7 @@ func (s *CostScorer) Score(_ context.Context, _ *framework.CycleState, _ *framew
 			return 0.5
 		}
 		priceValue, _ := model.GetAttributes().Get(PriceAttributeKey)
-		price := priceValue.(PriceValue).Value
+		price := priceValue.(*PriceValue).Value
 		// Invert the score so that lower price = higher score
 		return 1.0 - (price-minPrice)/(maxPrice-minPrice)
 	}

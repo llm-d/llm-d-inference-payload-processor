@@ -218,12 +218,12 @@ func TestScore(t *testing.T) {
 
 // TestPriceValueClone tests the Clone method of PriceValue
 func TestPriceValueClone(t *testing.T) {
-	original := PriceValue{Value: 42.5}
+	original := &PriceValue{Value: 42.5}
 	cloned := original.Clone()
 
-	clonedPrice, ok := cloned.(PriceValue)
+	clonedPrice, ok := cloned.(*PriceValue)
 	if !ok {
-		t.Fatal("Clone() did not return PriceValue type")
+		t.Fatal("Clone() did not return *PriceValue type")
 	}
 
 	if clonedPrice.Value != original.Value {
@@ -241,7 +241,7 @@ func TestPriceValueClone(t *testing.T) {
 
 func createModelWithPrice(name string, price float64) datalayer.Model {
 	model := datalayer.NewModel(name)
-	model.GetAttributes().Put(PriceAttributeKey, PriceValue{Value: price})
+	model.GetAttributes().Put(PriceAttributeKey, &PriceValue{Value: price})
 	return model
 }
 
