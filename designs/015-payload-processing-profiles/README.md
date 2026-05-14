@@ -3,6 +3,7 @@
 Author(s): @noyitz
 
 Related issue: [#15](https://github.com/llm-d/llm-d-inference-payload-processor/issues/15)
+Related proposals: [Proposal 043 — ModelSelector Architecture](https://github.com/llm-d/llm-d-inference-payload-processor/tree/main/docs/proposals/043-model-selection-framework)
 
 ## Summary
 
@@ -120,15 +121,60 @@ If the picker returns an unknown profile name or an error, the framework returns
 
 ## Model Selector Integration
 
-The model selector is not a special concept at the profile level. It is a RequestProcessor plugin that happens to internally run its own Filter → Score → Pick pipeline. It sits in a profile's request chain alongside other request plugins.
+The ModelSelector ([Proposal 043](https://github.com/llm-d/llm-d-inference-payload-processor/tree/main/docs/proposals/043-model-selection-framework)) is a RequestProcessor plugin that internally runs its own Filter → Score → Pick pipeline to select the best model for a request. It is not a special concept at the profile level — it sits in a profile's request chain alongside other request plugins.
 
-This means:
+### How the ModelSelector works internally
 
-- Different profiles can use different model selector instances with different strategies (cost-optimized, quality-optimized, fallback)
-- The execution order between model selection and other plugins is explicit — you can see exactly where in the chain model selection happens
-- Profiles without model selection simply don't include a model selector plugin
+The ModelSelector has its own layered architecture that mirrors the IPP profile structure:
 
-The model selector can itself support multiple internal profiles with its own profile selection (same recursive pattern), but that is internal to the model selector and transparent to the IPP profile system.
+- **ModelSelector** — the top-level component. Receives candidate models and runs a ModelSelectorProfile to select the best one.
+- **ModelSelectorProfile** — an ordered pipeline of Filter → Score → Pick phases, analogous to an IPP profile's ordered plugin chain.
+- **Filter plugins** — remove models that are unfit for selection (e.g., rate-limited, unavailable). Zero or more per profile.
+- **Scorer plugins** — score remaining models in a normalized [0,1] range with configurable weights (e.g., CostScorer, LatencyScorer). Zero or more per profile.
+- **Picker plugin** — selects the winning model from scored candidates (e.g., MaxScorePicker picks the highest score, WeightedRandomPicker samples proportionally to scores). Exactly one per profile.
+
+The ModelSelector receives a CycleState from the IPP pipeline, allowing it to share data with other plugins in the same profile (e.g., reading model metadata written by a pre-processing plugin).
+
+### How it fits in the IPP profile
+
+The ModelSelector appears as a single step in a profile's request chain. From the IPP profile's perspective, it is just another RequestProcessor — the internal Filter/Score/Pick pipeline is transparent:
+
+```
+Profile: auto-routing
+  Request Chain:
+    1. model-selector (internally runs: Filter → Score → Pick → writes selected model)
+    2. model-provider-resolver (reads selected model, resolves provider)
+    3. api-translation (translates to provider format)
+    4. apikey-injection (injects provider credentials)
+```
+
+### Multiple model selectors across profiles
+
+Different profiles can use different ModelSelector instances, each configured with different Filter/Scorer/Picker plugins:
+
+- A **standard** profile might not include a ModelSelector at all — the user specified the model directly
+- An **auto-routing** profile might include a cost-optimized ModelSelector (CostScorer + MaxScorePicker)
+- A **priority** profile might include a quality-optimized ModelSelector (QualityScorer + MaxScorePicker)
+
+This is one of the key benefits of treating the ModelSelector as a regular plugin — it composes naturally with the profile system without any special-casing.
+
+### Recursive pattern
+
+The ModelSelector can itself support multiple internal profiles with its own profile selection — the same pattern as the IPP profile system, applied recursively. For example, a single ModelSelector plugin could internally select between a cost-optimized scoring profile and a quality-optimized scoring profile based on request properties. This is internal to the ModelSelector and transparent to the IPP profile that contains it.
+
+This recursive pattern — profiles containing plugins that themselves contain profiles — is a deliberate design choice. It means we design the profile/picker pattern once and reuse it at both the IPP level and the ModelSelector level.
+
+### Current implementation status
+
+The ModelSelector framework is implemented and merged:
+
+- **ModelSelector.Select()** — the entry point that runs a single profile ([PR #72](https://github.com/llm-d/llm-d-inference-payload-processor/pull/72), merged)
+- **ModelSelectorProfile.Run()** — executes the Filter → Score → Pick pipeline with per-plugin latency metrics
+- **WeightedScorer** — wraps scorers with configurable weights for score aggregation
+- **MaxScorePicker** — picks the highest-scored model with random tie-breaking ([PR #74](https://github.com/llm-d/llm-d-inference-payload-processor/pull/74))
+- **WeightedRandomPicker** — selects proportionally to scores using the A-Res sampling algorithm ([PR #74](https://github.com/llm-d/llm-d-inference-payload-processor/pull/74))
+
+Filter and scorer plugin implementations (cost, latency, rate-limit) are planned as separate issues.
 
 ## Relationship to Config API
 
