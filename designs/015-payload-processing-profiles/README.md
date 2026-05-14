@@ -116,6 +116,8 @@ It returns the name of the profile to execute.
 
 The profile picker runs exactly once per request. It does not iterate or re-pick (unlike the upstream scheduler's ProfileHandler which can iteratively select profiles based on previous results). If iterative profile selection is needed in the future, the interface can be extended.
 
+The profile picker's decision logic should be adjustable at runtime without restarting the IPP. For example, an operator should be able to change which requests route to which profiles (e.g., shifting traffic from a cost-optimized profile to a quality-optimized profile) by updating configuration. This requires the picker to support reloadable decision logic — whether through hot-reloadable config, CEL expressions, or another mechanism that doesn't require recompilation or restart.
+
 If the picker returns an unknown profile name or an error, the framework returns an error to the client.
 
 ## Model Selector Integration
