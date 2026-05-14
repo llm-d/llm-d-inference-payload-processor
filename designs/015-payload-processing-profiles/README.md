@@ -160,9 +160,9 @@ The scheduler's iterative pattern could be added later if a use case emerges, bu
 
 ## Open Questions
 
-1. **Should response plugins also be profile-specific, or always shared?** The current design makes them profile-specific. An alternative is to have shared post-processing (like shared pre-processing) that always runs regardless of profile. This could be useful for metrics collection that should happen for every response.
+1. **Should response plugins also be profile-specific, or always shared?** The current design makes them profile-specific. An alternative is to have shared post-processing (like shared pre-processing) that always runs regardless of profile. This could be useful for plugins that should run for every response — metrics collection, security validation, audit logging. A shared post-processing stage would mirror pre-processing and ensure these concerns are never accidentally omitted from a profile.
 
-2. **Pre-processing on the response side?** Similar to request pre-processing, there may be shared response plugins that should always run (e.g., metrics collection, logging). Should we support a shared response post-processing stage?
+2. **Shared pre/post-processing symmetry** — If we support shared pre-processing on the request side, should we also support shared post-processing on the response side? The use cases are clear: metrics collection, security plugins, audit logging all need to run for every response regardless of which profile handled the request.
 
 3. **Error handling in the profile picker** — If the picker cannot determine a profile (ambiguous request, missing data), should it fall back to a default profile, or return an error? The design currently says error, but a default fallback may be more resilient.
 
