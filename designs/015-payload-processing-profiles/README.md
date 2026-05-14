@@ -130,8 +130,10 @@ The ModelSelector has its own layered architecture that mirrors the IPP profile 
 - **ModelSelector** — the top-level component. Receives candidate models and runs a ModelSelectorProfile to select the best one.
 - **ModelSelectorProfile** — an ordered pipeline of Filter → Score → Pick phases, analogous to an IPP profile's ordered plugin chain.
 - **Filter plugins** — remove models that are unfit for selection (e.g., rate-limited, unavailable). Zero or more per profile.
-- **Scorer plugins** — score remaining models in a normalized [0,1] range with configurable weights (e.g., CostScorer, LatencyScorer). Zero or more per profile.
-- **Picker plugin** — selects the winning model from scored candidates (e.g., MaxScorePicker picks the highest score, WeightedRandomPicker samples proportionally to scores). Exactly one per profile.
+- **Scorer plugins** — score remaining models in a normalized [0,1] range with configurable weights (e.g., CostScorer, LatencyScorer). Zero or more per profile. When multiple scorers are configured, each scorer's output is multiplied by its weight and accumulated into a single weighted score per model.
+- **Picker plugin** — selects the winning model based on the weighted scores produced by the scorers. The picker receives the full list of scored models and uses those scores to make its decision. For example, MaxScorePicker selects the model with the highest weighted score, while WeightedRandomPicker uses the scores as probabilities — a model scored 0.9 is much more likely to be selected than one scored 0.1. Exactly one per profile.
+
+The data flows through the pipeline sequentially: filters narrow the candidate set, scorers evaluate and rank the remaining candidates, and the picker makes the final selection using those rankings.
 
 The ModelSelector receives a CycleState from the IPP pipeline, allowing it to share data with other plugins in the same profile (e.g., reading model metadata written by a pre-processing plugin).
 
