@@ -39,6 +39,7 @@ updates:
         patterns:
           - "*"
 
+
   # GitHub Actions dependencies
   - package-ecosystem: "github-actions"
     directory: "/"
@@ -59,13 +60,3 @@ updates:
       - "dependencies"
     commit-message:
       prefix: "deps(docker)"
-
-  # Python dependencies (uncomment if repo uses pip/requirements.txt)
-  # - package-ecosystem: "pip"
-  #   directory: "/"
-  #   schedule:
-  #     interval: "weekly"
-  #   labels:
-  #     - "dependencies"
-  #   commit-message:
-  #     prefix: "deps(pip)"
