@@ -24,6 +24,9 @@ import (
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/modelselector"
 )
 
+// PickerRand is a thread-safe random number generator shared by all pickers.
+var PickerRand = newLockedRand()
+
 type lockedRand struct {
 	mu   sync.Mutex
 	rand *rand.Rand
@@ -50,9 +53,6 @@ func (r *lockedRand) Shuffle(n int, swap func(i, j int)) {
 
 	r.rand.Shuffle(n, swap)
 }
-
-// PickerRand is a thread-safe random number generator shared by all pickers.
-var PickerRand = newLockedRand()
 
 // ShuffleScoredModels randomizes the order of the given scored models in-place.
 func ShuffleScoredModels(scoredModels []*modelselector.ScoredModel) {
