@@ -23,4 +23,4 @@ This picker resolves the trade-off between `max-score-picker` and `random-picker
 
 ## Configuration
 
-TThe plugin has no config.
+The plugin has no config.
