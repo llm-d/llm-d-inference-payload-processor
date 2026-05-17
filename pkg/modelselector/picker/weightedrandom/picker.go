@@ -17,11 +17,11 @@ limitations under the License.
 package weightedrandom
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"math"
 	"slices"
-	"sort"
 
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
@@ -81,6 +81,7 @@ type WeightedRandomPicker struct {
 // WithName sets the name of the picker.
 func (p *WeightedRandomPicker) WithName(name string) *WeightedRandomPicker {
 	p.typedName.Name = name
+	p.randomPicker.WithName(name)
 	return p
 }
 
@@ -121,8 +122,8 @@ func (p *WeightedRandomPicker) Pick(ctx context.Context, cycleState *framework.C
 		weightedModels[i] = weightedScoredModel{ScoredModel: scoredModel, key: math.Pow(u, 1.0/scoredModel.Score)} // key = U^(1/weight)
 	}
 
-	sort.Slice(weightedModels, func(i, j int) bool {
-		return weightedModels[i].key > weightedModels[j].key
+	slices.SortFunc(weightedModels, func(a, b weightedScoredModel) int {
+		return cmp.Compare(b.key, a.key)
 	})
 
 	return &modelselector.ProfileRunResult{TargetModel: weightedModels[0].Model}

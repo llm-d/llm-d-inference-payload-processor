@@ -67,7 +67,7 @@ func (p *MaxScorePicker) TypedName() framework.TypedName {
 
 // Pick selects the model with the highest score.
 func (p *MaxScorePicker) Pick(ctx context.Context, _ *framework.CycleState, scoredModels []*modelselector.ScoredModel) *modelselector.ProfileRunResult {
-	log.FromContext(ctx).V(logutil.DEBUG).Info("selecting model rom candidates by max score", "numCandidates", len(scoredModels),
+	log.FromContext(ctx).V(logutil.DEBUG).Info("selecting model from candidates by max score", "numCandidates", len(scoredModels),
 		"scoredModels", scoredModels)
 
 	// Shuffle in-place - needed for random tie break when scores are equal
