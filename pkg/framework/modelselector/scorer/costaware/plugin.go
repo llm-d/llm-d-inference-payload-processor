@@ -54,8 +54,8 @@ func (p *PriceValue) Clone() datalayer.Cloneable {
 // compile-time type assertion
 var _ modelselector.Scorer = &CostScorer{}
 
-// Factory defines the factory function for the CostScorer scorer
-func CostScorerFactory(name string, _ json.RawMessage) (framework.Plugin, error) {
+// CostScorerFactory defines the factory function for the CostScorer scorer
+func CostScorerFactory(name string, _ json.RawMessage, _ framework.Handle) (framework.Plugin, error) {
 	return NewCostScorer().WithName(name), nil
 }
 
@@ -83,42 +83,49 @@ func (s *CostScorer) WithName(name string) *CostScorer {
 	return s
 }
 
-// Score scores the given models in range of [0.0-1.0] based on their price.
+// Score scores the given models in range of [0.0-1.0] based on their price using inverted sum normalization.
 // Scoring behavior:
-//   - Cheapest model gets score 1.0, most expensive gets 0.0
-//   - If all models have same price, all receive score 0.5
-//   - Score formula: 1.0 - (price - minPrice) / (maxPrice - minPrice)
+//   - Lower-priced models receive higher scores
+//   - Score formula: 1.0 - price / sum(prices)
+//   - Higher score indicates better (cheaper) model
+//   - If only one model, it receives neutral score 0.5
+//   - If all models have zero price, each receives score 1.0
+//
+// Note: When combining with other scorers using different normalization methods (e.g., Min-Max),
+// be aware that sum normalization may not preserve the intended weight proportions due to scale sensitivity.
+// For consistent multi-criteria scoring, consider using the same normalization method across all scorers.
 func (s *CostScorer) Score(_ context.Context, _ *framework.CycleState, _ *framework.InferenceRequest, models []datalayer.Model) map[datalayer.Model]float64 {
-	priceValue, _ := models[0].GetAttributes().Get(PriceAttributeKey)
-	minPrice := priceValue.(*PriceValue).Value
-	maxPrice := minPrice
-
-	for _, model := range models {
-		priceValue, _ := model.GetAttributes().Get(PriceAttributeKey)
-		price := priceValue.(*PriceValue).Value
-		if price < minPrice {
-			minPrice = price
-		}
-		if price > maxPrice {
-			maxPrice = price
-		}
-	}
-
-	modelScoreFunc := func(model datalayer.Model) float64 {
-		if maxPrice == minPrice {
-			// All models have the same price, assign neutral score
-			return 0.5
-		}
-		priceValue, _ := model.GetAttributes().Get(PriceAttributeKey)
-		price := priceValue.(*PriceValue).Value
-		// Invert the score so that lower price = higher score
-		return 1.0 - (price-minPrice)/(maxPrice-minPrice)
-	}
-
 	// Create a map to hold the score of each model candidate
 	scores := make(map[datalayer.Model]float64, len(models))
-	for _, model := range models {
-		scores[model] = modelScoreFunc(model)
+
+	// Special case: single model gets neutral score
+	if len(models) == 1 {
+		scores[models[0]] = 0.5
+		return scores
 	}
+
+	// Calculate the sum of all prices
+	var sumPrices float64
+	for _, model := range models {
+		priceValue, _ := model.GetAttributes().Get(PriceAttributeKey)
+		price := priceValue.(*PriceValue).Value
+		sumPrices += price
+	}
+
+	// If sum is zero (all prices are zero), all models are free - assign perfect score
+	if sumPrices == 0 {
+		for _, model := range models {
+			scores[model] = 1.0
+		}
+		return scores
+	}
+
+	// Calculate scores using inverted sum normalization: 1 - price/sum(prices)
+	for _, model := range models {
+		priceValue, _ := model.GetAttributes().Get(PriceAttributeKey)
+		price := priceValue.(*PriceValue).Value
+		scores[model] = 1.0 - price/sumPrices
+	}
+
 	return scores
 }

@@ -49,7 +49,7 @@ func TestFactory(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			plugin, err := CostScorerFactory(tt.pluginName, tt.rawParameters)
+			plugin, err := CostScorerFactory(tt.pluginName, tt.rawParameters, nil)
 			if (err != nil) != tt.expectError {
 				t.Errorf("Factory() error = %v, expectError %v", err, tt.expectError)
 				return
@@ -108,10 +108,10 @@ func TestScore(t *testing.T) {
 				createModelWithPrice("model2", 20.0),
 			},
 			expectedScores: map[string]float64{
-				"model1": 1.0, // cheapest
-				"model2": 0.0, // most expensive
+				"model1": 0.6667, // 1 - 10/30 = 0.6667
+				"model2": 0.3333, // 1 - 20/30 = 0.3333
 			},
-			description: "cheapest gets 1.0, most expensive gets 0.0",
+			description: "inverted sum normalization: 1 - price/sum(prices)",
 		},
 		{
 			name: "three models with different prices",
@@ -121,11 +121,11 @@ func TestScore(t *testing.T) {
 				createModelWithPrice("model3", 15.0),
 			},
 			expectedScores: map[string]float64{
-				"model1": 1.0, // cheapest
-				"model2": 0.0, // most expensive
-				"model3": 0.5, // middle
+				"model1": 0.7778, // 1 - 10/45 = 0.7778
+				"model2": 0.5556, // 1 - 20/45 = 0.5556
+				"model3": 0.6667, // 1 - 15/45 = 0.6667
 			},
-			description: "middle-priced model gets 0.5",
+			description: "sum=45: cheapest gets highest score",
 		},
 		{
 			name: "all models same price",
@@ -135,11 +135,11 @@ func TestScore(t *testing.T) {
 				createModelWithPrice("model3", 10.0),
 			},
 			expectedScores: map[string]float64{
-				"model1": 0.5,
-				"model2": 0.5,
-				"model3": 0.5,
+				"model1": 0.6667, // 1 - 10/30 = 0.6667
+				"model2": 0.6667,
+				"model3": 0.6667,
 			},
-			description: "all models with same price get neutral score 0.5",
+			description: "all same price: each gets 1 - 10/30 = 0.6667",
 		},
 		{
 			name: "models with zero price",
@@ -160,10 +160,10 @@ func TestScore(t *testing.T) {
 				createModelWithPrice("model2", 10.1),
 			},
 			expectedScores: map[string]float64{
-				"model1": 1.0,
-				"model2": 0.0,
+				"model1": 0.5025, // 1 - 10.0/20.1 = 0.5025
+				"model2": 0.4975, // 1 - 10.1/20.1 = 0.4975
 			},
-			description: "should handle small price differences",
+			description: "close prices produce close scores",
 		},
 		{
 			name: "models with large price range",
@@ -173,11 +173,25 @@ func TestScore(t *testing.T) {
 				createModelWithPrice("model3", 500.5),
 			},
 			expectedScores: map[string]float64{
-				"model1": 1.0,
-				"model2": 0.0,
-				"model3": 0.5,
+				"model1": 0.9993, // 1 - 1.0/1501.5 = 0.9993
+				"model2": 0.3340, // 1 - 1000.0/1501.5 = 0.3340
+				"model3": 0.6666, // 1 - 500.5/1501.5 = 0.6666
 			},
-			description: "should handle large price ranges correctly",
+			description: "large range: cheapest gets highest score",
+		},
+		{
+			name: "all models with zero price",
+			models: []datalayer.Model{
+				createModelWithPrice("model1", 0.0),
+				createModelWithPrice("model2", 0.0),
+				createModelWithPrice("model3", 0.0),
+			},
+			expectedScores: map[string]float64{
+				"model1": 1.0,
+				"model2": 1.0,
+				"model3": 1.0,
+			},
+			description: "all free models get perfect score 1.0",
 		},
 	}
 
