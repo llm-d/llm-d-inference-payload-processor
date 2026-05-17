@@ -14,23 +14,23 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package framework
+package datalayer
 
 import (
 	"context"
 	"time"
 
-	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/datalayer"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework"
 )
 
 // DataStore provides model-keyed access to aggregated runtime metrics.
 type DataStore interface {
-	GetOrCreateModel(name string) datalayer.Model
+	GetOrCreateModel(name string) Model
 }
 
 // DataSource is the base interface for background data layer components.
 type DataSource interface {
-	Plugin
+	framework.Plugin
 	Start(ctx context.Context) error
 	// Stop signals the component to shut down and blocks until it has fully stopped.
 	Stop()
@@ -52,13 +52,13 @@ type Event struct {
 
 // RequestPayload is the Payload for RequestEventType.
 type RequestPayload struct {
-	Request *InferenceRequest
+	Request *framework.InferenceRequest
 }
 
 // ResponsePayload is the Payload for ResponseEventType.
 type ResponsePayload struct {
-	Request  *InferenceRequest
-	Response *InferenceResponse
+	Request  *framework.InferenceRequest
+	Response *framework.InferenceResponse
 	Duration time.Duration
 }
 
@@ -79,6 +79,6 @@ type NotificationSource interface {
 
 // Extractor processes a batch of Events. It does not manage its own goroutines.
 type Extractor interface {
-	Plugin
+	framework.Plugin
 	Extract(ctx context.Context, events []Event) error
 }

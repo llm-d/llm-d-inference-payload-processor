@@ -22,52 +22,51 @@ import (
 	"testing"
 	"time"
 
-	fwdatalayer "github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/datalayer"
-
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/datalayer"
 )
 
 // fakeDataStore is an in-memory DataStore for tests.
 type fakeDataStore struct {
 	mu     sync.Mutex
-	models map[string]fwdatalayer.Model
+	models map[string]datalayer.Model
 }
 
 func newFakeDataStore() *fakeDataStore {
-	return &fakeDataStore{models: make(map[string]fwdatalayer.Model)}
+	return &fakeDataStore{models: make(map[string]datalayer.Model)}
 }
 
-func (f *fakeDataStore) GetOrCreateModel(name string) fwdatalayer.Model {
+func (f *fakeDataStore) GetOrCreateModel(name string) datalayer.Model {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if m, ok := f.models[name]; ok {
 		return m
 	}
-	m := fwdatalayer.NewModel(name)
+	m := datalayer.NewModel(name)
 	f.models[name] = m
 	return m
 }
 
 // makeRequestEvent creates a RequestEventType event with model and max_tokens.
-func makeRequestEvent(model string, maxTokens float64) framework.Event {
+func makeRequestEvent(model string, maxTokens float64) datalayer.Event {
 	req := framework.NewInferenceRequest()
 	req.Body["model"] = model
 	req.Body["max_tokens"] = maxTokens
-	return framework.Event{
-		Type:    framework.RequestEventType,
-		Payload: framework.RequestPayload{Request: req},
+	return datalayer.Event{
+		Type:    datalayer.RequestEventType,
+		Payload: datalayer.RequestPayload{Request: req},
 	}
 }
 
 // makeResponseEvent creates a ResponseEventType event with model, duration, and max_tokens.
 // maxTokens mirrors the original request's max_tokens so the extractor can decrement correctly.
-func makeResponseEvent(model string, durationMs int, maxTokens float64) framework.Event {
+func makeResponseEvent(model string, durationMs int, maxTokens float64) datalayer.Event {
 	req := framework.NewInferenceRequest()
 	req.Body["model"] = model
 	req.Body["max_tokens"] = maxTokens
-	return framework.Event{
-		Type: framework.ResponseEventType,
-		Payload: framework.ResponsePayload{
+	return datalayer.Event{
+		Type: datalayer.ResponseEventType,
+		Payload: datalayer.ResponsePayload{
 			Request:  req,
 			Response: framework.NewInferenceResponse(),
 			Duration: time.Duration(durationMs) * time.Millisecond,
@@ -98,7 +97,7 @@ func newInflightRequestsTest(t *testing.T) (*InflightRequestsExtractor, *fakeDat
 func TestRequestIncrementsCounter(t *testing.T) {
 	ext, ds := newInflightRequestsTest(t)
 
-	batch := []framework.Event{makeRequestEvent("m1", 100)}
+	batch := []datalayer.Event{makeRequestEvent("m1", 100)}
 	if err := ext.Extract(context.Background(), batch); err != nil {
 		t.Fatalf("Extract failed: %v", err)
 	}
@@ -116,7 +115,7 @@ func TestResponseDecrementsCounter(t *testing.T) {
 	ext, ds := newInflightRequestsTest(t)
 
 	// Response carries the original request's max_tokens so the extractor can decrement correctly.
-	batch := []framework.Event{
+	batch := []datalayer.Event{
 		makeRequestEvent("m1", 100),
 		makeResponseEvent("m1", 50, 100),
 	}
@@ -137,7 +136,7 @@ func TestCounterFloorsAtZero(t *testing.T) {
 	ext, ds := newInflightRequestsTest(t)
 
 	// Response with no prior request — both counters must floor at zero.
-	batch := []framework.Event{makeResponseEvent("m1", 50, 100)}
+	batch := []datalayer.Event{makeResponseEvent("m1", 50, 100)}
 	if err := ext.Extract(context.Background(), batch); err != nil {
 		t.Fatalf("Extract failed: %v", err)
 	}
@@ -154,7 +153,7 @@ func TestCounterFloorsAtZero(t *testing.T) {
 func TestInflightRequestsMultipleModels(t *testing.T) {
 	ext, ds := newInflightRequestsTest(t)
 
-	batch := []framework.Event{
+	batch := []datalayer.Event{
 		makeRequestEvent("m1", 10),
 		makeRequestEvent("m2", 20),
 	}
@@ -176,7 +175,7 @@ func TestInflightRequestsMultipleModels(t *testing.T) {
 func TestInflightRequestsUnknownEventTypeIgnored(t *testing.T) {
 	ext, ds := newInflightRequestsTest(t)
 
-	batch := []framework.Event{{Type: "unknown"}}
+	batch := []datalayer.Event{{Type: "unknown"}}
 	if err := ext.Extract(context.Background(), batch); err != nil {
 		t.Fatalf("Extract failed: %v", err)
 	}
@@ -195,8 +194,8 @@ func TestInflightRequestsMissingModelFieldIgnored(t *testing.T) {
 	// Payload without a "model" key — no counter should be updated.
 	req := framework.NewInferenceRequest()
 	req.Body["max_tokens"] = float64(50)
-	batch := []framework.Event{
-		{Type: framework.RequestEventType, Payload: framework.RequestPayload{Request: req}},
+	batch := []datalayer.Event{
+		{Type: datalayer.RequestEventType, Payload: datalayer.RequestPayload{Request: req}},
 	}
 	if err := ext.Extract(context.Background(), batch); err != nil {
 		t.Fatalf("Extract failed: %v", err)
