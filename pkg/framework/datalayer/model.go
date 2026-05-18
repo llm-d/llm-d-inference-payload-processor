@@ -16,6 +16,8 @@ limitations under the License.
 
 package datalayer
 
+import "encoding/json"
+
 type Model interface {
 	GetName() string
 	GetAttributes() AttributeMap
@@ -42,4 +44,8 @@ func (m *model) GetName() string {
 
 func (m *model) GetAttributes() AttributeMap {
 	return m.attributes
+}
+
+func (m *model) MarshalJSON() ([]byte, error) {
+	return json.Marshal(m.name)
 }

@@ -30,6 +30,7 @@ import (
 	errcommon "github.com/llm-d/llm-d-inference-payload-processor/pkg/common/error"
 	logutil "github.com/llm-d/llm-d-inference-payload-processor/pkg/common/observability/logging"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/datalayer"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/metrics"
 )
 
@@ -68,6 +69,24 @@ func (s *Server) HandleRequestBody(ctx context.Context, reqCtx *RequestContext, 
 
 	if err := s.runRequestPlugins(ctx, reqCtx.CycleState, reqCtx.Request); err != nil {
 		return nil, err
+	}
+
+	if s.modelSelector != nil && s.candidateModels != nil {
+		if candidates := s.candidateModels(); len(candidates) > 0 {
+			result, selErr := s.modelSelector.Run(ctx, reqCtx.Request, reqCtx.CycleState, candidates)
+			if selErr != nil {
+				log.FromContext(ctx).V(logutil.DEFAULT).Error(selErr, "model selection failed, proceeding without selected model")
+			} else if result != nil && result.TargetModel != nil {
+				reqCtx.Request.SetHeader(selectedModelHeader, result.TargetModel.GetName())
+			}
+		}
+	}
+
+	if s.eventNotifier != nil {
+		s.eventNotifier.Notify(datalayer.Event{
+			Type:    datalayer.RequestEventType,
+			Payload: datalayer.RequestPayload{Request: reqCtx.Request},
+		})
 	}
 
 	bodyMutated := reqCtx.Request.BodyMutated()

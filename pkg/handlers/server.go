@@ -34,12 +34,15 @@ import (
 	errcommon "github.com/llm-d/llm-d-inference-payload-processor/pkg/common/error"
 	logutil "github.com/llm-d/llm-d-inference-payload-processor/pkg/common/observability/logging"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/datalayer"
+	fwmodelselector "github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/modelselector"
 	"github.com/llm-d/llm-d-inference-payload-processor/version"
 )
 
 const (
 	contentLengthHeader = "Content-Length"
 	requestIdHeaderKey  = "x-request-id"
+	selectedModelHeader = "x-selected-model"
 
 	requestPluginExtensionPoint  = "request"
 	responsePluginExtensionPoint = "response"
@@ -57,6 +60,22 @@ func NewServer(requestPlugins []framework.RequestProcessor, responsePlugins []fr
 type Server struct {
 	requestPlugins  []framework.RequestProcessor
 	responsePlugins []framework.ResponseProcessor
+	modelSelector   fwmodelselector.ModelSelectorProfile
+	candidateModels func() []datalayer.Model
+	eventNotifier   datalayer.EventNotifier
+}
+
+// WithModelSelector sets the model selector profile and candidate model provider.
+func (s *Server) WithModelSelector(ms fwmodelselector.ModelSelectorProfile, candidateModels func() []datalayer.Model) *Server {
+	s.modelSelector = ms
+	s.candidateModels = candidateModels
+	return s
+}
+
+// WithEventNotifier sets the event notifier used to publish request/response events.
+func (s *Server) WithEventNotifier(n datalayer.EventNotifier) *Server {
+	s.eventNotifier = n
+	return s
 }
 
 // RequestContext stores context information during the lifetime of an HTTP request.

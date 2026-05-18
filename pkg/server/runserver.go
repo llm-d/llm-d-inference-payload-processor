@@ -30,6 +30,8 @@ import (
 	"github.com/llm-d/llm-d-inference-payload-processor/internal/runnable"
 	tlsutil "github.com/llm-d/llm-d-inference-payload-processor/internal/tls"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/datalayer"
+	fwmodelselector "github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/modelselector"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/handlers"
 )
 
@@ -39,6 +41,9 @@ type ExtProcServerRunner struct {
 	SecureServing   bool
 	RequestPlugins  []framework.RequestProcessor
 	ResponsePlugins []framework.ResponseProcessor
+	ModelSelector   fwmodelselector.ModelSelectorProfile
+	CandidateModels func() []datalayer.Model
+	EventNotifier   datalayer.EventNotifier
 }
 
 func NewDefaultExtProcServerRunner(port int) *ExtProcServerRunner {
@@ -67,7 +72,14 @@ func (r *ExtProcServerRunner) AsRunnable(logger logr.Logger) manager.Runnable {
 			srv = grpc.NewServer()
 		}
 
-		extProcPb.RegisterExternalProcessorServer(srv, handlers.NewServer(r.RequestPlugins, r.ResponsePlugins))
+		extProcSrv := handlers.NewServer(r.RequestPlugins, r.ResponsePlugins)
+		if r.ModelSelector != nil {
+			extProcSrv = extProcSrv.WithModelSelector(r.ModelSelector, r.CandidateModels)
+		}
+		if r.EventNotifier != nil {
+			extProcSrv = extProcSrv.WithEventNotifier(r.EventNotifier)
+		}
+		extProcPb.RegisterExternalProcessorServer(srv, extProcSrv)
 
 		// Forward to the gRPC runnable.
 		return runnable.GRPCServer("ext-proc", srv, r.GrpcPort).Start(ctx)

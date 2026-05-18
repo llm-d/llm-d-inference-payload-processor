@@ -40,8 +40,14 @@ import (
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/common/observability/tracing"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/metrics"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/datastore/inmemory"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/datalayer"
+	inflightscorer "github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/modelselector/scorer/inflightrequests"
+	modelselectorsvc "github.com/llm-d/llm-d-inference-payload-processor/pkg/modelselector"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/modelselector/picker/maxscore"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/plugins/basemodelextractor"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/plugins/bodyfieldtoheader"
+	inflightrequests "github.com/llm-d/llm-d-inference-payload-processor/pkg/plugins/datalayer/inflightrequests"
 	notificationsource "github.com/llm-d/llm-d-inference-payload-processor/pkg/plugins/datalayer/notificationsource"
 	runserver "github.com/llm-d/llm-d-inference-payload-processor/pkg/server"
 	"github.com/llm-d/llm-d-inference-payload-processor/version"
@@ -220,12 +226,42 @@ func (r *Runner) Run(ctx context.Context) error {
 		}
 	}
 
+	// Setup data layer: in-memory datastore + inflight-requests extractor + notification source.
+	ds := inmemory.NewDatastore()
+	notifSrc, err := notificationsource.New("default", inflightrequests.NewInflightRequestsExtractor(ds))
+	if err != nil {
+		setupLog.Error(err, "failed to create notification source")
+		return err
+	}
+	if err := notifSrc.Start(ctx); err != nil {
+		setupLog.Error(err, "failed to start notification source")
+		return err
+	}
+	defer notifSrc.Stop()
+
+	// Build model selector: inflight-requests scorer + max-score picker.
+	profile := modelselectorsvc.NewModelSelectorProfile().
+		WithScorers(modelselectorsvc.NewWeightedScorer(inflightscorer.NewInflightRequestsScorer(), 1.0)).
+		WithPicker(maxscore.NewMaxScorePicker())
+
+	candidateModels := func() []datalayer.Model {
+		names := ds.Models()
+		models := make([]datalayer.Model, 0, len(names))
+		for _, name := range names {
+			models = append(models, ds.GetOrCreateModel(name))
+		}
+		return models
+	}
+
 	// Setup ExtProc Server Runner.
 	serverRunner := &runserver.ExtProcServerRunner{
 		GrpcPort:        opts.GRPCPort,
 		SecureServing:   opts.SecureServing,
 		RequestPlugins:  r.requestPlugins,
 		ResponsePlugins: r.responsePlugins,
+		ModelSelector:   profile,
+		CandidateModels: candidateModels,
+		EventNotifier:   notifSrc,
 	}
 
 	// Register health server.

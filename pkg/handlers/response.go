@@ -29,6 +29,7 @@ import (
 	envoy "github.com/llm-d/llm-d-inference-payload-processor/pkg/common/envoy"
 	logutil "github.com/llm-d/llm-d-inference-payload-processor/pkg/common/observability/logging"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/datalayer"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/metrics"
 )
 
@@ -58,6 +59,19 @@ func (s *Server) HandleResponseHeaders(ctx context.Context, reqCtx *RequestConte
 // HandleResponseBody handles response bodies by executing response plugins in order.
 func (s *Server) HandleResponseBody(ctx context.Context, reqCtx *RequestContext, responseBodyBytes []byte) ([]*eppb.ProcessingResponse, error) {
 	logger := log.FromContext(ctx)
+
+	reqCtx.ResponseCompleteTimestamp = time.Now()
+	if s.eventNotifier != nil {
+		s.eventNotifier.Notify(datalayer.Event{
+			Type: datalayer.ResponseEventType,
+			Payload: datalayer.ResponsePayload{
+				Request:  reqCtx.Request,
+				Response: reqCtx.Response,
+				Duration: reqCtx.ResponseCompleteTimestamp.Sub(reqCtx.RequestReceivedTimestamp),
+			},
+		})
+	}
+
 	if len(s.responsePlugins) == 0 {
 		return s.generateEmptyResponseBodyResponse(responseBodyBytes), nil
 	}
