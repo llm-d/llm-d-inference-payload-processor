@@ -22,14 +22,7 @@ import (
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/datalayer"
 )
 
-// Datastore is the interface for reading and updating the model store.
-type Datastore interface {
-	GetOrCreateModel(name string) datalayer.Model
-	DeleteModel(name string)
-	Models() []string
-}
-
-// store is a thread-safe registry of Model entries keyed by model name.
+// store is a thread-safe in-memory registry of Model entries keyed by model name.
 // The outer key is the model name; each Model holds an AttributeMap for
 // dynamic runtime metrics (e.g. "running-requests", "pool-latency") and
 // any static metadata added in future (e.g. vendor, family).
@@ -40,8 +33,8 @@ type store struct {
 	models map[string]datalayer.Model
 }
 
-// NewStore creates and returns a new Datastore instance.
-func NewStore() Datastore {
+// NewInMemoryStore creates and returns a new in-memory Datastore instance.
+func NewInMemoryStore() Datastore {
 	return &store{models: make(map[string]datalayer.Model)}
 }
 

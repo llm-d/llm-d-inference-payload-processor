@@ -30,7 +30,7 @@ func (t testValue) Clone() datalayer.Cloneable { return testValue{Value: t.Value
 
 // TestGetOrCreateModel tests creation, same-instance return, and attribute persistence.
 func TestGetOrCreateModel(t *testing.T) {
-	s := NewStore()
+	s := NewInMemoryStore()
 
 	m := s.GetOrCreateModel("llama-3")
 	if m == nil || m.GetName() != "llama-3" || m.GetAttributes() == nil {
@@ -49,7 +49,7 @@ func TestGetOrCreateModel(t *testing.T) {
 
 // TestDeleteModel tests that delete+recreate yields a fresh model and that deleting a missing key is a no-op.
 func TestDeleteModel(t *testing.T) {
-	s := NewStore()
+	s := NewInMemoryStore()
 
 	s.GetOrCreateModel("llama-3").GetAttributes().Put("key", testValue{Value: 1})
 	s.DeleteModel("llama-3")
@@ -62,7 +62,7 @@ func TestDeleteModel(t *testing.T) {
 
 // TestModelsIsolated tests that different models have independent Attributes.
 func TestModelsIsolated(t *testing.T) {
-	s := NewStore()
+	s := NewInMemoryStore()
 
 	s.GetOrCreateModel("gpt-4").GetAttributes().Put("metric", testValue{Value: 1})
 	s.GetOrCreateModel("llama-3").GetAttributes().Put("metric", testValue{Value: 2})
@@ -76,7 +76,7 @@ func TestModelsIsolated(t *testing.T) {
 
 // TestIndependentStoreInstances tests that two Store instances are fully isolated.
 func TestIndependentStoreInstances(t *testing.T) {
-	s1, s2 := NewStore(), NewStore()
+	s1, s2 := NewInMemoryStore(), NewInMemoryStore()
 	s1.GetOrCreateModel("llama-3").GetAttributes().Put("key", testValue{Value: 1})
 	if _, ok := s2.GetOrCreateModel("llama-3").GetAttributes().Get("key"); ok {
 		t.Error("expected s2 to be independent from s1")
@@ -85,16 +85,16 @@ func TestIndependentStoreInstances(t *testing.T) {
 
 // TestModels tests that Models() returns all tracked model names with correct content.
 func TestModels(t *testing.T) {
-	s := NewStore()
+	s := NewInMemoryStore()
 	s.GetOrCreateModel("gpt-4")
 	s.GetOrCreateModel("llama-3")
 	s.GetOrCreateModel("mistral")
-	
+
 	models := s.Models()
 	if len(models) != 3 {
 		t.Errorf("expected 3 models, got %d", len(models))
 	}
-	
+
 	// Verify actual model names are present
 	expected := map[string]bool{"gpt-4": true, "llama-3": true, "mistral": true}
 	for _, name := range models {
@@ -110,7 +110,7 @@ func TestModels(t *testing.T) {
 
 // TestConcurrentAccess tests thread-safety of concurrent GetOrCreateModel calls.
 func TestConcurrentAccess(t *testing.T) {
-	s := NewStore()
+	s := NewInMemoryStore()
 	var wg sync.WaitGroup
 
 	models := make([]datalayer.Model, 50)
@@ -132,7 +132,7 @@ func TestConcurrentAccess(t *testing.T) {
 
 // TestAttributeNilValue tests that nil values are ignored (no-op) as per AttributeMap contract.
 func TestAttributeNilValue(t *testing.T) {
-	s := NewStore()
+	s := NewInMemoryStore()
 	m := s.GetOrCreateModel("test-model")
 	attrs := m.GetAttributes()
 
@@ -158,12 +158,12 @@ func TestAttributeNilValue(t *testing.T) {
 
 // TestConcurrentAttributeAccess tests concurrent reads and writes to model attributes.
 func TestConcurrentAttributeAccess(t *testing.T) {
-	s := NewStore()
+	s := NewInMemoryStore()
 	m := s.GetOrCreateModel("concurrent-model")
 	attrs := m.GetAttributes()
 
 	var wg sync.WaitGroup
-	
+
 	// 5 concurrent writers
 	for i := 0; i < 5; i++ {
 		wg.Add(1)
