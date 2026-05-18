@@ -186,3 +186,99 @@ func TestConcurrentAccess(t *testing.T) {
 	wg.Wait()
 	// Test passes if no panics or race conditions occurred
 }
+
+// TestReadAttributeKey verifies success case: key is found and value is of expected type.
+// Verifies error case: key is not found.
+// Verifies error case: value is not of expected type.
+func TestReadAttributeKey(t *testing.T) {
+	t.Run("success", func(t *testing.T) {
+		attrs := NewAttributes()
+		expected := testCloneableValue{Value: 42}
+		attrs.Put("score", expected)
+
+		got, err := ReadAttributeKey[testCloneableValue](attrs, "score")
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		if got != expected {
+			t.Fatalf("expected value %+v, got %+v", expected, got)
+		}
+	})
+
+	t.Run("missing key", func(t *testing.T) {
+		attrs := NewAttributes()
+
+		got, err := ReadAttributeKey[testCloneableValue](attrs, "missing")
+		if err == nil {
+			t.Fatal("expected error for missing key")
+		}
+		if got != (testCloneableValue{}) {
+			t.Fatalf("expected zero value, got %+v", got)
+		}
+		if err.Error() != `attribute "missing": not found` {
+			t.Fatalf("expected not found error, got %v", err)
+		}
+	})
+
+	t.Run("wrong type", func(t *testing.T) {
+		attrs := NewAttributes()
+		attrs.Put("score", testCloneableValue{Value: 42})
+
+		got, err := ReadAttributeKey[*testCloneableValue](attrs, "score")
+		if err == nil {
+			t.Fatal("expected error for wrong type")
+		}
+		if got != nil {
+			t.Fatalf("expected zero value nil, got %+v", got)
+		}
+		expectedErrPrefix := `unexpected type for key "score": got`
+		if len(err.Error()) < len(expectedErrPrefix) || err.Error()[:len(expectedErrPrefix)] != expectedErrPrefix {
+			t.Fatalf("expected type error, got %v", err)
+		}
+	})
+
+	t.Run("pointer type", func(t *testing.T) {
+		attrs := NewAttributes()
+		// Store a pointer type that implements Cloneable
+		expected := &testCloneablePointer{Value: 99}
+		attrs.Put("ptr", expected)
+
+		got, err := ReadAttributeKey[*testCloneablePointer](attrs, "ptr")
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+		if got == nil {
+			t.Fatal("expected non-nil pointer")
+		}
+		if got.Value != 99 {
+			t.Fatalf("expected value 99, got %d", got.Value)
+		}
+	})
+
+	t.Run("value type from pointer storage", func(t *testing.T) {
+		attrs := NewAttributes()
+		// Store a pointer, but Clone() returns value type
+		attrs.Put("mixed", &testCloneablePointer{Value: 42})
+
+		// This should work if Clone() returns the value type
+		// But will fail if Clone() returns pointer type
+		// This test documents the expected behavior
+		_, err := ReadAttributeKey[testCloneablePointer](attrs, "mixed")
+		// We expect this to fail because Clone() returns *testCloneablePointer
+		if err == nil {
+			t.Fatal("expected error when type mismatch between stored and requested")
+		}
+	})
+}
+
+// testCloneablePointer is a pointer type that implements Cloneable
+type testCloneablePointer struct {
+	Value int
+}
+
+func (t *testCloneablePointer) Clone() Cloneable {
+	if t == nil {
+		return nil
+	}
+	return &testCloneablePointer{Value: t.Value}
+}

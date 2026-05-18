@@ -33,3 +33,6 @@ Thumbs.db
 .envrc
 .secrets.env
 vendor/
+
+# Agents
+.bob
