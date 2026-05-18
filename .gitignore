@@ -34,5 +34,5 @@ Thumbs.db
 .secrets.env
 vendor/
 
-#agent
-.bob/
+# Agents
+.bob

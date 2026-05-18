@@ -16,7 +16,10 @@ limitations under the License.
 
 package datalayer
 
-import "sync"
+import (
+	"fmt"
+	"sync"
+)
 
 // Cloneable types support cloning of the value.
 // All values stored in AttributeMap must implement this interface
@@ -111,4 +114,33 @@ func (a *Attributes) Clone() AttributeMap {
 		return true
 	})
 	return clone
+}
+
+// ReadAttributeKey reads an attribute by key and asserts the value to type T.
+// Returns an error if the key is not found or the type assertion fails.
+//
+// This is a convenience function for type-safe attribute retrieval.
+// The returned value is a clone (as per AttributeMap.Get behavior).
+//
+// Type Parameter T:
+//   - Can be a value type (e.g., MyType) or pointer type (e.g., *MyType)
+//   - Must match the concrete type returned by the stored value's Clone() method
+//   - For types implementing Cloneable, use the same type as Clone() returns
+func ReadAttributeKey[T any](attrs AttributeMap, key string) (T, error) {
+	var zero T
+
+	raw, ok := attrs.Get(key)
+	if !ok {
+		return zero, fmt.Errorf("attribute %q: not found", key)
+	}
+
+	// Attempt direct type assertion to T
+	// This works for both value types and pointer types because
+	// Get() returns the result of Clone(), which returns the concrete type
+	val, ok := raw.(T)
+	if !ok {
+		return zero, fmt.Errorf("unexpected type for key %q: got %T, want %T", key, raw, zero)
+	}
+
+	return val, nil
 }
