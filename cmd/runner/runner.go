@@ -38,6 +38,7 @@ import (
 	logutil "github.com/llm-d/llm-d-inference-payload-processor/pkg/common/observability/logging"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/common/observability/profiling"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/common/observability/tracing"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/datastore"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/metrics"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/datastore/inmemory"
@@ -289,6 +290,7 @@ func (r *Runner) Run(ctx context.Context) error {
 func (r *Runner) registerInTreePlugins() {
 	framework.Register(bodyfieldtoheader.BodyFieldToHeaderPluginType, bodyfieldtoheader.BodyFieldToHeaderPluginFactory)
 	framework.Register(basemodelextractor.BaseModelToHeaderPluginType, basemodelextractor.BaseModelToHeaderPluginFactory)
+	framework.Register(inflightrequests.PluginType, inflightrequests.ExtractorFactory)
 	framework.Register(notificationsource.PluginType, notificationsource.Factory)
 }
 
