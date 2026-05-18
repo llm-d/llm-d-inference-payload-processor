@@ -14,11 +14,12 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package datastore
+package inmemory
 
 import (
 	"sync"
 
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/datastore"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/datalayer"
 )
 
@@ -33,8 +34,8 @@ type store struct {
 	models map[string]datalayer.Model
 }
 
-// NewInMemoryStore creates and returns a new in-memory Datastore instance.
-func NewInMemoryStore() Datastore {
+// NewDatastore creates and returns a new in-memory Datastore instance.
+func NewDatastore() datastore.Datastore {
 	return &store{models: make(map[string]datalayer.Model)}
 }
 
