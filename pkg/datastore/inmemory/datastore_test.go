@@ -135,13 +135,16 @@ func TestAttributeNilValue(t *testing.T) {
 	m := s.GetOrCreateModel("test-model")
 	attrs := m.GetAttributes()
 
+	// Attempt to store nil value (should be ignored)
 	attrs.Put("nil-key", nil)
 
+	// Verify key does not exist (nil values are not stored)
 	_, ok := attrs.Get("nil-key")
 	if ok {
 		t.Error("expected key to not exist when nil value is provided (nil values are ignored)")
 	}
 
+	// Verify that storing a valid value works
 	attrs.Put("valid-key", testValue{Value: 42})
 	val, ok := attrs.Get("valid-key")
 	if !ok {
@@ -160,6 +163,7 @@ func TestConcurrentAttributeAccess(t *testing.T) {
 
 	var wg sync.WaitGroup
 
+	// 5 concurrent writers
 	for i := 0; i < 5; i++ {
 		wg.Add(1)
 		go func(id int) {
@@ -171,6 +175,7 @@ func TestConcurrentAttributeAccess(t *testing.T) {
 		}(i)
 	}
 
+	// 5 concurrent readers
 	for i := 0; i < 5; i++ {
 		wg.Add(1)
 		go func(id int) {
