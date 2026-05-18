@@ -94,7 +94,7 @@ func TestModels(t *testing.T) {
 	if len(models) != 3 {
 		t.Errorf("expected 3 models, got %d", len(models))
 	}
-
+	
 	// Verify actual model names are present
 	expected := map[string]bool{"gpt-4": true, "llama-3": true, "mistral": true}
 	for _, name := range models {
