@@ -132,14 +132,23 @@ func (s *Server) HandleResponseTrailers(trailers *eppb.HttpTrailers) ([]*eppb.Pr
 
 // runResponsePlugins executes response plugins in the order they were registered.
 func (s *Server) runResponsePlugins(ctx context.Context, cycleState *plugin.CycleState, response *requesthandling.InferenceResponse) error {
+	logger := log.FromContext(ctx).V(logutil.DEFAULT)
+
+	// Cache verbose logger and check Enabled() once to avoid per-iteration
+	// allocations from argument boxing when logging at that level is disabled.
+	verboseLogger := logger.V(logutil.VERBOSE)
+	verboseEnabled := verboseLogger.Enabled()
+
 	var err error
 	for _, plugin := range s.responsePlugins {
-		log.FromContext(ctx).V(logutil.VERBOSE).Info("Executing response plugin", "plugin", plugin.TypedName())
+		if verboseEnabled {
+			verboseLogger.Info("Executing response plugin", "plugin", plugin.TypedName())
+		}
 		before := time.Now()
 		err = plugin.ProcessResponse(ctx, cycleState, response)
 		metrics.RecordPluginProcessingLatency(responsePluginExtensionPoint, plugin.TypedName().Type, plugin.TypedName().Name, time.Since(before))
 		if err != nil {
-			log.FromContext(ctx).V(logutil.DEFAULT).Error(err, "Failed to execute response plugin", "plugin", plugin.TypedName())
+			logger.Error(err, "Failed to execute response plugin", "plugin", plugin.TypedName())
 			return err
 		}
 	}

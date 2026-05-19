@@ -93,14 +93,21 @@ func (p *WeightedRandomPicker) TypedName() plugin.TypedName {
 // Pick selects the model randomly from the list of candidates, where the probability of the model to get picked is derived
 // from its weighted score.
 func (p *WeightedRandomPicker) Pick(ctx context.Context, cycleState *plugin.CycleState, scoredModels []*modelselector.ScoredModel) *modelselector.ProfileRunResult {
+	debugLogger := log.FromContext(ctx).V(logutil.DEBUG)
+	debugEnabled := debugLogger.Enabled()
+
 	// Check if there is at least one model with Score > 0, if not let random picker run
 	if slices.IndexFunc(scoredModels, func(scoredModel *modelselector.ScoredModel) bool { return scoredModel.Score > 0 }) == -1 {
-		log.FromContext(ctx).V(logutil.DEBUG).Info("All scores are zero, delegating to RandomPicker for uniform selection")
+		if debugEnabled {
+			debugLogger.Info("All scores are zero, delegating to RandomPicker for uniform selection")
+		}
 		return p.randomPicker.Pick(ctx, cycleState, scoredModels)
 	}
 
-	log.FromContext(ctx).V(logutil.DEBUG).Info("Selecting model by weighted random", "numCandidates", len(scoredModels),
-		"scoredModels", scoredModels)
+	if debugEnabled {
+		debugLogger.Info("Selecting model by weighted random", "numCandidates", len(scoredModels),
+			"scoredModels", scoredModels)
+	}
 
 	// A-Res algorithm: keyᵢ = Uᵢ^(1/wᵢ)
 	weightedModels := make([]weightedScoredModel, len(scoredModels))

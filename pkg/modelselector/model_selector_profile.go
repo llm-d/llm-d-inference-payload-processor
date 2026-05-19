@@ -155,21 +155,38 @@ func (p *ModelSelectorProfile) Run(ctx context.Context, request *requesthandling
 
 func (p *ModelSelectorProfile) runFilterPlugins(ctx context.Context, request *requesthandling.InferenceRequest, cycleState *plugin.CycleState, models []datalayer.Model) []datalayer.Model {
 	logger := log.FromContext(ctx)
+
+	// Cache loggers and check Enabled() once to avoid per-iteration allocations
+	// from argument boxing when logging at that level is disabled.
+	verboseLogger := logger.V(logutil.VERBOSE)
+	verboseEnabled := verboseLogger.Enabled()
+	debugLogger := logger.V(logutil.DEBUG)
+	debugEnabled := debugLogger.Enabled()
+
 	filteredModels := models
-	logger.V(logutil.DEBUG).Info("Before running filter plugins", "models", len(filteredModels))
+
+	if debugEnabled {
+		debugLogger.Info("Before running filter plugins", "models", len(filteredModels))
+	}
 
 	for _, filter := range p.filters {
-		logger.V(logutil.VERBOSE).Info("Running filter plugin", "plugin", filter.TypedName())
+		if verboseEnabled {
+			verboseLogger.Info("Running filter plugin", "plugin", filter.TypedName())
+		}
 		before := time.Now()
 		filteredModels = filter.Filter(ctx, cycleState, request, filteredModels)
 		metrics.RecordPluginProcessingLatency(filterExtensionPoint, filter.TypedName().Type, filter.TypedName().Name, time.Since(before))
-		logger.V(logutil.DEBUG).Info("Completed running filter plugin", "plugin", filter.TypedName(), "remainingModels", len(filteredModels))
+		if debugEnabled {
+			debugLogger.Info("Completed running filter plugin", "plugin", filter.TypedName(), "remainingModels", len(filteredModels))
+		}
 		if len(filteredModels) == 0 {
-			logger.V(logutil.VERBOSE).Info("Filter eliminated all models", "plugin", filter.TypedName())
+			if verboseEnabled {
+				verboseLogger.Info("Filter eliminated all models", "plugin", filter.TypedName())
+			}
 			break
 		}
 	}
-	logger.V(logutil.VERBOSE).Info("Completed running filter plugins")
+	verboseLogger.Info("Completed running filter plugins")
 
 	return filteredModels
 }
@@ -177,13 +194,27 @@ func (p *ModelSelectorProfile) runFilterPlugins(ctx context.Context, request *re
 func (p *ModelSelectorProfile) runScorerPlugins(ctx context.Context, request *requesthandling.InferenceRequest, cycleState *plugin.CycleState, models []datalayer.Model) map[string]*modelselector.ScoredModel {
 	logger := log.FromContext(ctx)
 
-	scoredModels := make(map[string]*modelselector.ScoredModel, len(models))
-	for _, model := range models {
-		scoredModels[model.GetName()] = &modelselector.ScoredModel{Model: model, Score: 0}
+	// Cache loggers and check Enabled() once to avoid per-iteration allocations
+	// from argument boxing when logging at that level is disabled.
+	verboseLogger := logger.V(logutil.VERBOSE)
+	verboseEnabled := verboseLogger.Enabled()
+	debugLogger := logger.V(logutil.DEBUG)
+	debugEnabled := debugLogger.Enabled()
+
+	// Create one big array for all ScoredModels instead of allocating each one
+	// separately. This reduces memory allocations from N to 1.
+	n := len(models)
+	storage := make([]modelselector.ScoredModel, n)
+	scoredModels := make(map[string]*modelselector.ScoredModel, n)
+	for i, model := range models {
+		storage[i] = modelselector.ScoredModel{Model: model, Score: 0}
+		scoredModels[model.GetName()] = &storage[i]
 	}
 
 	for _, scorer := range p.scorers {
-		logger.V(logutil.VERBOSE).Info("Running scorer plugin", "plugin", scorer.TypedName())
+		if verboseEnabled {
+			verboseLogger.Info("Running scorer plugin", "plugin", scorer.TypedName())
+		}
 		before := time.Now()
 		scores := scorer.Score(ctx, cycleState, request, models)
 		metrics.RecordPluginProcessingLatency(scorerExtensionPoint, scorer.TypedName().Type, scorer.TypedName().Name, time.Since(before))
@@ -192,15 +223,24 @@ func (p *ModelSelectorProfile) runScorerPlugins(ctx context.Context, request *re
 				sm.Score += enforceScoreRange(score) * scorer.Weight()
 			}
 		}
-		logger.V(logutil.DEBUG).Info("Completed running scorer plugin", "plugin", scorer.TypedName())
+		if debugEnabled {
+			debugLogger.Info("Completed running scorer plugin", "plugin", scorer.TypedName())
+		}
 	}
-	logger.V(logutil.VERBOSE).Info("Completed running scorer plugins")
+	verboseLogger.Info("Completed running scorer plugins")
 
 	return scoredModels
 }
 
 func (p *ModelSelectorProfile) runPickerPlugin(ctx context.Context, cycleState *plugin.CycleState, scoredModelMap map[string]*modelselector.ScoredModel) *modelselector.ProfileRunResult {
 	logger := log.FromContext(ctx)
+
+	// Cache loggers and check Enabled() once to avoid allocations from argument
+	// boxing when logging at that level is disabled.
+	verboseLogger := logger.V(logutil.VERBOSE)
+	verboseEnabled := verboseLogger.Enabled()
+	debugLogger := logger.V(logutil.DEBUG)
+	debugEnabled := debugLogger.Enabled()
 
 	scoredModels := make([]*modelselector.ScoredModel, len(scoredModelMap))
 	i := 0
@@ -209,11 +249,15 @@ func (p *ModelSelectorProfile) runPickerPlugin(ctx context.Context, cycleState *
 		i++
 	}
 
-	logger.V(logutil.VERBOSE).Info("Running picker plugin", "plugin", p.picker.TypedName())
+	if verboseEnabled {
+		verboseLogger.Info("Running picker plugin", "plugin", p.picker.TypedName())
+	}
 	before := time.Now()
 	result := p.picker.Pick(ctx, cycleState, scoredModels)
 	metrics.RecordPluginProcessingLatency(pickerExtensionPoint, p.picker.TypedName().Type, p.picker.TypedName().Name, time.Since(before))
-	logger.V(logutil.DEBUG).Info("Completed running picker plugin", "plugin", p.picker.TypedName(), "result", result)
+	if debugEnabled {
+		debugLogger.Info("Completed running picker plugin", "plugin", p.picker.TypedName(), "result", result)
+	}
 
 	return result
 }
