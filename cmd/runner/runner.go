@@ -38,8 +38,9 @@ import (
 	logutil "github.com/llm-d/llm-d-inference-payload-processor/pkg/common/observability/logging"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/common/observability/profiling"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/common/observability/tracing"
-	"github.com/llm-d/llm-d-inference-payload-processor/pkg/datastore"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/datastore/inmemory"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework"
+	inflightrequestsscorer "github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/modelselector/scorer/inflightrequests"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/metrics"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/plugins/basemodelextractor"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/plugins/bodyfieldtoheader"
@@ -174,7 +175,7 @@ func (r *Runner) Run(ctx context.Context) error {
 
 	handle := framework.NewHandle(ctx, mgr)
 
-	ds := datastore.NewStore()
+	ds := inmemory.NewDatastore()
 
 	// Register factories for all known in-tree plugins
 	r.registerInTreePlugins()
@@ -271,6 +272,7 @@ func (r *Runner) registerInTreePlugins() {
 	framework.Register(basemodelextractor.BaseModelToHeaderPluginType, basemodelextractor.BaseModelToHeaderPluginFactory)
 	framework.Register(inflightrequests.PluginType, inflightrequests.ExtractorFactory)
 	framework.Register(notificationsource.PluginType, notificationsource.Factory)
+	framework.Register(inflightrequestsscorer.PluginType, inflightrequestsscorer.ScorerFactory)
 }
 
 // registerHealthServer adds the Health gRPC server as a Runnable to the given manager.
