@@ -39,13 +39,9 @@ import (
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/common/observability/profiling"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/common/observability/tracing"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/datastore/inmemory"
-<<<<<<< run-req-scorer
-	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework"
 	inflightrequestsscorer "github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/modelselector/scorer/inflightrequests"
-=======
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/plugin"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/requesthandling"
->>>>>>> main
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/plugins/modelselector/picker/maxscore"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/plugins/modelselector/picker/random"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/plugins/modelselector/picker/weightedrandom"
@@ -280,17 +276,10 @@ func (r *Runner) registerInTreePlugins() {
 	plugin.Register(requestmetadata.PluginType, requestmetadata.ExtractorFactory)
 	plugin.Register(notificationsource.PluginType, notificationsource.Factory)
 	// register model selector plugins
-<<<<<<< run-req-scorer
-	framework.Register(random.RandomPickerType, random.RandomPickerFactory)
-	framework.Register(maxscore.MaxScorePickerType, maxscore.MaxScorePickerFactory)
-	framework.Register(weightedrandom.WeightedRandomPickerType, weightedrandom.WeightedRandomPickerFactory)
-	framework.Register(inflightrequestsscorer.PluginType, inflightrequestsscorer.ScorerFactory)
-=======
 	plugin.Register(random.RandomPickerType, random.RandomPickerFactory)
 	plugin.Register(maxscore.MaxScorePickerType, maxscore.MaxScorePickerFactory)
 	plugin.Register(weightedrandom.WeightedRandomPickerType, weightedrandom.WeightedRandomPickerFactory)
->>>>>>> main
-
+	plugin.Register(inflightrequestsscorer.PluginType, inflightrequestsscorer.ScorerFactory)
 }
 
 // registerHealthServer adds the Health gRPC server as a Runnable to the given manager.

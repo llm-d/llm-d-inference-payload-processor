@@ -21,9 +21,10 @@ import (
 	"encoding/json"
 	"math"
 
-	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/datalayer"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/modelselector"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/plugin"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/requesthandling"
 	requestmetadataextractor "github.com/llm-d/llm-d-inference-payload-processor/pkg/plugins/datalayer/requestmetadata"
 )
 
@@ -37,23 +38,23 @@ var _ modelselector.Scorer = &InflightRequestsScorer{}
 // Models without an inflight-requests attribute are treated as idle (0 requests).
 // If all models have the same count, all score 1.0.
 type InflightRequestsScorer struct {
-	typedName framework.TypedName
+	typedName plugin.TypedName
 }
 
 // ScorerFactory is the factory function for InflightRequestsScorer.
-func ScorerFactory(name string, _ json.RawMessage, _ framework.Handle) (framework.Plugin, error) {
+func ScorerFactory(name string, _ json.RawMessage, _ plugin.Handle) (plugin.Plugin, error) {
 	return NewInflightRequestsScorer().WithName(name), nil
 }
 
 // NewInflightRequestsScorer initializes a new InflightRequestsScorer and returns its pointer.
 func NewInflightRequestsScorer() *InflightRequestsScorer {
 	return &InflightRequestsScorer{
-		typedName: framework.TypedName{Type: PluginType, Name: PluginType},
+		typedName: plugin.TypedName{Type: PluginType, Name: PluginType},
 	}
 }
 
 // TypedName returns the type and name tuple of this plugin instance.
-func (s *InflightRequestsScorer) TypedName() framework.TypedName { return s.typedName }
+func (s *InflightRequestsScorer) TypedName() plugin.TypedName { return s.typedName }
 
 // WithName sets the instance name.
 func (s *InflightRequestsScorer) WithName(name string) *InflightRequestsScorer {
@@ -63,7 +64,7 @@ func (s *InflightRequestsScorer) WithName(name string) *InflightRequestsScorer {
 
 // Score returns a score in [0,1] for each model based on its in-flight request count.
 // Formula: score = (max - count) / (max - min)
-func (s *InflightRequestsScorer) Score(_ context.Context, _ *framework.CycleState, _ *framework.InferenceRequest, models []datalayer.Model) map[datalayer.Model]float64 {
+func (s *InflightRequestsScorer) Score(_ context.Context, _ *plugin.CycleState, _ *requesthandling.InferenceRequest, models []datalayer.Model) map[datalayer.Model]float64 {
 	var minCount int64 = math.MaxInt64
 	var maxCount int64 = math.MinInt64
 
