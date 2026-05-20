@@ -28,6 +28,7 @@ import (
 	crconfig "sigs.k8s.io/controller-runtime/pkg/config"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/datastore"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework"
 )
 
@@ -115,8 +116,11 @@ func TestBaseModelToHeaderPluginFactory(t *testing.T) {
 				t.Fatalf("failed to create test manager: %v", err)
 			}
 
-			// Create a handle using the test manager
-			handle := framework.NewHandle(context.Background(), mgr)
+			// Create a fake datastore for testing
+			fakeDS := datastore.NewFakeDataStore()
+
+			// Create a handle using the test manager and fake datastore
+			handle := framework.NewHandle(context.Background(), mgr, fakeDS)
 
 			p, err := BaseModelToHeaderPluginFactory(tt.pluginName, tt.rawParams, handle)
 			if err != nil {

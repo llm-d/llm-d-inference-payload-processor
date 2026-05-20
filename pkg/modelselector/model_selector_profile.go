@@ -28,7 +28,7 @@ import (
 	logutil "github.com/llm-d/llm-d-inference-payload-processor/pkg/common/observability/logging"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/datalayer"
-	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/modelselector"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/modelselector"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/metrics"
 )
 

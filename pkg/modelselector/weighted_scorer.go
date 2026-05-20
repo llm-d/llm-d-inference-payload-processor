@@ -16,9 +16,7 @@ limitations under the License.
 
 package modelselector
 
-import (
-	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/modelselector"
-)
+import "github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/modelselector"
 
 // NewWeightedScorer initializes a new WeightedScorer and returns its pointer.
 func NewWeightedScorer(scorer modelselector.Scorer, weight float64) *WeightedScorer {

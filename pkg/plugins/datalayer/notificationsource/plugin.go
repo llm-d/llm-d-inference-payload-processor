@@ -26,7 +26,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework"
-	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/datalayer"
+	dlsrc "github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/datalayer/datasource"
 )
 
 const (
@@ -36,12 +36,12 @@ const (
 )
 
 // compile-time interface assertion
-var _ datalayer.NotificationSource = &notificationSource{}
+var _ dlsrc.NotificationSource = &notificationSource{}
 
 type notificationSource struct {
 	name       framework.TypedName
-	ch         chan datalayer.Event
-	extractors []datalayer.Extractor
+	ch         chan dlsrc.Event
+	extractors []dlsrc.Extractor
 
 	started atomic.Bool
 	cancel  context.CancelFunc
@@ -58,13 +58,13 @@ func Factory(name string, _ json.RawMessage, _ framework.Handle) (framework.Plug
 }
 
 // New creates a NotificationSource that delivers each event to the given extractors as it arrives.
-func New(name string, extractors ...datalayer.Extractor) (datalayer.NotificationSource, error) {
+func New(name string, extractors ...dlsrc.Extractor) (dlsrc.NotificationSource, error) {
 	if name == "" {
 		return nil, fmt.Errorf("name is required for plugin '%s'", PluginType)
 	}
 	return &notificationSource{
 		name:       framework.TypedName{Type: PluginType, Name: name},
-		ch:         make(chan datalayer.Event, defaultBufferSize),
+		ch:         make(chan dlsrc.Event, defaultBufferSize),
 		extractors: extractors,
 		done:       make(chan struct{}),
 	}, nil
@@ -72,12 +72,12 @@ func New(name string, extractors ...datalayer.Extractor) (datalayer.Notification
 
 func (n *notificationSource) TypedName() framework.TypedName { return n.name }
 
-func (n *notificationSource) RegisterExtractor(e datalayer.Extractor) {
+func (n *notificationSource) RegisterExtractor(e dlsrc.Extractor) {
 	n.extractors = append(n.extractors, e)
 }
 
 // Notify fires an event non-blocking; drops silently if the buffer is full.
-func (n *notificationSource) Notify(e datalayer.Event) {
+func (n *notificationSource) Notify(e dlsrc.Event) {
 	select {
 	case n.ch <- e:
 	default:
@@ -118,7 +118,7 @@ func (n *notificationSource) eventLoop(ctx context.Context, ready chan struct{})
 			// Extractors are called sequentially; current extractors are in-memory only.
 			// Switch to a WaitGroup if any extractor performs I/O.
 			for _, ext := range n.extractors {
-				if err := ext.Extract(ctx, []datalayer.Event{e}); err != nil {
+				if err := ext.Extract(ctx, []dlsrc.Event{e}); err != nil {
 					logger.Error(err, "extractor error", "extractor", ext.TypedName())
 				}
 			}

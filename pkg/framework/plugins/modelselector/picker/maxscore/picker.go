@@ -18,21 +18,29 @@ package maxscore
 
 import (
 	"context"
+	"encoding/json"
 	"slices"
 
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	logutil "github.com/llm-d/llm-d-inference-payload-processor/pkg/common/observability/logging"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework"
-	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/modelselector"
-	"github.com/llm-d/llm-d-inference-payload-processor/pkg/modelselector/picker"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/modelselector"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/plugins/modelselector/picker"
 )
 
 const (
+	// MaxScorePickerType is the registered name of the max score picker plugin.
 	MaxScorePickerType = "max-score-picker"
 )
 
+// compile-time type validation
 var _ modelselector.Picker = &MaxScorePicker{}
+
+// MaxScorePickerFactory defines the factory function for MaxScorePicker.
+func MaxScorePickerFactory(name string, _ json.RawMessage, _ framework.Handle) (framework.Plugin, error) {
+	return NewMaxScorePicker().WithName(name), nil
+}
 
 // NewMaxScorePicker initializes a new MaxScorePicker and returns its pointer.
 func NewMaxScorePicker() *MaxScorePicker {
@@ -46,17 +54,26 @@ type MaxScorePicker struct {
 	typedName framework.TypedName
 }
 
+// WithName sets the plugin name
+func (p *MaxScorePicker) WithName(name string) *MaxScorePicker {
+	p.typedName.Name = name
+	return p
+}
+
+// TypedName returns the type and name tuple of this plugin instance.
 func (p *MaxScorePicker) TypedName() framework.TypedName {
 	return p.typedName
 }
 
 // Pick selects the model with the highest score.
 func (p *MaxScorePicker) Pick(ctx context.Context, _ *framework.CycleState, scoredModels []*modelselector.ScoredModel) *modelselector.ProfileRunResult {
-	log.FromContext(ctx).V(logutil.DEBUG).Info("Selecting model by max score", "numCandidates", len(scoredModels))
+	log.FromContext(ctx).V(logutil.DEBUG).Info("selecting model from candidates by max score", "numCandidates", len(scoredModels),
+		"scoredModels", scoredModels)
 
+	// Shuffle in-place - needed for random tie break when scores are equal
 	picker.ShuffleScoredModels(scoredModels)
 
-	slices.SortStableFunc(scoredModels, func(i, j *modelselector.ScoredModel) int {
+	slices.SortStableFunc(scoredModels, func(i, j *modelselector.ScoredModel) int { // highest score first
 		if i.Score > j.Score {
 			return -1
 		}

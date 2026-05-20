@@ -14,59 +14,38 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package inflightrequests
+package requestmetadata
 
 import (
 	"context"
-	"sync"
 	"testing"
 	"time"
 
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/datastore"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework"
-	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/datalayer"
+	dlsrc "github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/datalayer/datasource"
 )
 
-// fakeDataStore is an in-memory DataStore for tests.
-type fakeDataStore struct {
-	mu     sync.Mutex
-	models map[string]datalayer.Model
-}
-
-func newFakeDataStore() *fakeDataStore {
-	return &fakeDataStore{models: make(map[string]datalayer.Model)}
-}
-
-func (f *fakeDataStore) GetOrCreateModel(name string) datalayer.Model {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if m, ok := f.models[name]; ok {
-		return m
-	}
-	m := datalayer.NewModel(name)
-	f.models[name] = m
-	return m
-}
-
 // makeRequestEvent creates a RequestEventType event with model and max_tokens.
-func makeRequestEvent(model string, maxTokens float64) datalayer.Event {
+func makeRequestEvent(model string, maxTokens float64) dlsrc.Event {
 	req := framework.NewInferenceRequest()
 	req.Body["model"] = model
 	req.Body["max_tokens"] = maxTokens
-	return datalayer.Event{
-		Type:    datalayer.RequestEventType,
-		Payload: datalayer.RequestPayload{Request: req},
+	return dlsrc.Event{
+		Type:    dlsrc.RequestEventType,
+		Payload: dlsrc.RequestPayload{Request: req},
 	}
 }
 
 // makeResponseEvent creates a ResponseEventType event with model, duration, and max_tokens.
 // maxTokens mirrors the original request's max_tokens so the extractor can decrement correctly.
-func makeResponseEvent(model string, durationMs int, maxTokens float64) datalayer.Event {
+func makeResponseEvent(model string, durationMs int, maxTokens float64) dlsrc.Event {
 	req := framework.NewInferenceRequest()
 	req.Body["model"] = model
 	req.Body["max_tokens"] = maxTokens
-	return datalayer.Event{
-		Type: datalayer.ResponseEventType,
-		Payload: datalayer.ResponsePayload{
+	return dlsrc.Event{
+		Type: dlsrc.ResponseEventType,
+		Payload: dlsrc.ResponsePayload{
 			Request:  req,
 			Response: framework.NewInferenceResponse(),
 			Duration: time.Duration(durationMs) * time.Millisecond,
@@ -75,34 +54,34 @@ func makeResponseEvent(model string, durationMs int, maxTokens float64) datalaye
 }
 
 // getInflightRequests asserts the inflight-requests attribute exists for model and returns it.
-func getInflightRequests(t testing.TB, ds *fakeDataStore, model string) InflightRequestsCount {
+func getRequestMetadata(t testing.TB, ds datastore.Datastore, model string) RequestMetadataCount {
 	t.Helper()
-	val, ok := ds.GetOrCreateModel(model).GetAttributes().Get(InflightRequestsAttributeKey)
+	val, ok := ds.GetOrCreateModel(model).GetAttributes().Get(RequestMetadataAttributeKey)
 	if !ok {
-		t.Fatalf("expected %q attribute for model %q", InflightRequestsAttributeKey, model)
+		t.Fatalf("expected %q attribute for model %q", RequestMetadataAttributeKey, model)
 	}
-	rc, ok := val.(InflightRequestsCount)
+	rc, ok := val.(RequestMetadataCount)
 	if !ok {
-		t.Fatalf("expected InflightRequestsCount for model %q", model)
+		t.Fatalf("expected RequestMetadataCount for model %q", model)
 	}
 	return rc
 }
 
-func newInflightRequestsTest(t *testing.T) (*InflightRequestsExtractor, *fakeDataStore) {
+func newRequestMetadataTest(t *testing.T) (*RequestMetadataExtractor, datastore.Datastore) {
 	t.Helper()
-	ds := newFakeDataStore()
-	return NewInflightRequestsExtractor(ds), ds
+	ds := datastore.NewFakeDataStore()
+	return NewRequestMetadataExtractor(ds), ds
 }
 
 func TestRequestIncrementsCounter(t *testing.T) {
-	ext, ds := newInflightRequestsTest(t)
+	ext, ds := newRequestMetadataTest(t)
 
-	batch := []datalayer.Event{makeRequestEvent("m1", 100)}
+	batch := []dlsrc.Event{makeRequestEvent("m1", 100)}
 	if err := ext.Extract(context.Background(), batch); err != nil {
 		t.Fatalf("Extract failed: %v", err)
 	}
 
-	rc := getInflightRequests(t, ds, "m1")
+	rc := getRequestMetadata(t, ds, "m1")
 	if rc.Requests != 1 {
 		t.Errorf("expected Requests=1, got %d", rc.Requests)
 	}
@@ -112,10 +91,10 @@ func TestRequestIncrementsCounter(t *testing.T) {
 }
 
 func TestResponseDecrementsCounter(t *testing.T) {
-	ext, ds := newInflightRequestsTest(t)
+	ext, ds := newRequestMetadataTest(t)
 
 	// Response carries the original request's max_tokens so the extractor can decrement correctly.
-	batch := []datalayer.Event{
+	batch := []dlsrc.Event{
 		makeRequestEvent("m1", 100),
 		makeResponseEvent("m1", 50, 100),
 	}
@@ -123,7 +102,7 @@ func TestResponseDecrementsCounter(t *testing.T) {
 		t.Fatalf("Extract failed: %v", err)
 	}
 
-	rc := getInflightRequests(t, ds, "m1")
+	rc := getRequestMetadata(t, ds, "m1")
 	if rc.Requests != 0 {
 		t.Errorf("expected Requests=0, got %d", rc.Requests)
 	}
@@ -133,15 +112,15 @@ func TestResponseDecrementsCounter(t *testing.T) {
 }
 
 func TestCounterFloorsAtZero(t *testing.T) {
-	ext, ds := newInflightRequestsTest(t)
+	ext, ds := newRequestMetadataTest(t)
 
 	// Response with no prior request — both counters must floor at zero.
-	batch := []datalayer.Event{makeResponseEvent("m1", 50, 100)}
+	batch := []dlsrc.Event{makeResponseEvent("m1", 50, 100)}
 	if err := ext.Extract(context.Background(), batch); err != nil {
 		t.Fatalf("Extract failed: %v", err)
 	}
 
-	rc := getInflightRequests(t, ds, "m1")
+	rc := getRequestMetadata(t, ds, "m1")
 	if rc.Requests != 0 {
 		t.Errorf("expected Requests=0, got %d", rc.Requests)
 	}
@@ -150,10 +129,10 @@ func TestCounterFloorsAtZero(t *testing.T) {
 	}
 }
 
-func TestInflightRequestsMultipleModels(t *testing.T) {
-	ext, ds := newInflightRequestsTest(t)
+func TestRequestMetadataMultipleModels(t *testing.T) {
+	ext, ds := newRequestMetadataTest(t)
 
-	batch := []datalayer.Event{
+	batch := []dlsrc.Event{
 		makeRequestEvent("m1", 10),
 		makeRequestEvent("m2", 20),
 	}
@@ -161,49 +140,45 @@ func TestInflightRequestsMultipleModels(t *testing.T) {
 		t.Fatalf("Extract failed: %v", err)
 	}
 
-	rc1 := getInflightRequests(t, ds, "m1")
+	rc1 := getRequestMetadata(t, ds, "m1")
 	if rc1.Requests != 1 || rc1.Tokens != 10 {
 		t.Errorf("m1: expected {Requests:1, Tokens:10}, got %+v", rc1)
 	}
 
-	rc2 := getInflightRequests(t, ds, "m2")
+	rc2 := getRequestMetadata(t, ds, "m2")
 	if rc2.Requests != 1 || rc2.Tokens != 20 {
 		t.Errorf("m2: expected {Requests:1, Tokens:20}, got %+v", rc2)
 	}
 }
 
-func TestInflightRequestsUnknownEventTypeIgnored(t *testing.T) {
-	ext, ds := newInflightRequestsTest(t)
+func TestRequestMetadataUnknownEventTypeIgnored(t *testing.T) {
+	ext, ds := newRequestMetadataTest(t)
 
-	batch := []datalayer.Event{{Type: "unknown"}}
+	batch := []dlsrc.Event{{Type: "unknown"}}
 	if err := ext.Extract(context.Background(), batch); err != nil {
 		t.Fatalf("Extract failed: %v", err)
 	}
 
-	ds.mu.Lock()
-	modelCount := len(ds.models)
-	ds.mu.Unlock()
+	modelCount := len(ds.Models())
 	if modelCount != 0 {
 		t.Errorf("expected no models in datastore, got %d", modelCount)
 	}
 }
 
-func TestInflightRequestsMissingModelFieldIgnored(t *testing.T) {
-	ext, ds := newInflightRequestsTest(t)
+func TestRequestMetadataMissingModelFieldIgnored(t *testing.T) {
+	ext, ds := newRequestMetadataTest(t)
 
 	// Payload without a "model" key — no counter should be updated.
 	req := framework.NewInferenceRequest()
 	req.Body["max_tokens"] = float64(50)
-	batch := []datalayer.Event{
-		{Type: datalayer.RequestEventType, Payload: datalayer.RequestPayload{Request: req}},
+	batch := []dlsrc.Event{
+		{Type: dlsrc.RequestEventType, Payload: dlsrc.RequestPayload{Request: req}},
 	}
 	if err := ext.Extract(context.Background(), batch); err != nil {
 		t.Fatalf("Extract failed: %v", err)
 	}
 
-	ds.mu.Lock()
-	modelCount := len(ds.models)
-	ds.mu.Unlock()
+	modelCount := len(ds.Models())
 	if modelCount != 0 {
 		t.Errorf("expected no models in datastore, got %d", modelCount)
 	}

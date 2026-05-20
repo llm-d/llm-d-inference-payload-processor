@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package datalayer
+package datasource
 
 import (
 	"context"
@@ -22,11 +22,6 @@ import (
 
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework"
 )
-
-// DataStore provides model-keyed access to aggregated runtime metrics.
-type DataStore interface {
-	GetOrCreateModel(name string) Model
-}
 
 // DataSource is the base interface for background data layer components.
 type DataSource interface {
