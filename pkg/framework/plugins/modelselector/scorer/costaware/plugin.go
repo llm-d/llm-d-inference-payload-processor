@@ -22,7 +22,7 @@ import (
 
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/datalayer"
-	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/modelselector"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/modelselector"
 )
 
 // Package costaware provides a scorer that scores candidate models based on expected cost
@@ -62,7 +62,7 @@ func CostScorerFactory(name string, _ json.RawMessage, _ framework.Handle) (fram
 // NewCostScorer creates a new lowest price scorer
 func NewCostScorer() *CostScorer {
 	return &CostScorer{
-		typedName: framework.TypedName{Type: CostScorerType},
+		typedName: framework.TypedName{Type: CostScorerType, Name: CostScorerType},
 	}
 }
 
@@ -90,10 +90,6 @@ func (s *CostScorer) WithName(name string) *CostScorer {
 //   - Higher score indicates better (cheaper) model
 //   - If only one model, it receives neutral score 0.5
 //   - If all models have zero price, each receives score 1.0
-//
-// Note: When combining with other scorers using different normalization methods (e.g., Min-Max),
-// be aware that sum normalization may not preserve the intended weight proportions due to scale sensitivity.
-// For consistent multi-criteria scoring, consider using the same normalization method across all scorers.
 func (s *CostScorer) Score(_ context.Context, _ *framework.CycleState, _ *framework.InferenceRequest, models []datalayer.Model) map[datalayer.Model]float64 {
 	// Create a map to hold the score of each model candidate
 	scores := make(map[datalayer.Model]float64, len(models))

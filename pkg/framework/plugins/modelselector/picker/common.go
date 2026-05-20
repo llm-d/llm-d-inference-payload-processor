@@ -21,7 +21,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/modelselector"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/modelselector"
 )
 
 // PickerRand is a thread-safe random number generator shared by all pickers.
