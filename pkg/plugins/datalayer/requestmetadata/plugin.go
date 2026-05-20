@@ -37,12 +37,9 @@ const (
 // compile-time interface assertion
 var _ dlsrc.Extractor = &RequestMetadataExtractor{}
 
-// ExtractorFactory creates a RequestMetadataExtractor with a nil DataStore.
-// The factory path is limited: the DataStore is not available via plugin.Handle,
-// so the created extractor cannot write to the store. Use NewRequestMetadataExtractor
-// directly when constructing for production use.
-func ExtractorFactory(name string, _ json.RawMessage, _ plugin.Handle) (plugin.Plugin, error) {
-	return NewRequestMetadataExtractor(nil).WithName(name), nil
+// ExtractorFactory creates a RequestMetadataExtractor wired to the shared DataStore.
+func ExtractorFactory(name string, _ json.RawMessage, h plugin.Handle) (plugin.Plugin, error) {
+	return NewRequestMetadataExtractor(h.Datastore()).WithName(name), nil
 }
 
 // RequestMetadataCount holds in-flight request and token counts for one model.
