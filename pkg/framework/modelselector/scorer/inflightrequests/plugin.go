@@ -23,8 +23,8 @@ import (
 
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/datalayer"
-	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/modelselector"
-	inflightrequestsextractor "github.com/llm-d/llm-d-inference-payload-processor/pkg/plugins/datalayer/inflightrequests"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/modelselector"
+	requestmetadataextractor "github.com/llm-d/llm-d-inference-payload-processor/pkg/plugins/datalayer/requestmetadata"
 )
 
 const PluginType = "inflight-requests-scorer"
@@ -93,11 +93,11 @@ func (s *InflightRequestsScorer) Score(_ context.Context, _ *framework.CycleStat
 // inflightRequestCount returns the in-flight request count for a model.
 // Returns 0 if the attribute is missing or has an unexpected type.
 func inflightRequestCount(model datalayer.Model) int64 {
-	val, ok := model.GetAttributes().Get(inflightrequestsextractor.InflightRequestsAttributeKey)
+	val, ok := model.GetAttributes().Get(requestmetadataextractor.RequestMetadataAttributeKey)
 	if !ok {
 		return 0
 	}
-	rc, ok := val.(inflightrequestsextractor.InflightRequestsCount)
+	rc, ok := val.(requestmetadataextractor.RequestMetadataCount)
 	if !ok {
 		return 0
 	}

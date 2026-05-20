@@ -39,11 +39,11 @@ import (
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/common/observability/profiling"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/common/observability/tracing"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/datastore/inmemory"
-	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework"	
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework"
+	inflightrequestsscorer "github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/modelselector/scorer/inflightrequests"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/plugins/modelselector/picker/maxscore"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/plugins/modelselector/picker/random"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/plugins/modelselector/picker/weightedrandom"
-  inflightrequestsscorer "github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/modelselector/scorer/inflightrequests"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/metrics"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/plugins/basemodelextractor"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/plugins/bodyfieldtoheader"
@@ -278,7 +278,7 @@ func (r *Runner) registerInTreePlugins() {
 	framework.Register(random.RandomPickerType, random.RandomPickerFactory)
 	framework.Register(maxscore.MaxScorePickerType, maxscore.MaxScorePickerFactory)
 	framework.Register(weightedrandom.WeightedRandomPickerType, weightedrandom.WeightedRandomPickerFactory)
-  framework.Register(inflightrequestsscorer.PluginType, inflightrequestsscorer.ScorerFactory)
+	framework.Register(inflightrequestsscorer.PluginType, inflightrequestsscorer.ScorerFactory)
 
 }
 
