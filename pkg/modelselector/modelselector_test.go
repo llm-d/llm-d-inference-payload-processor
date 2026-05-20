@@ -20,8 +20,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/datalayer"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/plugin"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/requesthandling"
 )
 
 func TestSelect(t *testing.T) {
@@ -54,7 +55,7 @@ func TestSelect(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			scorer := &testScorer{
-				typedName: framework.TypedName{Type: "test-scorer", Name: "cost"},
+				typedName: plugin.TypedName{Type: "test-scorer", Name: "cost"},
 				scoreFn: func(models []datalayer.Model) map[datalayer.Model]float64 {
 					scores := make(map[datalayer.Model]float64)
 					for _, m := range models {
@@ -67,7 +68,7 @@ func TestSelect(t *testing.T) {
 					return scores
 				},
 			}
-			picker := &testPicker{typedName: framework.TypedName{Type: "test-picker", Name: "max-score"}}
+			picker := &testPicker{typedName: plugin.TypedName{Type: "test-picker", Name: "max-score"}}
 
 			profile := NewModelSelectorProfile().
 				WithScorers(NewWeightedScorer(scorer, 1.0)).
@@ -75,7 +76,7 @@ func TestSelect(t *testing.T) {
 
 			selector := NewModelSelector(profile)
 
-			result, err := selector.Select(context.Background(), framework.NewInferenceRequest(), framework.NewCycleState(), tt.models)
+			result, err := selector.Select(context.Background(), requesthandling.NewInferenceRequest(), plugin.NewCycleState(), tt.models)
 
 			if tt.wantErr {
 				if err == nil {
@@ -102,7 +103,7 @@ func TestSelectWithFilterAndScorer(t *testing.T) {
 	modelC := datalayer.NewModel("mistral-7b")
 
 	filter := &testFilter{
-		typedName: framework.TypedName{Type: "test-filter", Name: "rate-limit"},
+		typedName: plugin.TypedName{Type: "test-filter", Name: "rate-limit"},
 		filterFn: func(models []datalayer.Model) []datalayer.Model {
 			var result []datalayer.Model
 			for _, m := range models {
@@ -115,7 +116,7 @@ func TestSelectWithFilterAndScorer(t *testing.T) {
 	}
 
 	scorer := &testScorer{
-		typedName: framework.TypedName{Type: "test-scorer", Name: "cost"},
+		typedName: plugin.TypedName{Type: "test-scorer", Name: "cost"},
 		scoreFn: func(models []datalayer.Model) map[datalayer.Model]float64 {
 			scores := make(map[datalayer.Model]float64)
 			for _, m := range models {
@@ -130,7 +131,7 @@ func TestSelectWithFilterAndScorer(t *testing.T) {
 		},
 	}
 
-	picker := &testPicker{typedName: framework.TypedName{Type: "test-picker", Name: "max-score"}}
+	picker := &testPicker{typedName: plugin.TypedName{Type: "test-picker", Name: "max-score"}}
 
 	profile := NewModelSelectorProfile().
 		WithFilters(filter).
@@ -139,7 +140,7 @@ func TestSelectWithFilterAndScorer(t *testing.T) {
 
 	selector := NewModelSelector(profile)
 
-	result, err := selector.Select(context.Background(), framework.NewInferenceRequest(), framework.NewCycleState(), []datalayer.Model{modelA, modelB, modelC})
+	result, err := selector.Select(context.Background(), requesthandling.NewInferenceRequest(), plugin.NewCycleState(), []datalayer.Model{modelA, modelB, modelC})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

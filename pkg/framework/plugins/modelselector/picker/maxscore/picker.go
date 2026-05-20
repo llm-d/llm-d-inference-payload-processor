@@ -24,8 +24,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	logutil "github.com/llm-d/llm-d-inference-payload-processor/pkg/common/observability/logging"
-	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/modelselector"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/plugin"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/plugins/modelselector/picker"
 )
 
@@ -38,20 +38,20 @@ const (
 var _ modelselector.Picker = &MaxScorePicker{}
 
 // MaxScorePickerFactory defines the factory function for MaxScorePicker.
-func MaxScorePickerFactory(name string, _ json.RawMessage, _ framework.Handle) (framework.Plugin, error) {
+func MaxScorePickerFactory(name string, _ json.RawMessage, _ plugin.Handle) (plugin.Plugin, error) {
 	return NewMaxScorePicker().WithName(name), nil
 }
 
 // NewMaxScorePicker initializes a new MaxScorePicker and returns its pointer.
 func NewMaxScorePicker() *MaxScorePicker {
 	return &MaxScorePicker{
-		typedName: framework.TypedName{Type: MaxScorePickerType, Name: MaxScorePickerType},
+		typedName: plugin.TypedName{Type: MaxScorePickerType, Name: MaxScorePickerType},
 	}
 }
 
 // MaxScorePicker picks the model with the highest score calculated during the scoring phase.
 type MaxScorePicker struct {
-	typedName framework.TypedName
+	typedName plugin.TypedName
 }
 
 // WithName sets the plugin name
@@ -61,12 +61,12 @@ func (p *MaxScorePicker) WithName(name string) *MaxScorePicker {
 }
 
 // TypedName returns the type and name tuple of this plugin instance.
-func (p *MaxScorePicker) TypedName() framework.TypedName {
+func (p *MaxScorePicker) TypedName() plugin.TypedName {
 	return p.typedName
 }
 
 // Pick selects the model with the highest score.
-func (p *MaxScorePicker) Pick(ctx context.Context, _ *framework.CycleState, scoredModels []*modelselector.ScoredModel) *modelselector.ProfileRunResult {
+func (p *MaxScorePicker) Pick(ctx context.Context, _ *plugin.CycleState, scoredModels []*modelselector.ScoredModel) *modelselector.ProfileRunResult {
 	log.FromContext(ctx).V(logutil.DEBUG).Info("selecting model from candidates by max score", "numCandidates", len(scoredModels),
 		"scoredModels", scoredModels)
 

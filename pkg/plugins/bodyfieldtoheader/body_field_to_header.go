@@ -24,7 +24,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	logutil "github.com/llm-d/llm-d-inference-payload-processor/pkg/common/observability/logging"
-	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/plugin"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/requesthandling"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/metrics"
 )
 
@@ -34,7 +35,7 @@ const (
 )
 
 // compile-time type validation
-var _ framework.RequestProcessor = &BodyFieldToHeaderPlugin{}
+var _ requesthandling.RequestProcessor = &BodyFieldToHeaderPlugin{}
 
 // BodyFieldToHeaderConfig defines the JSON configuration structure for the plugin.
 type BodyFieldToHeaderConfig struct {
@@ -45,7 +46,7 @@ type BodyFieldToHeaderConfig struct {
 }
 
 // BodyFieldToHeaderPluginFactory defines the factory function for NewBodyFieldToHeaderPlugin.
-func BodyFieldToHeaderPluginFactory(name string, rawParameters json.RawMessage, _ framework.Handle) (framework.Plugin, error) {
+func BodyFieldToHeaderPluginFactory(name string, rawParameters json.RawMessage, _ plugin.Handle) (plugin.Plugin, error) {
 	var config BodyFieldToHeaderConfig
 
 	if len(rawParameters) > 0 {
@@ -73,7 +74,7 @@ func NewBodyFieldToHeaderPlugin(fieldName, headerName string) (*BodyFieldToHeade
 	}
 
 	return &BodyFieldToHeaderPlugin{
-		typedName: framework.TypedName{
+		typedName: plugin.TypedName{
 			Type: BodyFieldToHeaderPluginType,
 			Name: BodyFieldToHeaderPluginType,
 		},
@@ -84,13 +85,13 @@ func NewBodyFieldToHeaderPlugin(fieldName, headerName string) (*BodyFieldToHeade
 
 // BodyFieldToHeaderPlugin extracts value from a given body field and sets it as HTTP header.
 type BodyFieldToHeaderPlugin struct {
-	typedName  framework.TypedName
+	typedName  plugin.TypedName
 	fieldName  string
 	headerName string
 }
 
 // TypedName returns the type and name tuple of this plugin instance.
-func (p *BodyFieldToHeaderPlugin) TypedName() framework.TypedName {
+func (p *BodyFieldToHeaderPlugin) TypedName() plugin.TypedName {
 	return p.typedName
 }
 
@@ -101,7 +102,7 @@ func (p *BodyFieldToHeaderPlugin) WithName(name string) *BodyFieldToHeaderPlugin
 }
 
 // ProcessRequest extracts value from a given body field and sets it as HTTP header.
-func (p *BodyFieldToHeaderPlugin) ProcessRequest(ctx context.Context, _ *framework.CycleState, request *framework.InferenceRequest) error {
+func (p *BodyFieldToHeaderPlugin) ProcessRequest(ctx context.Context, _ *plugin.CycleState, request *requesthandling.InferenceRequest) error {
 	// extract raw field value from body
 	rawFieldValue, exists := request.Body[p.fieldName]
 	if !exists {

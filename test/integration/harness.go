@@ -30,7 +30,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	logutil "github.com/llm-d/llm-d-inference-payload-processor/pkg/common/observability/logging"
-	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/requesthandling"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/plugins/basemodelextractor"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/plugins/bodyfieldtoheader"
 	runserver "github.com/llm-d/llm-d-inference-payload-processor/pkg/server"
@@ -94,7 +94,7 @@ func NewHarness(t *testing.T, ctx context.Context) *Harness {
 
 	baseModelToHeaderPlugin := &basemodelextractor.BaseModelToHeaderPlugin{AdaptersStore: store}
 
-	return NewHarnessWithPlugins(t, ctx, []framework.RequestProcessor{modelToHeaderPlugin, baseModelToHeaderPlugin}, []framework.ResponseProcessor{})
+	return NewHarnessWithPlugins(t, ctx, []requesthandling.RequestProcessor{modelToHeaderPlugin, baseModelToHeaderPlugin}, []requesthandling.ResponseProcessor{})
 }
 
 // NewHarnessWithPlugins boots up an isolated payload processor server on a random port
@@ -102,8 +102,8 @@ func NewHarness(t *testing.T, ctx context.Context) *Harness {
 func NewHarnessWithPlugins(
 	t *testing.T,
 	ctx context.Context,
-	requestPlugins []framework.RequestProcessor,
-	responsePlugins []framework.ResponseProcessor,
+	requestPlugins []requesthandling.RequestProcessor,
+	responsePlugins []requesthandling.ResponseProcessor,
 ) *Harness {
 	t.Helper()
 

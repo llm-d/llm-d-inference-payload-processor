@@ -14,26 +14,24 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package modelselector
+package requesthandling
 
 import (
 	"context"
 
-	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/datalayer"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/plugin"
-	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/requesthandling"
 )
 
-type ScoredModel struct {
-	datalayer.Model
-	Score float64
+type RequestProcessor interface {
+	plugin.Plugin
+	// ProcessRequest runs the RequestProcessor plugin.
+	// RequestProcessor can mutate the headers and/or the body of the request.
+	ProcessRequest(ctx context.Context, cycleState *plugin.CycleState, request *InferenceRequest) error
 }
 
-// ProfileRunResult captures the profile run result.
-type ProfileRunResult struct {
-	TargetModel datalayer.Model
-}
-
-type ModelSelectorProfile interface {
-	Run(ctx context.Context, request *requesthandling.InferenceRequest, cycleState *plugin.CycleState, candidateModels []datalayer.Model) (*ProfileRunResult, error)
+type ResponseProcessor interface {
+	plugin.Plugin
+	// ProcessResponse runs the ResponseProcessor plugin.
+	// ResponseProcessor can mutate the headers and/or the body of the response.
+	ProcessResponse(ctx context.Context, cycleState *plugin.CycleState, response *InferenceResponse) error
 }

@@ -27,8 +27,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	logutil "github.com/llm-d/llm-d-inference-payload-processor/pkg/common/observability/logging"
-	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/modelselector"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/plugin"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/plugins/modelselector/picker"
 )
 
@@ -41,20 +41,20 @@ const (
 var _ modelselector.Picker = &RandomPicker{}
 
 // RandomPickerFactory defines the factory function for RandomPicker.
-func RandomPickerFactory(name string, _ json.RawMessage, _ framework.Handle) (framework.Plugin, error) {
+func RandomPickerFactory(name string, _ json.RawMessage, _ plugin.Handle) (plugin.Plugin, error) {
 	return NewRandomPicker().WithName(name), nil
 }
 
 // NewRandomPicker initializes a new RandomPicker and returns its pointer.
 func NewRandomPicker() *RandomPicker {
 	return &RandomPicker{
-		typedName: framework.TypedName{Type: RandomPickerType, Name: RandomPickerType},
+		typedName: plugin.TypedName{Type: RandomPickerType, Name: RandomPickerType},
 	}
 }
 
 // RandomPicker picks random model from the list of candidates.
 type RandomPicker struct {
-	typedName framework.TypedName
+	typedName plugin.TypedName
 }
 
 // WithName sets the name of the picker.
@@ -64,12 +64,12 @@ func (p *RandomPicker) WithName(name string) *RandomPicker {
 }
 
 // TypedName returns the type and name tuple of this plugin instance.
-func (p *RandomPicker) TypedName() framework.TypedName {
+func (p *RandomPicker) TypedName() plugin.TypedName {
 	return p.typedName
 }
 
 // Pick selects random model from the list of candidates.
-func (p *RandomPicker) Pick(ctx context.Context, _ *framework.CycleState, scoredModels []*modelselector.ScoredModel) *modelselector.ProfileRunResult {
+func (p *RandomPicker) Pick(ctx context.Context, _ *plugin.CycleState, scoredModels []*modelselector.ScoredModel) *modelselector.ProfileRunResult {
 	log.FromContext(ctx).V(logutil.DEBUG).Info("Selecting model from candidates randomly",
 		"numOfCandidates", len(scoredModels), "scoredModels", scoredModels)
 

@@ -20,9 +20,10 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/datalayer"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/modelselector"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/plugin"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/requesthandling"
 )
 
 // Package costaware provides a scorer that scores candidate models based on expected cost
@@ -55,25 +56,25 @@ func (p *PriceValue) Clone() datalayer.Cloneable {
 var _ modelselector.Scorer = &CostScorer{}
 
 // CostScorerFactory defines the factory function for the CostScorer scorer
-func CostScorerFactory(name string, _ json.RawMessage, _ framework.Handle) (framework.Plugin, error) {
+func CostScorerFactory(name string, _ json.RawMessage, _ plugin.Handle) (plugin.Plugin, error) {
 	return NewCostScorer().WithName(name), nil
 }
 
 // NewCostScorer creates a new lowest price scorer
 func NewCostScorer() *CostScorer {
 	return &CostScorer{
-		typedName: framework.TypedName{Type: CostScorerType, Name: CostScorerType},
+		typedName: plugin.TypedName{Type: CostScorerType, Name: CostScorerType},
 	}
 }
 
 // CostScorer scorer that scores models based on their price
 // Lower-priced models receive higher scores
 type CostScorer struct {
-	typedName framework.TypedName
+	typedName plugin.TypedName
 }
 
 // TypedName returns the typed name of the plugin.
-func (s *CostScorer) TypedName() framework.TypedName {
+func (s *CostScorer) TypedName() plugin.TypedName {
 	return s.typedName
 }
 
@@ -90,7 +91,7 @@ func (s *CostScorer) WithName(name string) *CostScorer {
 //   - Higher score indicates better (cheaper) model
 //   - If only one model, it receives neutral score 0.5
 //   - If all models have zero price, each receives score 1.0
-func (s *CostScorer) Score(_ context.Context, _ *framework.CycleState, _ *framework.InferenceRequest, models []datalayer.Model) map[datalayer.Model]float64 {
+func (s *CostScorer) Score(_ context.Context, _ *plugin.CycleState, _ *requesthandling.InferenceRequest, models []datalayer.Model) map[datalayer.Model]float64 {
 	// Create a map to hold the score of each model candidate
 	scores := make(map[datalayer.Model]float64, len(models))
 

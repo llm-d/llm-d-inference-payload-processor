@@ -27,7 +27,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	logutil "github.com/llm-d/llm-d-inference-payload-processor/pkg/common/observability/logging"
-	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/plugin"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/requesthandling"
 )
 
 const (
@@ -37,15 +38,15 @@ const (
 )
 
 // compile-time type validation
-var _ framework.RequestProcessor = &BaseModelToHeaderPlugin{}
+var _ requesthandling.RequestProcessor = &BaseModelToHeaderPlugin{}
 
 type BaseModelToHeaderPlugin struct {
-	typedName     framework.TypedName
+	typedName     plugin.TypedName
 	AdaptersStore AdaptersStore
 }
 
 // BaseModelToHeaderPluginFactory defines the factory function for BaseModelToHeaderPlugin
-func BaseModelToHeaderPluginFactory(name string, _ json.RawMessage, handle framework.Handle) (framework.Plugin, error) {
+func BaseModelToHeaderPluginFactory(name string, _ json.RawMessage, handle plugin.Handle) (plugin.Plugin, error) {
 	plugin, err := NewBaseModelToHeaderPlugin(handle.ReconcilerBuilder, handle.Client())
 	if err != nil {
 		return nil, fmt.Errorf("failed to create plugin '%s' - %w", BaseModelToHeaderPluginType, err)
@@ -67,13 +68,13 @@ func NewBaseModelToHeaderPlugin(reconcilerBuilder func() *builder.Builder, clien
 	}
 
 	return &BaseModelToHeaderPlugin{
-		typedName:     framework.TypedName{Type: BaseModelToHeaderPluginType, Name: BaseModelToHeaderPluginType},
+		typedName:     plugin.TypedName{Type: BaseModelToHeaderPluginType, Name: BaseModelToHeaderPluginType},
 		AdaptersStore: adaptersStore,
 	}, nil
 }
 
 // TypedName returns the type and name tuple of this plugin instance.
-func (p *BaseModelToHeaderPlugin) TypedName() framework.TypedName {
+func (p *BaseModelToHeaderPlugin) TypedName() plugin.TypedName {
 	return p.typedName
 }
 
@@ -84,7 +85,7 @@ func (p *BaseModelToHeaderPlugin) WithName(name string) *BaseModelToHeaderPlugin
 }
 
 // ProcessRequest sets base model name on the header
-func (p *BaseModelToHeaderPlugin) ProcessRequest(ctx context.Context, _ *framework.CycleState, request *framework.InferenceRequest) error {
+func (p *BaseModelToHeaderPlugin) ProcessRequest(ctx context.Context, _ *plugin.CycleState, request *requesthandling.InferenceRequest) error {
 	// extract raw field value from body
 	rawFieldValue, exists := request.Body[modelField]
 	if !exists {

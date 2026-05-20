@@ -20,19 +20,20 @@ import (
 	"context"
 	"testing"
 
-	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/datalayer"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/modelselector"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/plugin"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/requesthandling"
 )
 
 type testFilter struct {
-	typedName framework.TypedName
+	typedName plugin.TypedName
 	filterFn  func(models []datalayer.Model) []datalayer.Model
 	callCount int
 }
 
-func (f *testFilter) TypedName() framework.TypedName { return f.typedName }
-func (f *testFilter) Filter(_ context.Context, _ *framework.CycleState, _ *framework.InferenceRequest, models []datalayer.Model) []datalayer.Model {
+func (f *testFilter) TypedName() plugin.TypedName { return f.typedName }
+func (f *testFilter) Filter(_ context.Context, _ *plugin.CycleState, _ *requesthandling.InferenceRequest, models []datalayer.Model) []datalayer.Model {
 	f.callCount++
 	if f.filterFn != nil {
 		return f.filterFn(models)
@@ -41,13 +42,13 @@ func (f *testFilter) Filter(_ context.Context, _ *framework.CycleState, _ *frame
 }
 
 type testScorer struct {
-	typedName framework.TypedName
+	typedName plugin.TypedName
 	scoreFn   func(models []datalayer.Model) map[datalayer.Model]float64
 	callCount int
 }
 
-func (s *testScorer) TypedName() framework.TypedName { return s.typedName }
-func (s *testScorer) Score(_ context.Context, _ *framework.CycleState, _ *framework.InferenceRequest, models []datalayer.Model) map[datalayer.Model]float64 {
+func (s *testScorer) TypedName() plugin.TypedName { return s.typedName }
+func (s *testScorer) Score(_ context.Context, _ *plugin.CycleState, _ *requesthandling.InferenceRequest, models []datalayer.Model) map[datalayer.Model]float64 {
 	s.callCount++
 	if s.scoreFn != nil {
 		return s.scoreFn(models)
@@ -60,12 +61,12 @@ func (s *testScorer) Score(_ context.Context, _ *framework.CycleState, _ *framew
 }
 
 type testPicker struct {
-	typedName framework.TypedName
+	typedName plugin.TypedName
 	callCount int
 }
 
-func (p *testPicker) TypedName() framework.TypedName { return p.typedName }
-func (p *testPicker) Pick(_ context.Context, _ *framework.CycleState, scoredModels []*modelselector.ScoredModel) *modelselector.ProfileRunResult {
+func (p *testPicker) TypedName() plugin.TypedName { return p.typedName }
+func (p *testPicker) Pick(_ context.Context, _ *plugin.CycleState, scoredModels []*modelselector.ScoredModel) *modelselector.ProfileRunResult {
 	p.callCount++
 	if len(scoredModels) == 0 {
 		return nil
@@ -96,7 +97,7 @@ func TestProfileRun(t *testing.T) {
 			name:   "basic selection with scorer",
 			models: []datalayer.Model{modelA, modelB, modelC},
 			scorer: &testScorer{
-				typedName: framework.TypedName{Type: "test-scorer", Name: "cost"},
+				typedName: plugin.TypedName{Type: "test-scorer", Name: "cost"},
 				scoreFn: func(models []datalayer.Model) map[datalayer.Model]float64 {
 					scores := make(map[datalayer.Model]float64)
 					for _, m := range models {
@@ -118,7 +119,7 @@ func TestProfileRun(t *testing.T) {
 			name:   "filter removes models before scoring",
 			models: []datalayer.Model{modelA, modelB, modelC},
 			filter: &testFilter{
-				typedName: framework.TypedName{Type: "test-filter", Name: "availability"},
+				typedName: plugin.TypedName{Type: "test-filter", Name: "availability"},
 				filterFn: func(models []datalayer.Model) []datalayer.Model {
 					var result []datalayer.Model
 					for _, m := range models {
@@ -130,7 +131,7 @@ func TestProfileRun(t *testing.T) {
 				},
 			},
 			scorer: &testScorer{
-				typedName: framework.TypedName{Type: "test-scorer", Name: "cost"},
+				typedName: plugin.TypedName{Type: "test-scorer", Name: "cost"},
 				scoreFn: func(models []datalayer.Model) map[datalayer.Model]float64 {
 					scores := make(map[datalayer.Model]float64)
 					for _, m := range models {
@@ -150,7 +151,7 @@ func TestProfileRun(t *testing.T) {
 			name:   "all models filtered returns error",
 			models: []datalayer.Model{modelA, modelB},
 			filter: &testFilter{
-				typedName: framework.TypedName{Type: "test-filter", Name: "block-all"},
+				typedName: plugin.TypedName{Type: "test-filter", Name: "block-all"},
 				filterFn: func(_ []datalayer.Model) []datalayer.Model {
 					return []datalayer.Model{}
 				},
@@ -166,7 +167,7 @@ func TestProfileRun(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			picker := &testPicker{typedName: framework.TypedName{Type: "test-picker", Name: "max-score"}}
+			picker := &testPicker{typedName: plugin.TypedName{Type: "test-picker", Name: "max-score"}}
 			profile := NewModelSelectorProfile().WithPicker(picker)
 
 			if tt.filter != nil {
@@ -176,7 +177,7 @@ func TestProfileRun(t *testing.T) {
 				profile.WithScorers(NewWeightedScorer(tt.scorer, 1.0))
 			}
 
-			result, err := profile.Run(context.Background(), framework.NewInferenceRequest(), framework.NewCycleState(), tt.models)
+			result, err := profile.Run(context.Background(), requesthandling.NewInferenceRequest(), plugin.NewCycleState(), tt.models)
 
 			if tt.wantErr {
 				if err == nil {
@@ -202,7 +203,7 @@ func TestScoreWeightAccumulation(t *testing.T) {
 	modelB := datalayer.NewModel("model-b")
 
 	scorer1 := &testScorer{
-		typedName: framework.TypedName{Type: "test-scorer", Name: "cost"},
+		typedName: plugin.TypedName{Type: "test-scorer", Name: "cost"},
 		scoreFn: func(models []datalayer.Model) map[datalayer.Model]float64 {
 			scores := make(map[datalayer.Model]float64)
 			for _, m := range models {
@@ -216,7 +217,7 @@ func TestScoreWeightAccumulation(t *testing.T) {
 		},
 	}
 	scorer2 := &testScorer{
-		typedName: framework.TypedName{Type: "test-scorer", Name: "latency"},
+		typedName: plugin.TypedName{Type: "test-scorer", Name: "latency"},
 		scoreFn: func(models []datalayer.Model) map[datalayer.Model]float64 {
 			scores := make(map[datalayer.Model]float64)
 			for _, m := range models {
@@ -231,12 +232,12 @@ func TestScoreWeightAccumulation(t *testing.T) {
 	}
 
 	// cost weight=3, latency weight=1 → model-a should win (3*1.0 + 1*0.0 = 3.0 vs 3*0.0 + 1*1.0 = 1.0)
-	picker := &testPicker{typedName: framework.TypedName{Type: "test-picker", Name: "max-score"}}
+	picker := &testPicker{typedName: plugin.TypedName{Type: "test-picker", Name: "max-score"}}
 	profile := NewModelSelectorProfile().
 		WithScorers(NewWeightedScorer(scorer1, 3.0), NewWeightedScorer(scorer2, 1.0)).
 		WithPicker(picker)
 
-	result, err := profile.Run(context.Background(), framework.NewInferenceRequest(), framework.NewCycleState(), []datalayer.Model{modelA, modelB})
+	result, err := profile.Run(context.Background(), requesthandling.NewInferenceRequest(), plugin.NewCycleState(), []datalayer.Model{modelA, modelB})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -273,7 +274,7 @@ func TestScoreRangeEnforcement(t *testing.T) {
 func TestAddPlugins(t *testing.T) {
 	t.Run("scorer without weight returns error", func(t *testing.T) {
 		profile := NewModelSelectorProfile()
-		scorer := &testScorer{typedName: framework.TypedName{Type: "test-scorer", Name: "cost"}}
+		scorer := &testScorer{typedName: plugin.TypedName{Type: "test-scorer", Name: "cost"}}
 		err := profile.AddPlugins(scorer)
 		if err == nil {
 			t.Fatal("expected error for scorer without weight")
@@ -282,8 +283,8 @@ func TestAddPlugins(t *testing.T) {
 
 	t.Run("duplicate picker returns error", func(t *testing.T) {
 		profile := NewModelSelectorProfile()
-		picker1 := &testPicker{typedName: framework.TypedName{Type: "test-picker", Name: "first"}}
-		picker2 := &testPicker{typedName: framework.TypedName{Type: "test-picker", Name: "second"}}
+		picker1 := &testPicker{typedName: plugin.TypedName{Type: "test-picker", Name: "first"}}
+		picker2 := &testPicker{typedName: plugin.TypedName{Type: "test-picker", Name: "second"}}
 		if err := profile.AddPlugins(picker1); err != nil {
 			t.Fatalf("first picker should succeed: %v", err)
 		}
@@ -295,7 +296,7 @@ func TestAddPlugins(t *testing.T) {
 
 	t.Run("weighted scorer registered correctly", func(t *testing.T) {
 		profile := NewModelSelectorProfile()
-		scorer := &testScorer{typedName: framework.TypedName{Type: "test-scorer", Name: "cost"}}
+		scorer := &testScorer{typedName: plugin.TypedName{Type: "test-scorer", Name: "cost"}}
 		ws := NewWeightedScorer(scorer, 2.0)
 		if err := profile.AddPlugins(ws); err != nil {
 			t.Fatalf("unexpected error: %v", err)

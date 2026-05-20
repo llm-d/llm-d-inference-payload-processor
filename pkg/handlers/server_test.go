@@ -29,7 +29,8 @@ import (
 
 	envoytest "github.com/llm-d/llm-d-inference-payload-processor/pkg/common/envoy/test"
 	logutil "github.com/llm-d/llm-d-inference-payload-processor/pkg/common/observability/logging"
-	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/plugin"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/requesthandling"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/plugins/basemodelextractor"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/plugins/bodyfieldtoheader"
 	"github.com/llm-d/llm-d-inference-payload-processor/test/utils"
@@ -91,10 +92,10 @@ func TestHandleRequestBody(t *testing.T) {
 
 	baseModelToHeaderPlugin := &basemodelextractor.BaseModelToHeaderPlugin{AdaptersStore: basemodelextractor.NewAdaptersStore()}
 	modelToHeaderPlugin, _ := bodyfieldtoheader.NewBodyFieldToHeaderPlugin(modelField, bodyfieldtoheader.ModelHeader)
-	srv := NewServer([]framework.RequestProcessor{modelToHeaderPlugin, baseModelToHeaderPlugin}, []framework.ResponseProcessor{})
+	srv := NewServer([]requesthandling.RequestProcessor{modelToHeaderPlugin, baseModelToHeaderPlugin}, []requesthandling.ResponseProcessor{})
 	reqCtx := &RequestContext{
-		CycleState: framework.NewCycleState(),
-		Request:    framework.NewInferenceRequest(),
+		CycleState: plugin.NewCycleState(),
+		Request:    requesthandling.NewInferenceRequest(),
 	}
 	got, err := srv.HandleRequestBody(ctx, reqCtx, b)
 	if err != nil {
@@ -113,7 +114,7 @@ func TestHandleResponseBody_Streaming(t *testing.T) {
 	ctx := logutil.NewTestLoggerIntoContext(context.Background())
 	wantFullBody := []byte(`{"choices":[{"text":"Hello!"}]}`)
 
-	ref := NewServer([]framework.RequestProcessor{}, []framework.ResponseProcessor{})
+	ref := NewServer([]requesthandling.RequestProcessor{}, []requesthandling.ResponseProcessor{})
 	want, err := ref.HandleResponseBody(ctx, newTestRequestContext(), wantFullBody)
 	if err != nil {
 		t.Fatalf("reference HandleResponseBody: %v", err)
@@ -153,7 +154,7 @@ func TestHandleResponseBody_Streaming(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			streamCtx, cancel := context.WithCancel(logutil.NewTestLoggerIntoContext(context.Background()))
-			srv := NewServer([]framework.RequestProcessor{}, []framework.ResponseProcessor{})
+			srv := NewServer([]requesthandling.RequestProcessor{}, []requesthandling.ResponseProcessor{})
 			testListener, errChan := utils.SetupTestStreamingServer(t, streamCtx, srv)
 			process, conn := utils.GetStreamingServerClient(streamCtx, t)
 			defer conn.Close()

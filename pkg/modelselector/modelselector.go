@@ -24,9 +24,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	logutil "github.com/llm-d/llm-d-inference-payload-processor/pkg/common/observability/logging"
-	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/datalayer"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/modelselector"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/plugin"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/requesthandling"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/metrics"
 )
 
@@ -43,7 +44,7 @@ type ModelSelector struct {
 }
 
 // Select runs the model selection pipeline (Filter → Score → Pick) and returns the selected model.
-func (s *ModelSelector) Select(ctx context.Context, request *framework.InferenceRequest, cycleState *framework.CycleState, candidateModels []datalayer.Model) (result *modelselector.ProfileRunResult, err error) {
+func (s *ModelSelector) Select(ctx context.Context, request *requesthandling.InferenceRequest, cycleState *plugin.CycleState, candidateModels []datalayer.Model) (result *modelselector.ProfileRunResult, err error) {
 	logger := log.FromContext(ctx)
 	logger.V(logutil.VERBOSE).Info("Starting model selection", "candidateModels", len(candidateModels))
 

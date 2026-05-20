@@ -30,39 +30,40 @@ import (
 
 	envoytest "github.com/llm-d/llm-d-inference-payload-processor/pkg/common/envoy/test"
 	logutil "github.com/llm-d/llm-d-inference-payload-processor/pkg/common/observability/logging"
-	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/plugin"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/requesthandling"
 )
 
 const testPluginValue = "done"
 
-// fakeResponsePlugin implements framework.PayloadProcessor for testing response plugin execution.
+// fakeResponsePlugin implements requesthandling.PayloadProcessor for testing response plugin execution.
 type fakeResponsePlugin struct {
 	name     string
-	mutateFn func(ctx context.Context, cycleState *framework.CycleState, response *framework.InferenceResponse) error
+	mutateFn func(ctx context.Context, cycleState *plugin.CycleState, response *requesthandling.InferenceResponse) error
 }
 
-func (p *fakeResponsePlugin) TypedName() framework.TypedName {
-	return framework.TypedName{Type: "fake", Name: p.name}
+func (p *fakeResponsePlugin) TypedName() plugin.TypedName {
+	return plugin.TypedName{Type: "fake", Name: p.name}
 }
 
-func (p *fakeResponsePlugin) ProcessResponse(ctx context.Context, cycleState *framework.CycleState, response *framework.InferenceResponse) error {
+func (p *fakeResponsePlugin) ProcessResponse(ctx context.Context, cycleState *plugin.CycleState, response *requesthandling.InferenceResponse) error {
 	return p.mutateFn(ctx, cycleState, response)
 }
 
-var _ framework.ResponseProcessor = &fakeResponsePlugin{}
+var _ requesthandling.ResponseProcessor = &fakeResponsePlugin{}
 
 func newTestRequestContext() *RequestContext {
 	return &RequestContext{
-		CycleState: framework.NewCycleState(),
-		Request:    framework.NewInferenceRequest(),
-		Response:   framework.NewInferenceResponse(),
+		CycleState: plugin.NewCycleState(),
+		Request:    requesthandling.NewInferenceRequest(),
+		Response:   requesthandling.NewInferenceResponse(),
 	}
 }
 
 func TestHandleResponseBody_NoPlugins(t *testing.T) {
 	ctx := logutil.NewTestLoggerIntoContext(context.Background())
 
-	server := NewServer([]framework.RequestProcessor{}, []framework.ResponseProcessor{})
+	server := NewServer([]requesthandling.RequestProcessor{}, []requesthandling.ResponseProcessor{})
 	responseBody := []byte(`{"choices":[{"text":"Hello!"}]}`)
 	resp, err := server.HandleResponseBody(ctx, newTestRequestContext(), responseBody)
 	if err != nil {
@@ -103,13 +104,13 @@ func TestHandleResponseBody_SinglePlugin(t *testing.T) {
 
 	mutatePlugin := &fakeResponsePlugin{
 		name: "mutator",
-		mutateFn: func(_ context.Context, _ *framework.CycleState, response *framework.InferenceResponse) error {
+		mutateFn: func(_ context.Context, _ *plugin.CycleState, response *requesthandling.InferenceResponse) error {
 			response.SetBodyField("mutated", true)
 			return nil
 		},
 	}
 
-	server := NewServer([]framework.RequestProcessor{}, []framework.ResponseProcessor{mutatePlugin})
+	server := NewServer([]requesthandling.RequestProcessor{}, []requesthandling.ResponseProcessor{mutatePlugin})
 	responseBody := []byte(`{"choices":[{"text":"Hello!"}]}`)
 	resp, err := server.HandleResponseBody(ctx, newTestRequestContext(), responseBody)
 	if err != nil {
@@ -134,20 +135,20 @@ func TestHandleResponseBody_MultiplePlugins(t *testing.T) {
 
 	plugin1 := &fakeResponsePlugin{
 		name: "plugin1",
-		mutateFn: func(_ context.Context, _ *framework.CycleState, response *framework.InferenceResponse) error {
+		mutateFn: func(_ context.Context, _ *plugin.CycleState, response *requesthandling.InferenceResponse) error {
 			response.SetBodyField("p1", testPluginValue)
 			return nil
 		},
 	}
 	plugin2 := &fakeResponsePlugin{
 		name: "plugin2",
-		mutateFn: func(_ context.Context, _ *framework.CycleState, response *framework.InferenceResponse) error {
+		mutateFn: func(_ context.Context, _ *plugin.CycleState, response *requesthandling.InferenceResponse) error {
 			response.SetBodyField("p2", testPluginValue)
 			return nil
 		},
 	}
 
-	server := NewServer([]framework.RequestProcessor{}, []framework.ResponseProcessor{plugin1, plugin2})
+	server := NewServer([]requesthandling.RequestProcessor{}, []requesthandling.ResponseProcessor{plugin1, plugin2})
 	responseBody := []byte(`{"original":true}`)
 	resp, err := server.HandleResponseBody(ctx, newTestRequestContext(), responseBody)
 	if err != nil {
@@ -173,12 +174,12 @@ func TestHandleResponseBody_PluginError(t *testing.T) {
 
 	failingPlugin := &fakeResponsePlugin{
 		name: "failing",
-		mutateFn: func(_ context.Context, _ *framework.CycleState, _ *framework.InferenceResponse) error {
+		mutateFn: func(_ context.Context, _ *plugin.CycleState, _ *requesthandling.InferenceResponse) error {
 			return errors.New("failed to execute plugin")
 		},
 	}
 
-	server := NewServer([]framework.RequestProcessor{}, []framework.ResponseProcessor{failingPlugin})
+	server := NewServer([]requesthandling.RequestProcessor{}, []requesthandling.ResponseProcessor{failingPlugin})
 	responseBody := []byte(`{"choices":[{"text":"some response"}]}`)
 	_, err := server.HandleResponseBody(ctx, newTestRequestContext(), responseBody)
 	if err == nil {
@@ -195,13 +196,13 @@ func TestHandleResponseBody_StreamingWithPlugin(t *testing.T) {
 
 	mutatePlugin := &fakeResponsePlugin{
 		name: "mutator",
-		mutateFn: func(_ context.Context, _ *framework.CycleState, response *framework.InferenceResponse) error {
+		mutateFn: func(_ context.Context, _ *plugin.CycleState, response *requesthandling.InferenceResponse) error {
 			response.SetBodyField("mutated", true)
 			return nil
 		},
 	}
 
-	server := NewServer([]framework.RequestProcessor{}, []framework.ResponseProcessor{mutatePlugin})
+	server := NewServer([]requesthandling.RequestProcessor{}, []requesthandling.ResponseProcessor{mutatePlugin})
 	responseBody := []byte(`{"choices":[{"text":"Hello!"}]}`)
 	resp, err := server.HandleResponseBody(ctx, newTestRequestContext(), responseBody)
 	if err != nil {
@@ -226,7 +227,7 @@ func TestHandleResponseBody_PluginNoBodyMutation(t *testing.T) {
 
 	headerOnlyPlugin := &fakeResponsePlugin{
 		name: "header-only",
-		mutateFn: func(_ context.Context, _ *framework.CycleState, response *framework.InferenceResponse) error {
+		mutateFn: func(_ context.Context, _ *plugin.CycleState, response *requesthandling.InferenceResponse) error {
 			response.SetHeader("X-Custom-Response", "added")
 			return nil
 		},
@@ -271,7 +272,7 @@ func TestHandleResponseBody_PluginNoBodyMutation(t *testing.T) {
 		},
 	}
 
-	server := NewServer([]framework.RequestProcessor{}, []framework.ResponseProcessor{headerOnlyPlugin})
+	server := NewServer([]requesthandling.RequestProcessor{}, []requesthandling.ResponseProcessor{headerOnlyPlugin})
 	resp, err := server.HandleResponseBody(ctx, newTestRequestContext(), responseBody)
 	if err != nil {
 		t.Fatalf("HandleResponseBody returned unexpected error: %v", err)

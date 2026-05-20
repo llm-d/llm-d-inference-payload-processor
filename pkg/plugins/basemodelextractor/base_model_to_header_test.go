@@ -29,7 +29,8 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/datastore"
-	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/plugin"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/requesthandling"
 )
 
 const (
@@ -40,7 +41,7 @@ const (
 // TestBaseModelToHeaderPlugin_TypedName tests the TypedName method returns correct type and name.
 func TestBaseModelToHeaderPlugin_TypedName(t *testing.T) {
 	p := &BaseModelToHeaderPlugin{
-		typedName:     framework.TypedName{Type: BaseModelToHeaderPluginType, Name: "test-plugin"},
+		typedName:     plugin.TypedName{Type: BaseModelToHeaderPluginType, Name: "test-plugin"},
 		AdaptersStore: NewAdaptersStore(),
 	}
 
@@ -56,7 +57,7 @@ func TestBaseModelToHeaderPlugin_TypedName(t *testing.T) {
 // TestBaseModelToHeaderPlugin_WithName tests that WithName correctly updates the plugin name.
 func TestBaseModelToHeaderPlugin_WithName(t *testing.T) {
 	p := &BaseModelToHeaderPlugin{
-		typedName:     framework.TypedName{Type: BaseModelToHeaderPluginType, Name: "original"},
+		typedName:     plugin.TypedName{Type: BaseModelToHeaderPluginType, Name: "original"},
 		AdaptersStore: NewAdaptersStore(),
 	}
 
@@ -120,7 +121,7 @@ func TestBaseModelToHeaderPluginFactory(t *testing.T) {
 			fakeDS := datastore.NewFakeDataStore()
 
 			// Create a handle using the test manager and fake datastore
-			handle := framework.NewHandle(context.Background(), mgr, fakeDS)
+			handle := plugin.NewHandle(context.Background(), mgr, fakeDS)
 
 			p, err := BaseModelToHeaderPluginFactory(tt.pluginName, tt.rawParams, handle)
 			if err != nil {
@@ -156,20 +157,20 @@ func TestBaseModelToHeaderPlugin_ProcessRequest(t *testing.T) {
 	}
 
 	p := &BaseModelToHeaderPlugin{
-		typedName:     framework.TypedName{Type: BaseModelToHeaderPluginType, Name: "test"},
+		typedName:     plugin.TypedName{Type: BaseModelToHeaderPluginType, Name: "test"},
 		AdaptersStore: store,
 	}
 
 	tests := []struct {
 		name       string
-		request    *framework.InferenceRequest
+		request    *requesthandling.InferenceRequest
 		wantErr    bool
 		wantHeader string
 	}{
 		{
 			name: "base model maps to itself",
-			request: func() *framework.InferenceRequest {
-				r := framework.NewInferenceRequest()
+			request: func() *requesthandling.InferenceRequest {
+				r := requesthandling.NewInferenceRequest()
 				r.Body["model"] = testBaseModel
 				return r
 			}(),
@@ -177,8 +178,8 @@ func TestBaseModelToHeaderPlugin_ProcessRequest(t *testing.T) {
 		},
 		{
 			name: "lora adapter maps to base model",
-			request: func() *framework.InferenceRequest {
-				r := framework.NewInferenceRequest()
+			request: func() *requesthandling.InferenceRequest {
+				r := requesthandling.NewInferenceRequest()
 				r.Body["model"] = testAdapter
 				return r
 			}(),
@@ -186,8 +187,8 @@ func TestBaseModelToHeaderPlugin_ProcessRequest(t *testing.T) {
 		},
 		{
 			name: "unknown model returns empty string",
-			request: func() *framework.InferenceRequest {
-				r := framework.NewInferenceRequest()
+			request: func() *requesthandling.InferenceRequest {
+				r := requesthandling.NewInferenceRequest()
 				r.Body["model"] = "unknown-model"
 				return r
 			}(),
@@ -195,8 +196,8 @@ func TestBaseModelToHeaderPlugin_ProcessRequest(t *testing.T) {
 		},
 		{
 			name: "missing model field returns empty string",
-			request: func() *framework.InferenceRequest {
-				r := framework.NewInferenceRequest()
+			request: func() *requesthandling.InferenceRequest {
+				r := requesthandling.NewInferenceRequest()
 				r.Body["prompt"] = "test prompt"
 				return r
 			}(),
@@ -204,8 +205,8 @@ func TestBaseModelToHeaderPlugin_ProcessRequest(t *testing.T) {
 		},
 		{
 			name: "empty string model returns empty string",
-			request: func() *framework.InferenceRequest {
-				r := framework.NewInferenceRequest()
+			request: func() *requesthandling.InferenceRequest {
+				r := requesthandling.NewInferenceRequest()
 				r.Body["model"] = ""
 				return r
 			}(),
@@ -213,8 +214,8 @@ func TestBaseModelToHeaderPlugin_ProcessRequest(t *testing.T) {
 		},
 		{
 			name: "integer model value",
-			request: func() *framework.InferenceRequest {
-				r := framework.NewInferenceRequest()
+			request: func() *requesthandling.InferenceRequest {
+				r := requesthandling.NewInferenceRequest()
 				r.Body["model"] = 123
 				return r
 			}(),
@@ -222,8 +223,8 @@ func TestBaseModelToHeaderPlugin_ProcessRequest(t *testing.T) {
 		},
 		{
 			name: "boolean model value",
-			request: func() *framework.InferenceRequest {
-				r := framework.NewInferenceRequest()
+			request: func() *requesthandling.InferenceRequest {
+				r := requesthandling.NewInferenceRequest()
 				r.Body["model"] = true
 				return r
 			}(),
@@ -231,8 +232,8 @@ func TestBaseModelToHeaderPlugin_ProcessRequest(t *testing.T) {
 		},
 		{
 			name: "nil model value",
-			request: func() *framework.InferenceRequest {
-				r := framework.NewInferenceRequest()
+			request: func() *requesthandling.InferenceRequest {
+				r := requesthandling.NewInferenceRequest()
 				r.Body["model"] = nil
 				return r
 			}(),
@@ -280,11 +281,11 @@ func TestBaseModelToHeaderPlugin_ProcessRequest_MutatedHeaders(t *testing.T) {
 	}
 
 	p := &BaseModelToHeaderPlugin{
-		typedName:     framework.TypedName{Type: BaseModelToHeaderPluginType, Name: "test"},
+		typedName:     plugin.TypedName{Type: BaseModelToHeaderPluginType, Name: "test"},
 		AdaptersStore: store,
 	}
 
-	request := framework.NewInferenceRequest()
+	request := requesthandling.NewInferenceRequest()
 	request.Body["model"] = testAdapter
 
 	if err := p.ProcessRequest(context.Background(), nil, request); err != nil {

@@ -32,7 +32,8 @@ import (
 
 	envoytest "github.com/llm-d/llm-d-inference-payload-processor/pkg/common/envoy/test"
 	logutil "github.com/llm-d/llm-d-inference-payload-processor/pkg/common/observability/logging"
-	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/plugin"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/requesthandling"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/metrics"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/plugins/basemodelextractor"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/plugins/bodyfieldtoheader"
@@ -147,9 +148,9 @@ func TestHandleRequestHeaders(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			server := NewServer([]framework.RequestProcessor{}, []framework.ResponseProcessor{})
+			server := NewServer([]requesthandling.RequestProcessor{}, []requesthandling.ResponseProcessor{})
 			reqCtx := &RequestContext{
-				Request: framework.NewInferenceRequest(),
+				Request: requesthandling.NewInferenceRequest(),
 			}
 
 			resp := server.HandleRequestHeaders(context.Background(), reqCtx, tc.headers)
@@ -476,10 +477,10 @@ func TestHandleRequestBody_BuiltInPlugins(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			modelToHeaderPlugin, _ := bodyfieldtoheader.NewBodyFieldToHeaderPlugin(modelField, bodyfieldtoheader.ModelHeader)
-			server := NewServer([]framework.RequestProcessor{modelToHeaderPlugin, baseModelToHeaderPlugin}, []framework.ResponseProcessor{})
+			server := NewServer([]requesthandling.RequestProcessor{modelToHeaderPlugin, baseModelToHeaderPlugin}, []requesthandling.ResponseProcessor{})
 			reqCtx := &RequestContext{
-				CycleState: framework.NewCycleState(),
-				Request:    framework.NewInferenceRequest(),
+				CycleState: plugin.NewCycleState(),
+				Request:    requesthandling.NewInferenceRequest(),
 			}
 			bodyBytes, _ := json.Marshal(test.body)
 			resp, err := server.HandleRequestBody(ctx, reqCtx, bodyBytes)
@@ -524,10 +525,10 @@ func TestHandleRequestBodyWithPluginMetrics(t *testing.T) {
 
 	modelToHeaderPlugin, _ := bodyfieldtoheader.NewBodyFieldToHeaderPlugin(modelField, bodyfieldtoheader.ModelHeader)
 	baseModelToHeaderPlugin := &basemodelextractor.BaseModelToHeaderPlugin{AdaptersStore: basemodelextractor.NewAdaptersStore()}
-	server := NewServer([]framework.RequestProcessor{modelToHeaderPlugin, baseModelToHeaderPlugin}, []framework.ResponseProcessor{})
+	server := NewServer([]requesthandling.RequestProcessor{modelToHeaderPlugin, baseModelToHeaderPlugin}, []requesthandling.ResponseProcessor{})
 	reqCtx := &RequestContext{
-		CycleState: framework.NewCycleState(),
-		Request:    framework.NewInferenceRequest(),
+		CycleState: plugin.NewCycleState(),
+		Request:    requesthandling.NewInferenceRequest(),
 	}
 
 	bodyBytes, _ := json.Marshal(map[string]any{
@@ -566,22 +567,22 @@ func TestHandleRequestBodyWithPluginMetrics(t *testing.T) {
 
 // === Request Body Tests (multi-plugin header mutations) ===
 
-// fakeRequestPlugin implements framework.RequestProcessor for testing
+// fakeRequestPlugin implements requesthandling.RequestProcessor for testing
 // multi-plugin header mutation scenarios.
 type fakeRequestPlugin struct {
 	name     string
-	mutateFn func(ctx context.Context, request *framework.InferenceRequest) error
+	mutateFn func(ctx context.Context, request *requesthandling.InferenceRequest) error
 }
 
-func (p *fakeRequestPlugin) TypedName() framework.TypedName {
-	return framework.TypedName{Type: "fake", Name: p.name}
+func (p *fakeRequestPlugin) TypedName() plugin.TypedName {
+	return plugin.TypedName{Type: "fake", Name: p.name}
 }
 
-func (p *fakeRequestPlugin) ProcessRequest(ctx context.Context, _ *framework.CycleState, request *framework.InferenceRequest) error {
+func (p *fakeRequestPlugin) ProcessRequest(ctx context.Context, _ *plugin.CycleState, request *requesthandling.InferenceRequest) error {
 	return p.mutateFn(ctx, request)
 }
 
-var _ framework.RequestProcessor = &fakeRequestPlugin{}
+var _ requesthandling.RequestProcessor = &fakeRequestPlugin{}
 
 // TestHandleRequestBody_MultiPluginHeaderMutations tests the end-to-end behavior of
 // HandleRequestBody when multiple request plugins set and/or remove headers.
@@ -591,7 +592,7 @@ func TestHandleRequestBody_MultiPluginHeaderMutations(t *testing.T) {
 
 	tests := []struct {
 		name           string
-		plugins        []framework.RequestProcessor
+		plugins        []requesthandling.RequestProcessor
 		initialHeaders map[string]string
 		wantSetHeaders map[string]string
 		wantRemoved    []string
@@ -603,17 +604,17 @@ func TestHandleRequestBody_MultiPluginHeaderMutations(t *testing.T) {
 			// However, RemoveHeader() does record it in removedHeaders because
 			// the key existed in Headers at the time of removal.
 			name: "set then remove same header - cancels out",
-			plugins: []framework.RequestProcessor{
+			plugins: []requesthandling.RequestProcessor{
 				&fakeRequestPlugin{
 					name: "setter",
-					mutateFn: func(_ context.Context, req *framework.InferenceRequest) error {
+					mutateFn: func(_ context.Context, req *requesthandling.InferenceRequest) error {
 						req.SetHeader("X-Custom", "value1")
 						return nil
 					},
 				},
 				&fakeRequestPlugin{
 					name: "remover",
-					mutateFn: func(_ context.Context, req *framework.InferenceRequest) error {
+					mutateFn: func(_ context.Context, req *requesthandling.InferenceRequest) error {
 						req.RemoveHeader("X-Custom")
 						return nil
 					},
@@ -626,17 +627,17 @@ func TestHandleRequestBody_MultiPluginHeaderMutations(t *testing.T) {
 			// Plugin1 adds a new header, Plugin2 removes a pre-existing one.
 			// Both mutations should appear in the response.
 			name: "set then remove different headers - both apply",
-			plugins: []framework.RequestProcessor{
+			plugins: []requesthandling.RequestProcessor{
 				&fakeRequestPlugin{
 					name: "setter",
-					mutateFn: func(_ context.Context, req *framework.InferenceRequest) error {
+					mutateFn: func(_ context.Context, req *requesthandling.InferenceRequest) error {
 						req.SetHeader("X-New", "hello")
 						return nil
 					},
 				},
 				&fakeRequestPlugin{
 					name: "remover",
-					mutateFn: func(_ context.Context, req *framework.InferenceRequest) error {
+					mutateFn: func(_ context.Context, req *requesthandling.InferenceRequest) error {
 						req.RemoveHeader("X-Existing")
 						return nil
 					},
@@ -654,10 +655,10 @@ func TestHandleRequestBody_MultiPluginHeaderMutations(t *testing.T) {
 			// RemoveHeader on a key that was never in Headers is a no-op:
 			// the guard `if _, ok := r.Headers[key]; ok` prevents any mutation.
 			name: "remove non-existing header - no-op",
-			plugins: []framework.RequestProcessor{
+			plugins: []requesthandling.RequestProcessor{
 				&fakeRequestPlugin{
 					name: "remover",
-					mutateFn: func(_ context.Context, req *framework.InferenceRequest) error {
+					mutateFn: func(_ context.Context, req *requesthandling.InferenceRequest) error {
 						req.RemoveHeader("X-Ghost")
 						return nil
 					},
@@ -671,17 +672,17 @@ func TestHandleRequestBody_MultiPluginHeaderMutations(t *testing.T) {
 			// SetHeader clears the key from removedHeaders, so the final result
 			// is a set with the new value and no removal.
 			name: "remove then set same header - new value wins",
-			plugins: []framework.RequestProcessor{
+			plugins: []requesthandling.RequestProcessor{
 				&fakeRequestPlugin{
 					name: "remover",
-					mutateFn: func(_ context.Context, req *framework.InferenceRequest) error {
+					mutateFn: func(_ context.Context, req *requesthandling.InferenceRequest) error {
 						req.RemoveHeader("X-Reuse")
 						return nil
 					},
 				},
 				&fakeRequestPlugin{
 					name: "setter",
-					mutateFn: func(_ context.Context, req *framework.InferenceRequest) error {
+					mutateFn: func(_ context.Context, req *requesthandling.InferenceRequest) error {
 						req.SetHeader("X-Reuse", "new-value")
 						return nil
 					},
@@ -699,17 +700,17 @@ func TestHandleRequestBody_MultiPluginHeaderMutations(t *testing.T) {
 			// Both plugins set the same header key. Plugins run sequentially,
 			// so the last writer wins.
 			name: "two plugins set same header - last wins",
-			plugins: []framework.RequestProcessor{
+			plugins: []requesthandling.RequestProcessor{
 				&fakeRequestPlugin{
 					name: "setter1",
-					mutateFn: func(_ context.Context, req *framework.InferenceRequest) error {
+					mutateFn: func(_ context.Context, req *requesthandling.InferenceRequest) error {
 						req.SetHeader("X-Shared", "first")
 						return nil
 					},
 				},
 				&fakeRequestPlugin{
 					name: "setter2",
-					mutateFn: func(_ context.Context, req *framework.InferenceRequest) error {
+					mutateFn: func(_ context.Context, req *requesthandling.InferenceRequest) error {
 						req.SetHeader("X-Shared", "second")
 						return nil
 					},
@@ -723,17 +724,17 @@ func TestHandleRequestBody_MultiPluginHeaderMutations(t *testing.T) {
 		{
 			// Two plugins set different header keys. Both should appear in the response.
 			name: "two plugins set different headers - both apply",
-			plugins: []framework.RequestProcessor{
+			plugins: []requesthandling.RequestProcessor{
 				&fakeRequestPlugin{
 					name: "setter-a",
-					mutateFn: func(_ context.Context, req *framework.InferenceRequest) error {
+					mutateFn: func(_ context.Context, req *requesthandling.InferenceRequest) error {
 						req.SetHeader("X-First", "aaa")
 						return nil
 					},
 				},
 				&fakeRequestPlugin{
 					name: "setter-b",
-					mutateFn: func(_ context.Context, req *framework.InferenceRequest) error {
+					mutateFn: func(_ context.Context, req *requesthandling.InferenceRequest) error {
 						req.SetHeader("X-Second", "bbb")
 						return nil
 					},
@@ -750,17 +751,17 @@ func TestHandleRequestBody_MultiPluginHeaderMutations(t *testing.T) {
 			// The second RemoveHeader is a no-op because the header is already gone.
 			// The header should appear exactly once in removedHeaders.
 			name: "two plugins remove same header - idempotent",
-			plugins: []framework.RequestProcessor{
+			plugins: []requesthandling.RequestProcessor{
 				&fakeRequestPlugin{
 					name: "remover1",
-					mutateFn: func(_ context.Context, req *framework.InferenceRequest) error {
+					mutateFn: func(_ context.Context, req *requesthandling.InferenceRequest) error {
 						req.RemoveHeader("X-Dup")
 						return nil
 					},
 				},
 				&fakeRequestPlugin{
 					name: "remover2",
-					mutateFn: func(_ context.Context, req *framework.InferenceRequest) error {
+					mutateFn: func(_ context.Context, req *requesthandling.InferenceRequest) error {
 						req.RemoveHeader("X-Dup")
 						return nil
 					},
@@ -776,10 +777,10 @@ func TestHandleRequestBody_MultiPluginHeaderMutations(t *testing.T) {
 			// A plugin sets a header to the same value it already has.
 			// The SetHeader optimization (types.go:43) should skip the mutation.
 			name: "set existing header to same value - no mutation",
-			plugins: []framework.RequestProcessor{
+			plugins: []requesthandling.RequestProcessor{
 				&fakeRequestPlugin{
 					name: "noop-setter",
-					mutateFn: func(_ context.Context, req *framework.InferenceRequest) error {
+					mutateFn: func(_ context.Context, req *requesthandling.InferenceRequest) error {
 						req.SetHeader("X-Keep", "original")
 						return nil
 					},
@@ -795,10 +796,10 @@ func TestHandleRequestBody_MultiPluginHeaderMutations(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			server := NewServer(tc.plugins, []framework.ResponseProcessor{})
+			server := NewServer(tc.plugins, []requesthandling.ResponseProcessor{})
 			reqCtx := &RequestContext{
-				Request:    framework.NewInferenceRequest(),
-				CycleState: framework.NewCycleState(),
+				Request:    requesthandling.NewInferenceRequest(),
+				CycleState: plugin.NewCycleState(),
 			}
 			for k, v := range tc.initialHeaders {
 				reqCtx.Request.Headers[k] = v
@@ -882,26 +883,26 @@ func buildStreamingResponse(bodyBytes []byte, setHeaders map[string]string, remo
 
 type bodyMutatingPlugin struct {
 	name     string
-	mutateFn func(ctx context.Context, cycleState *framework.CycleState, request *framework.InferenceRequest) error
+	mutateFn func(ctx context.Context, cycleState *plugin.CycleState, request *requesthandling.InferenceRequest) error
 }
 
-func (p *bodyMutatingPlugin) TypedName() framework.TypedName {
-	return framework.TypedName{Type: "fake", Name: p.name}
+func (p *bodyMutatingPlugin) TypedName() plugin.TypedName {
+	return plugin.TypedName{Type: "fake", Name: p.name}
 }
 
-func (p *bodyMutatingPlugin) ProcessRequest(ctx context.Context, cycleState *framework.CycleState, request *framework.InferenceRequest) error {
+func (p *bodyMutatingPlugin) ProcessRequest(ctx context.Context, cycleState *plugin.CycleState, request *requesthandling.InferenceRequest) error {
 	return p.mutateFn(ctx, cycleState, request)
 }
 
-var _ framework.RequestProcessor = &bodyMutatingPlugin{}
+var _ requesthandling.RequestProcessor = &bodyMutatingPlugin{}
 
 func TestHandleRequestBody_BodyMutation(t *testing.T) {
 	metrics.Register()
 	ctx := logutil.NewTestLoggerIntoContext(context.Background())
 
-	plugin := &bodyMutatingPlugin{
+	bodyPlugin := &bodyMutatingPlugin{
 		name: "body-mutator",
-		mutateFn: func(_ context.Context, _ *framework.CycleState, request *framework.InferenceRequest) error {
+		mutateFn: func(_ context.Context, _ *plugin.CycleState, request *requesthandling.InferenceRequest) error {
 			request.SetBodyField("injected", "value")
 			return nil
 		},
@@ -948,10 +949,10 @@ func TestHandleRequestBody_BodyMutation(t *testing.T) {
 	}
 
 	baseModelPlugin := &basemodelextractor.BaseModelToHeaderPlugin{AdaptersStore: basemodelextractor.NewAdaptersStore()}
-	server := NewServer([]framework.RequestProcessor{plugin, baseModelPlugin}, []framework.ResponseProcessor{})
+	server := NewServer([]requesthandling.RequestProcessor{bodyPlugin, baseModelPlugin}, []requesthandling.ResponseProcessor{})
 	reqCtx := &RequestContext{
-		CycleState: framework.NewCycleState(),
-		Request:    framework.NewInferenceRequest(),
+		CycleState: plugin.NewCycleState(),
+		Request:    requesthandling.NewInferenceRequest(),
 	}
 	bodyBytes, _ := json.Marshal(body)
 	resp, err := server.HandleRequestBody(ctx, reqCtx, bodyBytes)

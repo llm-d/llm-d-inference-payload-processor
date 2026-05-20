@@ -19,14 +19,15 @@ package modelselector
 import (
 	"context"
 
-	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/datalayer"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/plugin"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/requesthandling"
 )
 
 // Filter defines the interface for filtering a list of candidate models based on context.
 type Filter interface {
-	framework.Plugin
-	Filter(ctx context.Context, cycleState *framework.CycleState, request *framework.InferenceRequest, models []datalayer.Model) []datalayer.Model
+	plugin.Plugin
+	Filter(ctx context.Context, cycleState *plugin.CycleState, request *requesthandling.InferenceRequest, models []datalayer.Model) []datalayer.Model
 }
 
 // Scorer defines the interface for scoring a list of models based on context.
@@ -34,12 +35,12 @@ type Filter interface {
 // If a scorer returns value greater than 1, it will be treated as score 1.
 // If a scorer returns value lower than 0, it will be treated as score 0.
 type Scorer interface {
-	framework.Plugin
-	Score(ctx context.Context, cycleState *framework.CycleState, request *framework.InferenceRequest, models []datalayer.Model) map[datalayer.Model]float64
+	plugin.Plugin
+	Score(ctx context.Context, cycleState *plugin.CycleState, request *requesthandling.InferenceRequest, models []datalayer.Model) map[datalayer.Model]float64
 }
 
 // Picker picks the final model(s) to send the request to.
 type Picker interface {
-	framework.Plugin
-	Pick(ctx context.Context, cycleState *framework.CycleState, scoredModels []*ScoredModel) *ProfileRunResult
+	plugin.Plugin
+	Pick(ctx context.Context, cycleState *plugin.CycleState, scoredModels []*ScoredModel) *ProfileRunResult
 }

@@ -29,7 +29,7 @@ import (
 
 	"github.com/llm-d/llm-d-inference-payload-processor/internal/runnable"
 	tlsutil "github.com/llm-d/llm-d-inference-payload-processor/internal/tls"
-	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/requesthandling"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/handlers"
 )
 
@@ -37,8 +37,8 @@ import (
 type ExtProcServerRunner struct {
 	GrpcPort        int
 	SecureServing   bool
-	RequestPlugins  []framework.RequestProcessor
-	ResponsePlugins []framework.ResponseProcessor
+	RequestPlugins  []requesthandling.RequestProcessor
+	ResponsePlugins []requesthandling.ResponseProcessor
 }
 
 func NewDefaultExtProcServerRunner(port int) *ExtProcServerRunner {

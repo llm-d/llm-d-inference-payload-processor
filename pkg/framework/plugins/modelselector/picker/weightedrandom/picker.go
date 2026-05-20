@@ -26,8 +26,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	logutil "github.com/llm-d/llm-d-inference-payload-processor/pkg/common/observability/logging"
-	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/modelselector"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/plugin"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/plugins/modelselector/picker"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/plugins/modelselector/picker/random"
 )
@@ -47,14 +47,14 @@ type weightedScoredModel struct {
 }
 
 // WeightedRandomPickerFactory defines the factory function for WeightedRandomPicker.
-func WeightedRandomPickerFactory(name string, _ json.RawMessage, _ framework.Handle) (framework.Plugin, error) {
+func WeightedRandomPickerFactory(name string, _ json.RawMessage, _ plugin.Handle) (plugin.Plugin, error) {
 	return NewWeightedRandomPicker().WithName(name), nil
 }
 
 // NewWeightedRandomPicker initializes a new WeightedRandomPicker and returns its pointer.
 func NewWeightedRandomPicker() *WeightedRandomPicker {
 	return &WeightedRandomPicker{
-		typedName:    framework.TypedName{Type: WeightedRandomPickerType, Name: WeightedRandomPickerType},
+		typedName:    plugin.TypedName{Type: WeightedRandomPickerType, Name: WeightedRandomPickerType},
 		randomPicker: random.NewRandomPicker(),
 	}
 }
@@ -73,7 +73,7 @@ func NewWeightedRandomPicker() *WeightedRandomPicker {
 // - Mathematically correct weighted random sampling
 // - Single pass algorithm with O(n + k log k) complexity
 type WeightedRandomPicker struct {
-	typedName    framework.TypedName
+	typedName    plugin.TypedName
 	randomPicker *random.RandomPicker // fallback for zero weights
 
 }
@@ -86,13 +86,13 @@ func (p *WeightedRandomPicker) WithName(name string) *WeightedRandomPicker {
 }
 
 // TypedName returns the type and name tuple of this plugin instance.
-func (p *WeightedRandomPicker) TypedName() framework.TypedName {
+func (p *WeightedRandomPicker) TypedName() plugin.TypedName {
 	return p.typedName
 }
 
 // Pick selects the model randomly from the list of candidates, where the probability of the model to get picked is derived
 // from its weighted score.
-func (p *WeightedRandomPicker) Pick(ctx context.Context, cycleState *framework.CycleState, scoredModels []*modelselector.ScoredModel) *modelselector.ProfileRunResult {
+func (p *WeightedRandomPicker) Pick(ctx context.Context, cycleState *plugin.CycleState, scoredModels []*modelselector.ScoredModel) *modelselector.ProfileRunResult {
 	// Check if there is at least one model with Score > 0, if not let random picker run
 	if slices.IndexFunc(scoredModels, func(scoredModel *modelselector.ScoredModel) bool { return scoredModel.Score > 0 }) == -1 {
 		log.FromContext(ctx).V(logutil.DEBUG).Info("All scores are zero, delegating to RandomPicker for uniform selection")

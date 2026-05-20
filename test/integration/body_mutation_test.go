@@ -29,7 +29,8 @@ import (
 	"google.golang.org/protobuf/testing/protocmp"
 
 	envoytest "github.com/llm-d/llm-d-inference-payload-processor/pkg/common/envoy/test"
-	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/plugin"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/requesthandling"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/plugins/basemodelextractor"
 	"sigs.k8s.io/gateway-api-inference-extension/test/integration"
 )
@@ -40,16 +41,16 @@ type bodyMutatingPlugin struct {
 	fieldValue any
 }
 
-func (p *bodyMutatingPlugin) TypedName() framework.TypedName {
-	return framework.TypedName{Type: "test-body-mutator", Name: "test-body-mutator"}
+func (p *bodyMutatingPlugin) TypedName() plugin.TypedName {
+	return plugin.TypedName{Type: "test-body-mutator", Name: "test-body-mutator"}
 }
 
-func (p *bodyMutatingPlugin) ProcessRequest(_ context.Context, _ *framework.CycleState, request *framework.InferenceRequest) error {
+func (p *bodyMutatingPlugin) ProcessRequest(_ context.Context, _ *plugin.CycleState, request *requesthandling.InferenceRequest) error {
 	request.SetBodyField(p.fieldName, p.fieldValue)
 	return nil
 }
 
-var _ framework.RequestProcessor = &bodyMutatingPlugin{}
+var _ requesthandling.RequestProcessor = &bodyMutatingPlugin{}
 
 // TestBodyMutation verifies that when a plugin mutates the body,
 // the header response includes Content-Length and the body response carries the mutated bytes.
@@ -59,7 +60,7 @@ func TestBodyMutation(t *testing.T) {
 
 	plugin := &bodyMutatingPlugin{fieldName: "injected", fieldValue: "test-value"}
 	baseModelToHeaderPlugin := &basemodelextractor.BaseModelToHeaderPlugin{AdaptersStore: basemodelextractor.NewAdaptersStore()}
-	h := NewHarnessWithPlugins(t, ctx, []framework.RequestProcessor{plugin, baseModelToHeaderPlugin}, []framework.ResponseProcessor{})
+	h := NewHarnessWithPlugins(t, ctx, []requesthandling.RequestProcessor{plugin, baseModelToHeaderPlugin}, []requesthandling.ResponseProcessor{})
 
 	body := map[string]any{"prompt": "hello"}
 	bodyBytes, _ := json.Marshal(body)

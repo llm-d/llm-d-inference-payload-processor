@@ -29,7 +29,8 @@ import (
 	envoy "github.com/llm-d/llm-d-inference-payload-processor/pkg/common/envoy"
 	errcommon "github.com/llm-d/llm-d-inference-payload-processor/pkg/common/error"
 	logutil "github.com/llm-d/llm-d-inference-payload-processor/pkg/common/observability/logging"
-	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/plugin"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/requesthandling"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/metrics"
 )
 
@@ -108,7 +109,7 @@ func (s *Server) HandleRequestBody(ctx context.Context, reqCtx *RequestContext, 
 }
 
 // runRequestPlugins executes request plugins in the order they were registered.
-func (s *Server) runRequestPlugins(ctx context.Context, cycleState *framework.CycleState, request *framework.InferenceRequest) error {
+func (s *Server) runRequestPlugins(ctx context.Context, cycleState *plugin.CycleState, request *requesthandling.InferenceRequest) error {
 	var err error
 	for _, plugin := range s.requestPlugins {
 		log.FromContext(ctx).V(logutil.VERBOSE).Info("Executing request plugin", "plugin", plugin.TypedName())

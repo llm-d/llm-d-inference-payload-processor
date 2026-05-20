@@ -21,7 +21,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/requesthandling"
 )
 
 const (
@@ -181,7 +181,7 @@ func TestBodyFieldToHeaderPlugin_ProcessRequest(t *testing.T) {
 		name       string
 		fieldName  string
 		headerName string
-		request    *framework.InferenceRequest
+		request    *requesthandling.InferenceRequest
 		wantErr    bool
 		wantHeader string
 	}{
@@ -189,8 +189,8 @@ func TestBodyFieldToHeaderPlugin_ProcessRequest(t *testing.T) {
 			name:       "string field value",
 			fieldName:  "model",
 			headerName: "X-Gateway-Model",
-			request: func() *framework.InferenceRequest {
-				r := framework.NewInferenceRequest()
+			request: func() *requesthandling.InferenceRequest {
+				r := requesthandling.NewInferenceRequest()
 				r.Body["model"] = testModelValue
 				return r
 			}(),
@@ -200,8 +200,8 @@ func TestBodyFieldToHeaderPlugin_ProcessRequest(t *testing.T) {
 			name:       "integer field value",
 			fieldName:  "count",
 			headerName: "X-Gateway-Count",
-			request: func() *framework.InferenceRequest {
-				r := framework.NewInferenceRequest()
+			request: func() *requesthandling.InferenceRequest {
+				r := requesthandling.NewInferenceRequest()
 				r.Body["count"] = 42
 				return r
 			}(),
@@ -211,8 +211,8 @@ func TestBodyFieldToHeaderPlugin_ProcessRequest(t *testing.T) {
 			name:       "float field value",
 			fieldName:  "temperature",
 			headerName: "X-Gateway-Temp",
-			request: func() *framework.InferenceRequest {
-				r := framework.NewInferenceRequest()
+			request: func() *requesthandling.InferenceRequest {
+				r := requesthandling.NewInferenceRequest()
 				r.Body["temperature"] = 0.7
 				return r
 			}(),
@@ -222,8 +222,8 @@ func TestBodyFieldToHeaderPlugin_ProcessRequest(t *testing.T) {
 			name:       "boolean field value",
 			fieldName:  "stream",
 			headerName: "X-Gateway-Stream",
-			request: func() *framework.InferenceRequest {
-				r := framework.NewInferenceRequest()
+			request: func() *requesthandling.InferenceRequest {
+				r := requesthandling.NewInferenceRequest()
 				r.Body["stream"] = true
 				return r
 			}(),
@@ -233,8 +233,8 @@ func TestBodyFieldToHeaderPlugin_ProcessRequest(t *testing.T) {
 			name:       "field not found - skips gracefully",
 			fieldName:  "missing",
 			headerName: "X-Gateway-Missing",
-			request: func() *framework.InferenceRequest {
-				r := framework.NewInferenceRequest()
+			request: func() *requesthandling.InferenceRequest {
+				r := requesthandling.NewInferenceRequest()
 				r.Body["other"] = "value"
 				return r
 			}(),
@@ -243,8 +243,8 @@ func TestBodyFieldToHeaderPlugin_ProcessRequest(t *testing.T) {
 			name:       "field is empty string - skips gracefully",
 			fieldName:  "model",
 			headerName: "X-Gateway-Model",
-			request: func() *framework.InferenceRequest {
-				r := framework.NewInferenceRequest()
+			request: func() *requesthandling.InferenceRequest {
+				r := requesthandling.NewInferenceRequest()
 				r.Body["model"] = ""
 				return r
 			}(),
@@ -282,7 +282,7 @@ func TestBodyFieldToHeaderPlugin_ProcessRequest_MutatedHeaders(t *testing.T) {
 		t.Fatalf("failed to create plugin: %v", err)
 	}
 
-	request := framework.NewInferenceRequest()
+	request := requesthandling.NewInferenceRequest()
 	request.Body["model"] = testModelValue
 
 	if err := p.ProcessRequest(context.Background(), nil, request); err != nil {

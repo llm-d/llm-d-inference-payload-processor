@@ -22,13 +22,13 @@ import (
 	"time"
 
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/datastore"
-	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework"
 	dlsrc "github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/datalayer/datasource"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/requesthandling"
 )
 
 // makeRequestEvent creates a RequestEventType event with model and max_tokens.
 func makeRequestEvent(model string, maxTokens float64) dlsrc.Event {
-	req := framework.NewInferenceRequest()
+	req := requesthandling.NewInferenceRequest()
 	req.Body["model"] = model
 	req.Body["max_tokens"] = maxTokens
 	return dlsrc.Event{
@@ -40,14 +40,14 @@ func makeRequestEvent(model string, maxTokens float64) dlsrc.Event {
 // makeResponseEvent creates a ResponseEventType event with model, duration, and max_tokens.
 // maxTokens mirrors the original request's max_tokens so the extractor can decrement correctly.
 func makeResponseEvent(model string, durationMs int, maxTokens float64) dlsrc.Event {
-	req := framework.NewInferenceRequest()
+	req := requesthandling.NewInferenceRequest()
 	req.Body["model"] = model
 	req.Body["max_tokens"] = maxTokens
 	return dlsrc.Event{
 		Type: dlsrc.ResponseEventType,
 		Payload: dlsrc.ResponsePayload{
 			Request:  req,
-			Response: framework.NewInferenceResponse(),
+			Response: requesthandling.NewInferenceResponse(),
 			Duration: time.Duration(durationMs) * time.Millisecond,
 		},
 	}
@@ -169,7 +169,7 @@ func TestRequestMetadataMissingModelFieldIgnored(t *testing.T) {
 	ext, ds := newRequestMetadataTest(t)
 
 	// Payload without a "model" key — no counter should be updated.
-	req := framework.NewInferenceRequest()
+	req := requesthandling.NewInferenceRequest()
 	req.Body["max_tokens"] = float64(50)
 	batch := []dlsrc.Event{
 		{Type: dlsrc.RequestEventType, Payload: dlsrc.RequestPayload{Request: req}},

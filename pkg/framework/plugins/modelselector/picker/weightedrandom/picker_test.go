@@ -20,9 +20,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/datalayer"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/modelselector"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/plugin"
 )
 
 func TestWeightedRandomPicker(t *testing.T) {
@@ -36,7 +36,7 @@ func TestWeightedRandomPicker(t *testing.T) {
 			{Model: modelB, Score: 0.1},
 		}
 
-		result := p.Pick(context.Background(), framework.NewCycleState(), input)
+		result := p.Pick(context.Background(), plugin.NewCycleState(), input)
 		if result == nil {
 			t.Fatal("expected result, got nil")
 		}
@@ -51,7 +51,7 @@ func TestWeightedRandomPicker(t *testing.T) {
 			{Model: modelA, Score: 1.0},
 		}
 
-		result := p.Pick(context.Background(), framework.NewCycleState(), input)
+		result := p.Pick(context.Background(), plugin.NewCycleState(), input)
 		if result.TargetModel.GetName() != "model-a" {
 			t.Errorf("expected model-a, got %q", result.TargetModel.GetName())
 		}
@@ -64,7 +64,7 @@ func TestWeightedRandomPicker(t *testing.T) {
 			{Model: modelB, Score: 0},
 		}
 
-		result := p.Pick(context.Background(), framework.NewCycleState(), input)
+		result := p.Pick(context.Background(), plugin.NewCycleState(), input)
 		if result == nil || result.TargetModel == nil {
 			t.Fatal("expected a result even with zero scores")
 		}
@@ -80,7 +80,7 @@ func TestWeightedRandomPicker(t *testing.T) {
 				{Model: modelA, Score: 0.99},
 				{Model: modelB, Score: 0.01},
 			}
-			result := p.Pick(context.Background(), framework.NewCycleState(), input)
+			result := p.Pick(context.Background(), plugin.NewCycleState(), input)
 			counts[result.TargetModel.GetName()]++
 		}
 

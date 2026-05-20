@@ -20,12 +20,13 @@ import (
 	"context"
 	"time"
 
-	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/plugin"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/requesthandling"
 )
 
 // DataSource is the base interface for background data layer components.
 type DataSource interface {
-	framework.Plugin
+	plugin.Plugin
 	Start(ctx context.Context) error
 	// Stop signals the component to shut down and blocks until it has fully stopped.
 	Stop()
@@ -47,13 +48,13 @@ type Event struct {
 
 // RequestPayload is the Payload for RequestEventType.
 type RequestPayload struct {
-	Request *framework.InferenceRequest
+	Request *requesthandling.InferenceRequest
 }
 
 // ResponsePayload is the Payload for ResponseEventType.
 type ResponsePayload struct {
-	Request  *framework.InferenceRequest
-	Response *framework.InferenceResponse
+	Request  *requesthandling.InferenceRequest
+	Response *requesthandling.InferenceResponse
 	Duration time.Duration
 }
 
@@ -74,6 +75,6 @@ type NotificationSource interface {
 
 // Extractor processes a batch of Events. It does not manage its own goroutines.
 type Extractor interface {
-	framework.Plugin
+	plugin.Plugin
 	Extract(ctx context.Context, events []Event) error
 }

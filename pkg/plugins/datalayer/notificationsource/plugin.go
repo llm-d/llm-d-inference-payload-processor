@@ -25,8 +25,8 @@ import (
 
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
-	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework"
 	dlsrc "github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/datalayer/datasource"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/plugin"
 )
 
 const (
@@ -39,7 +39,7 @@ const (
 var _ dlsrc.NotificationSource = &notificationSource{}
 
 type notificationSource struct {
-	name       framework.TypedName
+	name       plugin.TypedName
 	ch         chan dlsrc.Event
 	extractors []dlsrc.Extractor
 
@@ -49,7 +49,7 @@ type notificationSource struct {
 }
 
 // Factory is the factory function for NotificationSource.
-func Factory(name string, _ json.RawMessage, _ framework.Handle) (framework.Plugin, error) {
+func Factory(name string, _ json.RawMessage, _ plugin.Handle) (plugin.Plugin, error) {
 	src, err := New(name)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create '%s' plugin - %w", PluginType, err)
@@ -63,14 +63,14 @@ func New(name string, extractors ...dlsrc.Extractor) (dlsrc.NotificationSource, 
 		return nil, fmt.Errorf("name is required for plugin '%s'", PluginType)
 	}
 	return &notificationSource{
-		name:       framework.TypedName{Type: PluginType, Name: name},
+		name:       plugin.TypedName{Type: PluginType, Name: name},
 		ch:         make(chan dlsrc.Event, defaultBufferSize),
 		extractors: extractors,
 		done:       make(chan struct{}),
 	}, nil
 }
 
-func (n *notificationSource) TypedName() framework.TypedName { return n.name }
+func (n *notificationSource) TypedName() plugin.TypedName { return n.name }
 
 func (n *notificationSource) RegisterExtractor(e dlsrc.Extractor) {
 	n.extractors = append(n.extractors, e)

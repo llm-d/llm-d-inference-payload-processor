@@ -14,21 +14,20 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package framework
+package plugin
 
-const (
-	separator = "/"
+import (
+	"encoding/json"
 )
 
-// TypedName is a utility struct providing a type and a name to plugins.
-type TypedName struct {
-	// Type returns the type of a plugin.
-	Type string
-	// Name returns the name of a plugin instance.
-	Name string
+// Factory is the definition of the factory functions that are used to instantiate plugins
+// specified in a configuration.
+type FactoryFunc func(name string, parameters json.RawMessage, handle Handle) (Plugin, error)
+
+// Register is a static function that can be called to register plugin factory functions.
+func Register(pluginType string, factory FactoryFunc) {
+	Registry[pluginType] = factory
 }
 
-// String returns the type and name rendered as "<name>/<type>".
-func (tn TypedName) String() string {
-	return tn.Name + separator + tn.Type
-}
+// Registry is a mapping from plugin name to Factory function
+var Registry map[string]FactoryFunc = map[string]FactoryFunc{}

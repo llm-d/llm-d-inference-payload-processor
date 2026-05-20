@@ -26,9 +26,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	logutil "github.com/llm-d/llm-d-inference-payload-processor/pkg/common/observability/logging"
-	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/datalayer"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/modelselector"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/plugin"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/requesthandling"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/metrics"
 )
 
@@ -78,7 +79,7 @@ func (p *ModelSelectorProfile) WithPicker(picker modelselector.Picker) *ModelSel
 // A plugin may implement more than one interface.
 // Special Case: In order to add a scorer, one must use NewWeightedScorer in order to provide a weight.
 // If a scorer implements more than one interface, supplying a WeightedScorer is sufficient.
-func (p *ModelSelectorProfile) AddPlugins(pluginObjects ...framework.Plugin) error {
+func (p *ModelSelectorProfile) AddPlugins(pluginObjects ...plugin.Plugin) error {
 	// Validate all plugins before modifying state to avoid inconsistent profile
 	var newFilters []modelselector.Filter
 	var newScorers []*WeightedScorer
@@ -139,7 +140,7 @@ func (p *ModelSelectorProfile) String() string {
 }
 
 // Run runs the ModelSelectorProfile pipeline: Filter → Score → Pick.
-func (p *ModelSelectorProfile) Run(ctx context.Context, request *framework.InferenceRequest, cycleState *framework.CycleState, candidateModels []datalayer.Model) (*modelselector.ProfileRunResult, error) {
+func (p *ModelSelectorProfile) Run(ctx context.Context, request *requesthandling.InferenceRequest, cycleState *plugin.CycleState, candidateModels []datalayer.Model) (*modelselector.ProfileRunResult, error) {
 	models := p.runFilterPlugins(ctx, request, cycleState, candidateModels)
 	if len(models) == 0 {
 		return nil, errors.New("no models available after filtering")
@@ -152,7 +153,7 @@ func (p *ModelSelectorProfile) Run(ctx context.Context, request *framework.Infer
 	return result, nil
 }
 
-func (p *ModelSelectorProfile) runFilterPlugins(ctx context.Context, request *framework.InferenceRequest, cycleState *framework.CycleState, models []datalayer.Model) []datalayer.Model {
+func (p *ModelSelectorProfile) runFilterPlugins(ctx context.Context, request *requesthandling.InferenceRequest, cycleState *plugin.CycleState, models []datalayer.Model) []datalayer.Model {
 	logger := log.FromContext(ctx)
 	filteredModels := models
 	logger.V(logutil.DEBUG).Info("Before running filter plugins", "models", len(filteredModels))
@@ -173,7 +174,7 @@ func (p *ModelSelectorProfile) runFilterPlugins(ctx context.Context, request *fr
 	return filteredModels
 }
 
-func (p *ModelSelectorProfile) runScorerPlugins(ctx context.Context, request *framework.InferenceRequest, cycleState *framework.CycleState, models []datalayer.Model) map[string]*modelselector.ScoredModel {
+func (p *ModelSelectorProfile) runScorerPlugins(ctx context.Context, request *requesthandling.InferenceRequest, cycleState *plugin.CycleState, models []datalayer.Model) map[string]*modelselector.ScoredModel {
 	logger := log.FromContext(ctx)
 
 	scoredModels := make(map[string]*modelselector.ScoredModel, len(models))
@@ -198,7 +199,7 @@ func (p *ModelSelectorProfile) runScorerPlugins(ctx context.Context, request *fr
 	return scoredModels
 }
 
-func (p *ModelSelectorProfile) runPickerPlugin(ctx context.Context, cycleState *framework.CycleState, scoredModelMap map[string]*modelselector.ScoredModel) *modelselector.ProfileRunResult {
+func (p *ModelSelectorProfile) runPickerPlugin(ctx context.Context, cycleState *plugin.CycleState, scoredModelMap map[string]*modelselector.ScoredModel) *modelselector.ProfileRunResult {
 	logger := log.FromContext(ctx)
 
 	scoredModels := make([]*modelselector.ScoredModel, len(scoredModelMap))

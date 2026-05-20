@@ -14,29 +14,11 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package framework
-
-import (
-	"context"
-)
+package plugin
 
 // Plugin defines the interface for a plugin.
 // This interface should be embedded in all plugins across the code.
 type Plugin interface {
 	// TypedName returns the type and name tuple of this plugin instance.
 	TypedName() TypedName
-}
-
-type RequestProcessor interface {
-	Plugin
-	// ProcessRequest runs the RequestProcessor plugin.
-	// RequestProcessor can mutate the headers and/or the body of the request.
-	ProcessRequest(ctx context.Context, cycleState *CycleState, request *InferenceRequest) error
-}
-
-type ResponseProcessor interface {
-	Plugin
-	// ProcessResponse runs the ResponseProcessor plugin.
-	// ResponseProcessor can mutate the headers and/or the body of the response.
-	ProcessResponse(ctx context.Context, cycleState *CycleState, response *InferenceResponse) error
 }

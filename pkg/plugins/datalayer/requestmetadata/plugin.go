@@ -21,9 +21,9 @@ import (
 	"encoding/json"
 
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/datastore"
-	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/datalayer"
 	dlsrc "github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/datalayer/datasource"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/plugin"
 )
 
 const (
@@ -38,10 +38,10 @@ const (
 var _ dlsrc.Extractor = &RequestMetadataExtractor{}
 
 // ExtractorFactory creates a RequestMetadataExtractor with a nil DataStore.
-// The factory path is limited: the DataStore is not available via framework.Handle,
+// The factory path is limited: the DataStore is not available via plugin.Handle,
 // so the created extractor cannot write to the store. Use NewRequestMetadataExtractor
 // directly when constructing for production use.
-func ExtractorFactory(name string, _ json.RawMessage, _ framework.Handle) (framework.Plugin, error) {
+func ExtractorFactory(name string, _ json.RawMessage, _ plugin.Handle) (plugin.Plugin, error) {
 	return NewRequestMetadataExtractor(nil).WithName(name), nil
 }
 
@@ -63,20 +63,20 @@ func (r RequestMetadataCount) Clone() datalayer.Cloneable { return r }
 // drop, upstream error, context cancellation). The call site should fire a
 // synthetic ResponseEventType in its error/EOF path to keep counts accurate.
 type RequestMetadataExtractor struct {
-	typedName framework.TypedName
+	typedName plugin.TypedName
 	ds        datastore.Datastore
 	counters  map[string]RequestMetadataCount
 }
 
 func NewRequestMetadataExtractor(ds datastore.Datastore) *RequestMetadataExtractor {
 	return &RequestMetadataExtractor{
-		typedName: framework.TypedName{Type: PluginType, Name: PluginType},
+		typedName: plugin.TypedName{Type: PluginType, Name: PluginType},
 		ds:        ds,
 		counters:  make(map[string]RequestMetadataCount),
 	}
 }
 
-func (e *RequestMetadataExtractor) TypedName() framework.TypedName { return e.typedName }
+func (e *RequestMetadataExtractor) TypedName() plugin.TypedName { return e.typedName }
 
 // WithName sets the instance name, used by the factory when the plugin is configured by name.
 func (e *RequestMetadataExtractor) WithName(name string) *RequestMetadataExtractor {
