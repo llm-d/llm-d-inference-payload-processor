@@ -24,9 +24,10 @@ import (
 	"github.com/go-logr/logr"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
-	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/datalayer"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/modelselector"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/plugin"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/requesthandling"
 )
 
 func init() {
@@ -49,17 +50,17 @@ func BenchmarkModelSelectorProfileRun(b *testing.B) {
 
 	// Create test scorers that simulate realistic work
 	scorer1 := &benchScorer{
-		typedName: framework.TypedName{Type: "bench-scorer", Name: "cost"},
+		typedName: plugin.TypedName{Type: "bench-scorer", Name: "cost"},
 	}
 	scorer2 := &benchScorer{
-		typedName: framework.TypedName{Type: "bench-scorer", Name: "latency"},
+		typedName: plugin.TypedName{Type: "bench-scorer", Name: "latency"},
 	}
 	scorer3 := &benchScorer{
-		typedName: framework.TypedName{Type: "bench-scorer", Name: "quality"},
+		typedName: plugin.TypedName{Type: "bench-scorer", Name: "quality"},
 	}
 
 	picker := &benchPicker{
-		typedName: framework.TypedName{Type: "bench-picker", Name: "max-score"},
+		typedName: plugin.TypedName{Type: "bench-picker", Name: "max-score"},
 	}
 
 	profile := NewModelSelectorProfile().
@@ -70,7 +71,7 @@ func BenchmarkModelSelectorProfileRun(b *testing.B) {
 		).
 		WithPicker(picker)
 
-	request := framework.NewInferenceRequest()
+	request := requesthandling.NewInferenceRequest()
 
 	// Test different model counts to see scaling behavior
 	for _, n := range []int{5, 25, 100} {
@@ -79,7 +80,7 @@ func BenchmarkModelSelectorProfileRun(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				cycleState := framework.NewCycleState()
+				cycleState := plugin.NewCycleState()
 				result, err := profile.Run(ctx, request, cycleState, models)
 				if err != nil {
 					b.Fatalf("Run failed: %v", err)
@@ -104,12 +105,12 @@ func makeBenchmarkModels(n int) []datalayer.Model {
 // benchScorer is a minimal scorer for benchmarking that produces deterministic
 // scores without external dependencies.
 type benchScorer struct {
-	typedName framework.TypedName
+	typedName plugin.TypedName
 }
 
-func (s *benchScorer) TypedName() framework.TypedName { return s.typedName }
+func (s *benchScorer) TypedName() plugin.TypedName { return s.typedName }
 
-func (s *benchScorer) Score(_ context.Context, _ *framework.CycleState, _ *framework.InferenceRequest, models []datalayer.Model) map[datalayer.Model]float64 {
+func (s *benchScorer) Score(_ context.Context, _ *plugin.CycleState, _ *requesthandling.InferenceRequest, models []datalayer.Model) map[datalayer.Model]float64 {
 	scores := make(map[datalayer.Model]float64, len(models))
 	for i, m := range models {
 		// Produce varied but deterministic scores
@@ -120,12 +121,12 @@ func (s *benchScorer) Score(_ context.Context, _ *framework.CycleState, _ *frame
 
 // benchPicker is a minimal picker that selects the highest-scored model.
 type benchPicker struct {
-	typedName framework.TypedName
+	typedName plugin.TypedName
 }
 
-func (p *benchPicker) TypedName() framework.TypedName { return p.typedName }
+func (p *benchPicker) TypedName() plugin.TypedName { return p.typedName }
 
-func (p *benchPicker) Pick(_ context.Context, _ *framework.CycleState, scoredModels []*modelselector.ScoredModel) *modelselector.ProfileRunResult {
+func (p *benchPicker) Pick(_ context.Context, _ *plugin.CycleState, scoredModels []*modelselector.ScoredModel) *modelselector.ProfileRunResult {
 	if len(scoredModels) == 0 {
 		return nil
 	}
