@@ -20,9 +20,8 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/llm-d/llm-d-inference-payload-processor/pkg/datastore"
-	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/datalayer"
-	dlsrc "github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/datalayer/datasource"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/datalayer"
+	dlsrc "github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/datalayer/datasource"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/plugin"
 )
 
@@ -37,12 +36,9 @@ const (
 // compile-time interface assertion
 var _ dlsrc.Extractor = &RequestMetadataExtractor{}
 
-// ExtractorFactory creates a RequestMetadataExtractor with a nil DataStore.
-// The factory path is limited: the DataStore is not available via plugin.Handle,
-// so the created extractor cannot write to the store. Use NewRequestMetadataExtractor
-// directly when constructing for production use.
-func ExtractorFactory(name string, _ json.RawMessage, _ plugin.Handle) (plugin.Plugin, error) {
-	return NewRequestMetadataExtractor(nil).WithName(name), nil
+// ExtractorFactory creates a RequestMetadataExtractor wired to the shared DataStore.
+func ExtractorFactory(name string, _ json.RawMessage, h plugin.Handle) (plugin.Plugin, error) {
+	return NewRequestMetadataExtractor(h.Datastore()).WithName(name), nil
 }
 
 // RequestMetadataCount holds in-flight request and token counts for one model.
@@ -64,11 +60,11 @@ func (r RequestMetadataCount) Clone() datalayer.Cloneable { return r }
 // synthetic ResponseEventType in its error/EOF path to keep counts accurate.
 type RequestMetadataExtractor struct {
 	typedName plugin.TypedName
-	ds        datastore.Datastore
+	ds        datalayer.Datastore
 	counters  map[string]RequestMetadataCount
 }
 
-func NewRequestMetadataExtractor(ds datastore.Datastore) *RequestMetadataExtractor {
+func NewRequestMetadataExtractor(ds datalayer.Datastore) *RequestMetadataExtractor {
 	return &RequestMetadataExtractor{
 		typedName: plugin.TypedName{Type: PluginType, Name: PluginType},
 		ds:        ds,

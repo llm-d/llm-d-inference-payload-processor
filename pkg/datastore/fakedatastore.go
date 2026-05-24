@@ -3,7 +3,7 @@ package datastore
 import (
 	"sync"
 
-	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/datalayer"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/datalayer"
 )
 
 // fakeDataStore is an in-memory DataStore for tests.

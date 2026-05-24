@@ -67,8 +67,10 @@ func (p *MaxScorePicker) TypedName() plugin.TypedName {
 
 // Pick selects the model with the highest score.
 func (p *MaxScorePicker) Pick(ctx context.Context, _ *plugin.CycleState, scoredModels []*modelselector.ScoredModel) *modelselector.ProfileRunResult {
-	log.FromContext(ctx).V(logutil.DEBUG).Info("selecting model from candidates by max score", "numCandidates", len(scoredModels),
-		"scoredModels", scoredModels)
+	if debugLogger := log.FromContext(ctx).V(logutil.DEBUG); debugLogger.Enabled() {
+		debugLogger.Info("selecting model from candidates by max score", "numCandidates", len(scoredModels),
+			"scoredModels", scoredModels)
+	}
 
 	// Shuffle in-place - needed for random tie break when scores are equal
 	picker.ShuffleScoredModels(scoredModels)

@@ -18,13 +18,25 @@ package requestmetadata
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/datastore"
-	dlsrc "github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/datalayer/datasource"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/datalayer"
+	dlsrc "github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/datalayer/datasource"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/requesthandling"
+	ctrlbuilder "sigs.k8s.io/controller-runtime/pkg/builder"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
+
+// fakeHandle implements plugin.Handle for unit tests, providing only a Datastore.
+type fakeHandle struct{ ds datalayer.Datastore }
+
+func (f *fakeHandle) Context() context.Context                { return context.Background() }
+func (f *fakeHandle) Client() client.Client                   { return nil }
+func (f *fakeHandle) ReconcilerBuilder() *ctrlbuilder.Builder { return nil }
+func (f *fakeHandle) Datastore() datalayer.Datastore          { return f.ds }
 
 // makeRequestEvent creates a RequestEventType event with model and max_tokens.
 func makeRequestEvent(model string, maxTokens float64) dlsrc.Event {
@@ -54,7 +66,7 @@ func makeResponseEvent(model string, durationMs int, maxTokens float64) dlsrc.Ev
 }
 
 // getInflightRequests asserts the inflight-requests attribute exists for model and returns it.
-func getRequestMetadata(t testing.TB, ds datastore.Datastore, model string) RequestMetadataCount {
+func getRequestMetadata(t testing.TB, ds datalayer.Datastore, model string) RequestMetadataCount {
 	t.Helper()
 	val, ok := ds.GetOrCreateModel(model).GetAttributes().Get(RequestMetadataAttributeKey)
 	if !ok {
@@ -67,7 +79,7 @@ func getRequestMetadata(t testing.TB, ds datastore.Datastore, model string) Requ
 	return rc
 }
 
-func newRequestMetadataTest(t *testing.T) (*RequestMetadataExtractor, datastore.Datastore) {
+func newRequestMetadataTest(t *testing.T) (*RequestMetadataExtractor, datalayer.Datastore) {
 	t.Helper()
 	ds := datastore.NewFakeDataStore()
 	return NewRequestMetadataExtractor(ds), ds
@@ -181,5 +193,26 @@ func TestRequestMetadataMissingModelFieldIgnored(t *testing.T) {
 	modelCount := len(ds.Models())
 	if modelCount != 0 {
 		t.Errorf("expected no models in datastore, got %d", modelCount)
+	}
+}
+
+func TestExtractorFactoryWiresDatastore(t *testing.T) {
+	ds := datastore.NewFakeDataStore()
+	h := &fakeHandle{ds: ds}
+
+	p, err := ExtractorFactory("my-extractor", json.RawMessage(`{}`), h)
+	if err != nil {
+		t.Fatalf("ExtractorFactory returned error: %v", err)
+	}
+
+	ext, ok := p.(*RequestMetadataExtractor)
+	if !ok {
+		t.Fatalf("expected *RequestMetadataExtractor, got %T", p)
+	}
+	if ext.ds != ds {
+		t.Error("factory did not wire the datastore from the handle")
+	}
+	if ext.TypedName().Name != "my-extractor" {
+		t.Errorf("expected name %q, got %q", "my-extractor", ext.TypedName().Name)
 	}
 }

@@ -31,7 +31,7 @@ import (
 	envoytest "github.com/llm-d/llm-d-inference-payload-processor/pkg/common/envoy/test"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/plugin"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/requesthandling"
-	"github.com/llm-d/llm-d-inference-payload-processor/pkg/plugins/basemodelextractor"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/plugins/requesthandling/basemodelextractor"
 	"sigs.k8s.io/gateway-api-inference-extension/test/integration"
 )
 

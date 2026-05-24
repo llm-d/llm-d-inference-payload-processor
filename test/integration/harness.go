@@ -31,8 +31,8 @@ import (
 
 	logutil "github.com/llm-d/llm-d-inference-payload-processor/pkg/common/observability/logging"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/requesthandling"
-	"github.com/llm-d/llm-d-inference-payload-processor/pkg/plugins/basemodelextractor"
-	"github.com/llm-d/llm-d-inference-payload-processor/pkg/plugins/bodyfieldtoheader"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/plugins/requesthandling/basemodelextractor"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/plugins/requesthandling/bodyfieldtoheader"
 	runserver "github.com/llm-d/llm-d-inference-payload-processor/pkg/server"
 	"sigs.k8s.io/gateway-api-inference-extension/test/integration"
 )

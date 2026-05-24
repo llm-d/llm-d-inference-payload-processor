@@ -1,26 +1,28 @@
-## What does this PR do?
+**What type of PR is this?**
+<!--
+Add one of the following kinds:
+/kind bug
+/kind cleanup
+/kind documentation
+/kind feature
+/kind test
 
-<!-- Describe the changes and their purpose -->
+Optionally add one or more of the following kinds if applicable:
+/kind deprecation
+/kind flake
+/kind regression
+-->
 
-## Why is this change needed?
+**What this PR does / why we need it**:
 
-<!-- Explain the motivation: bug fix, feature request, performance improvement, etc. -->
+**Which issue(s) this PR fixes**:
+<!--
+*Automatically closes linked issue when PR is merged.
+Usage: `Fixes #<issue number>`, or `Fixes (paste link of issue)`.
+-->
+Fixes #
 
-## How was this tested?
-
-<!-- Describe how you verified the changes work correctly -->
-- [ ] Unit tests added/updated
-- [ ] Integration/e2e tests added/updated
-- [ ] Manual testing performed
-
-## Checklist
-
-- [ ] Commits are signed off (`git commit -s`) per [DCO](PR_SIGNOFF.md)
-- [ ] Code follows project [contributing guidelines](CONTRIBUTING.md)
-- [ ] Tests pass locally (`make test`)
-- [ ] Linters pass (`make lint`)
-- [ ] Documentation updated (if applicable)
-
-## Related Issues
-
-<!-- Link to related issues: Fixes #123, Related to #456 -->
+**Release note** _(write `NONE` if no user-facing change)_:
+```release-note
+NONE
+```

@@ -78,3 +78,15 @@ type Extractor interface {
 	plugin.Plugin
 	Extract(ctx context.Context, events []Event) error
 }
+
+// PollingSource is a poll-based Datasource that fetches data from various sources at regular intervals.
+type PollingSource interface {
+	DataSource
+	RegisterCollector(c Collector, frequency time.Duration)
+}
+
+// A Collector is a poll mechanism to fetch data from a configured data source.
+type Collector interface {
+	plugin.Plugin
+	Poll(ctx context.Context) (any, error)
+}

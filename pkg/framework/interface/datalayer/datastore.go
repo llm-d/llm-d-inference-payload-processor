@@ -14,13 +14,11 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package datastore
-
-import "github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/datalayer"
+package datalayer
 
 // Datastore is the interface for reading and updating the model store.
 type Datastore interface {
-	GetOrCreateModel(name string) datalayer.Model
+	GetOrCreateModel(name string) Model
 	DeleteModel(name string)
 	Models() []string
 }
