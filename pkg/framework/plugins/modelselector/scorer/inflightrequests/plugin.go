@@ -21,11 +21,11 @@ import (
 	"encoding/json"
 	"math"
 
-	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/datalayer"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/datalayer"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/modelselector"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/plugin"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/requesthandling"
-	requestmetadataextractor "github.com/llm-d/llm-d-inference-payload-processor/pkg/plugins/datalayer/requestmetadata"
+	requestmetadataextractor "github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/plugins/datalayer/requestmetadata"
 )
 
 const PluginType = "inflight-requests-scorer"
