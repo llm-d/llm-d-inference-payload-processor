@@ -43,8 +43,9 @@ func ExtractorFactory(name string, _ json.RawMessage, h plugin.Handle) (plugin.P
 
 // RequestMetadataCount holds in-flight request and token counts for one model.
 type RequestMetadataCount struct {
-	Requests int64
-	Tokens   int64
+	Requests     int64
+	Tokens       int64
+	TokensPerSec float64 // populated by PR #124 (output-token tracking in RequestMetadataExtractor)
 }
 
 func (r RequestMetadataCount) Clone() datalayer.Cloneable { return r }
