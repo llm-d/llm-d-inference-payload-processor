@@ -25,7 +25,7 @@ import (
 type PreProcessor interface {
 	plugin.Plugin
 
-	// PreProcess is invoked to pre-process requests before the request pipeline is run
+	// PreProcess is invoked to pre-process requests before the request plugins of the selected profile run.
 	PreProcess(ctx context.Context, cycleState *plugin.CycleState, request *InferenceRequest) error
 }
 
@@ -33,7 +33,7 @@ type ProfilePicker interface {
 	plugin.Plugin
 
 	// Pick selects the Profile to run from a list of candidate profiles, while taking into consideration the request properties.
-	Pick(ctx context.Context, cycleState *plugin.CycleState, request *InferenceRequest, profiles map[string]Profile) *Profile
+	Pick(ctx context.Context, cycleState *plugin.CycleState, request *InferenceRequest, profiles map[string]*Profile) (*Profile, error)
 }
 
 type RequestProcessor interface {
@@ -43,16 +43,16 @@ type RequestProcessor interface {
 	ProcessRequest(ctx context.Context, cycleState *plugin.CycleState, request *InferenceRequest) error
 }
 
-type PostProcessor interface {
-	plugin.Plugin
-
-	// PostProcess is invoked to post-process requests after the request pipeline is run
-	PostProcess(ctx context.Context, cycleState *plugin.CycleState, request *InferenceRequest) error
-}
-
 type ResponseProcessor interface {
 	plugin.Plugin
 	// ProcessResponse runs the ResponseProcessor plugin.
 	// ResponseProcessor can mutate the headers and/or the body of the response.
 	ProcessResponse(ctx context.Context, cycleState *plugin.CycleState, response *InferenceResponse) error
+}
+
+type PostProcessor interface {
+	plugin.Plugin
+
+	// PostProcess is invoked to post-process requests after the response plugins of the selected profile run.
+	PostProcess(ctx context.Context, cycleState *plugin.CycleState, request *InferenceRequest) error
 }

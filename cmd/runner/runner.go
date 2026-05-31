@@ -51,6 +51,7 @@ import (
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/plugins/modelselector/picker/weightedrandom"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/plugins/requesthandling/basemodelextractor"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/plugins/requesthandling/bodyfieldtoheader"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/plugins/requesthandling/profilepicker/single"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/metrics"
 	runserver "github.com/llm-d/llm-d-inference-payload-processor/pkg/server"
 	"github.com/llm-d/llm-d-inference-payload-processor/version"
@@ -266,6 +267,7 @@ func (r *Runner) loadConfiguration(ctx context.Context, opts *runserver.Options,
 
 // registerInTreePlugins registers the factory functions of all known payload processor plugins
 func (r *Runner) registerInTreePlugins() {
+	plugin.Register(single.SingleProfilePickerType, single.SingleProfilePickerFactory)
 	plugin.Register(bodyfieldtoheader.BodyFieldToHeaderPluginType, bodyfieldtoheader.BodyFieldToHeaderPluginFactory)
 	plugin.Register(basemodelextractor.BaseModelToHeaderPluginType, basemodelextractor.BaseModelToHeaderPluginFactory)
 	plugin.Register(requestmetadata.PluginType, requestmetadata.ExtractorFactory)
