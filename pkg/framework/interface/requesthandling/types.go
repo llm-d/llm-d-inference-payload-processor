@@ -106,3 +106,13 @@ func NewInferenceResponse() *InferenceResponse {
 		InferenceMessage: newInferenceMessage(),
 	}
 }
+
+// Profile specifies a pipeline profile, a named set of request and response plugins
+type Profile struct {
+	// RequestPlugins are the request processing plugin instances executed by the request handler,
+	// in the same order provided in the configuration file.
+	RequestPlugins []RequestProcessor
+	// ResponsePlugins are the response processing plugin instances executed by the response handler,
+	// in the same order provided in the configuration file.
+	ResponsePlugins []ResponseProcessor
+}

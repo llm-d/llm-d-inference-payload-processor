@@ -17,6 +17,7 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 # Sources
+COPY apix ./apix
 COPY cmd ./cmd
 COPY pkg ./pkg
 COPY internal ./internal

@@ -14,6 +14,12 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+// PLEASE NOTE:
+//
+// The Kubernetes machinery is used to read this struct from YAML text.
+// HOWEVER, the CRD JSON Schema validation is NOT used as we don't have
+// a real CRD. The Kubernetes validation tags are just for documentation.
+
 package v1alpha1
 
 import (
@@ -32,18 +38,56 @@ type PayloadProcessorConfig struct {
 
 	// +required
 	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
 	// Plugins is the list of plugins that will be instantiated.
 	Plugins []PluginSpec `json:"plugins"`
+
+	// +optional
+	// Preprocessing is an optional ordered list of references to plugins
+	// that will pre-process incoming requests
+	PreProcessing *PluginRefList `json:"preProcessing"`
+
+	// +optional
+	// ProfilePicker is the plugin that chooses the profile to be used
+	ProfilePicker *PluginRef `json:"profilePicker"`
+
+	// +required
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinItems=1
+	// Profiles is the list of named Profiles
+	// that will be created.
+	Profiles []Profile `json:"profiles"`
+
+	// +optional
+	// Postprocessing is an optional ordered list of references to plugins
+	// that will post-process incoming requests
+	PostProcessing *PluginRefList `json:"postProcessing"`
+
+	// +optional
+	// NotificationSources is an optional list of references to notification-source plugins to start.
+	NotificationSources []PluginRef `json:"notificationSources,omitempty"`
 }
 
 func (cfg PayloadProcessorConfig) String() string {
-	var parts []string
+	contents := &strings.Builder{}
 
-	if len(cfg.Plugins) > 0 {
-		parts = append(parts, fmt.Sprintf("Plugins: %v", cfg.Plugins))
+	fmt.Fprintf(contents, "Plugins: %v", cfg.Plugins)
+
+	if cfg.PreProcessing != nil {
+		fmt.Fprintf(contents, ", PreProcessing: %v", cfg.PreProcessing)
+	}
+	if cfg.ProfilePicker != nil {
+		fmt.Fprintf(contents, ", ProfilePicker: %v", cfg.ProfilePicker)
+	}
+	fmt.Fprintf(contents, ", Profiles: %v", cfg.Profiles)
+	if cfg.PostProcessing != nil {
+		fmt.Fprintf(contents, ", PostProcessing: %v", cfg.PostProcessing)
+	}
+	if len(cfg.NotificationSources) > 0 {
+		fmt.Fprintf(contents, ", NotificationSources: %v", cfg.NotificationSources)
 	}
 
-	return "{" + strings.Join(parts, ", ") + "}"
+	return "{" + contents.String() + "}"
 }
 
 // PluginSpec contains the information that describes a plugin that
@@ -56,6 +100,7 @@ type PluginSpec struct {
 
 	// +required
 	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
 	// Type specifies the plugin type to be instantiated.
 	Type string `json:"type,omitempty"`
 
@@ -76,4 +121,84 @@ func (ps PluginSpec) String() string {
 		parts = append(parts, "Parameters: "+string(ps.Parameters))
 	}
 	return "{" + strings.Join(parts, ", ") + "}"
+}
+
+// PluginRefList is a list of references to plugins
+type PluginRefList struct {
+	// +required
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinItems=1
+	// Plugins is the list of plugins being referenced.
+	Plugins []PluginRef `json:"plugins"`
+}
+
+func (prl PluginRefList) String() string {
+	contents := ""
+	if len(prl.Plugins) > 0 {
+		contents = fmt.Sprintf("Plugins: %v", prl.Plugins)
+	}
+	return fmt.Sprintf("{%s}", contents)
+}
+
+// Profile contains the information to create a Profile
+// entry to be used by the PayloadProcessor.
+type Profile struct {
+	// +required
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
+	// Name specifies the name of this PayloadProcessorProfile
+	Name string `json:"name"`
+
+	// +required
+	// +kubebuilder:validation:Required
+	// Plugins is the list of plugins for this Profile.
+	Plugins *ProfilePlugins `json:"plugins"`
+}
+
+func (prof Profile) String() string {
+	var parts []string
+	parts = append(parts, "Name: "+prof.Name)
+	if len(prof.Plugins.Request) > 0 || len(prof.Plugins.Response) > 0 {
+		plugins := ""
+		if len(prof.Plugins.Request) > 0 {
+			plugins += fmt.Sprintf("Request: %v", prof.Plugins.Request)
+		}
+		if len(prof.Plugins.Response) > 0 {
+			if len(plugins) > 0 {
+				plugins += ", "
+			}
+			plugins += fmt.Sprintf("Response: %v", prof.Plugins.Response)
+		}
+		parts = append(parts, fmt.Sprintf("Plugins: {%s}", plugins))
+	}
+	return "{" + strings.Join(parts, ", ") + "}"
+}
+
+// ProfilePlugins lists the set of references to instantiated plugins that will
+// be used for request and response processing respectively.
+type ProfilePlugins struct {
+	// +optional
+	// Request is an optional ordered list of references to plugins
+	// that will process incoming requests before they are sent for inferencing
+	Request []PluginRef `json:"request"`
+
+	// +optional
+	// Response is an optional ordered list of references to plugins
+	// that will process the responses of incoming requests after they are
+	// sent for inferencing
+	Response []PluginRef `json:"response"`
+}
+
+// PluginRef is a reference to an instantiated plugin by name.
+type PluginRef struct {
+	// +required
+	// +kubebuilder:validation:Required
+	// PluginRef specifies a particular Plugin instance. The reference
+	// is to the name of an entry of the Plugins defined in the
+	// configuration's Plugins section.
+	PluginRef string `json:"pluginRef"`
+}
+
+func (pr PluginRef) String() string {
+	return fmt.Sprintf("{PluginRef: %s}", pr.PluginRef)
 }

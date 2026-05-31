@@ -19,17 +19,15 @@ spec:
         image: {{ .Values.payloadProcessor.image.registry }}/{{ .Values.payloadProcessor.image.repository }}:{{ .Values.payloadProcessor.image.tag }}
         imagePullPolicy: {{ .Values.payloadProcessor.image.pullPolicy }}
         args:
+        - --config-file
+        {{- if .Values.payloadProcessor.customConfig }}
+        - "config/custom-ipp-config.yaml"
+        {{- else }}
+        - "/config/default-ipp-config.yaml"
+        {{- end }}
         # Pass additional flags via the payloadProcessor.flags field in values.yaml.
         {{- range $key, $value := .Values.payloadProcessor.flags }}
         - --{{ $key }}={{ $value }}
-        {{- end }}      
-        {{- range .Values.payloadProcessor.plugins }}
-        - --plugin
-        {{- if .json }}
-        - {{ printf "%s:%s:%s" .type .name (toJson .json) | quote }}
-        {{- else }}
-        - {{ printf "%s:%s" .type .name | quote }}
-        {{- end }}
         {{- end }}
         {{- if .Values.payloadProcessor.tracing.enabled}}
         - --tracing=true
@@ -71,6 +69,13 @@ spec:
         - containerPort: {{ .Values.payloadProcessor.port }}
         # health check
         - containerPort: {{ .Values.payloadProcessor.healthCheckPort }}
+        volumeMounts:
+        - name: config-volume
+          mountPath: "/config"
+      volumes:
+      - name: config-volume
+        configMap:
+          name: {{ .Values.payloadProcessor.name }}
 ---
 apiVersion: v1
 kind: Service

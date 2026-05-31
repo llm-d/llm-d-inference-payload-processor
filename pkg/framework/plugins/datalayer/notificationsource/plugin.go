@@ -25,6 +25,7 @@ import (
 
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
+	v1alpha1 "github.com/llm-d/llm-d-inference-payload-processor/apix/config/v1alpha1"
 	dlsrc "github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/datalayer/datasource"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/plugin"
 )
@@ -48,9 +49,36 @@ type notificationSource struct {
 	done    chan struct{}
 }
 
+// NotificationSourceConfig is the JSON configuration structure for the NotificationSource plugin.
+type NotificationSourceConfig struct {
+	// Extractors is an ordered list of extractor plugins to register on this source,
+	// each referenced by the name of a plugin entry in the configuration's Plugins section.
+	Extractors []v1alpha1.PluginRef `json:"extractors"`
+}
+
 // Factory is the factory function for NotificationSource.
-func Factory(name string, _ json.RawMessage, _ plugin.Handle) (plugin.Plugin, error) {
-	src, err := New(name)
+func Factory(name string, rawParameters json.RawMessage, handle plugin.Handle) (plugin.Plugin, error) {
+	var config NotificationSourceConfig
+	if len(rawParameters) > 0 {
+		if err := json.Unmarshal(rawParameters, &config); err != nil {
+			return nil, fmt.Errorf("failed to parse the parameters of the '%s' plugin - %w", PluginType, err)
+		}
+	}
+
+	extractors := make([]dlsrc.Extractor, 0, len(config.Extractors))
+	for _, ref := range config.Extractors {
+		p := handle.Plugin(ref.PluginRef)
+		if p == nil {
+			return nil, fmt.Errorf("'%s' plugin: extractor plugin %q not found", PluginType, ref.PluginRef)
+		}
+		ext, ok := p.(dlsrc.Extractor)
+		if !ok {
+			return nil, fmt.Errorf("'%s' plugin: plugin %q does not implement Extractor", PluginType, ref.PluginRef)
+		}
+		extractors = append(extractors, ext)
+	}
+
+	src, err := New(name, extractors...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create '%s' plugin - %w", PluginType, err)
 	}

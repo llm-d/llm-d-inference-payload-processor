@@ -33,6 +33,22 @@ type Handle interface {
 	Client() client.Client
 	ReconcilerBuilder() *ctrlbuilder.Builder
 	Datastore() datalayer.Datastore
+	HandlePlugins
+}
+
+// HandlePlugins defines a set of APIs to work with instantiated plugins
+type HandlePlugins interface {
+	// Plugin returns the named plugin instance
+	Plugin(name string) Plugin
+
+	// AddPlugin adds a plugin to the set of known plugin instances
+	AddPlugin(name string, plugin Plugin)
+
+	// GetAllPlugins returns all of the known plugins
+	GetAllPlugins() []Plugin
+
+	// GetAllPluginsWithNames returns all of the known plugins with their names
+	GetAllPluginsWithNames() map[string]Plugin
 }
 
 // payloadProcessorHandle is an implementation of the Handle interface.
@@ -40,6 +56,7 @@ type payloadProcessorHandle struct {
 	ctx context.Context
 	mgr ctrl.Manager
 	ds  datalayer.Datastore
+	HandlePlugins
 }
 
 // Context returns a context the plugins can use, if they need one
@@ -59,10 +76,42 @@ func (h *payloadProcessorHandle) Datastore() datalayer.Datastore {
 	return h.ds
 }
 
+// ippHandlePlugins implements the set of APIs to work with instantiated plugins
+type ippHandlePlugins struct {
+	plugins map[string]Plugin
+}
+
+// Plugin returns the named plugin instance
+func (h *ippHandlePlugins) Plugin(name string) Plugin {
+	return h.plugins[name]
+}
+
+// AddPlugin adds a plugin to the set of known plugin instances
+func (h *ippHandlePlugins) AddPlugin(name string, plugin Plugin) {
+	h.plugins[name] = plugin
+}
+
+// GetAllPlugins returns all of the known plugins
+func (h *ippHandlePlugins) GetAllPlugins() []Plugin {
+	result := make([]Plugin, 0, len(h.plugins))
+	for _, plugin := range h.plugins {
+		result = append(result, plugin)
+	}
+	return result
+}
+
+// GetAllPluginsWithNames returns al of the known plugins with their names
+func (h *ippHandlePlugins) GetAllPluginsWithNames() map[string]Plugin {
+	return h.plugins
+}
+
 func NewHandle(ctx context.Context, mgr ctrl.Manager, ds datalayer.Datastore) Handle {
 	return &payloadProcessorHandle{
 		ctx: ctx,
 		mgr: mgr,
 		ds:  ds,
+		HandlePlugins: &ippHandlePlugins{
+			plugins: map[string]Plugin{},
+		},
 	}
 }

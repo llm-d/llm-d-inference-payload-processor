@@ -5,7 +5,7 @@ payloadProcessor:
     registry: ghcr.io/llm-d
     repository: llm-d-inference-payload-processor
     tag: main
-    pullPolicy: Always
+    pullPolicy: IfNotPresent
   port: 9004
   healthCheckPort: 9005
   multiNamespace: false
@@ -14,18 +14,20 @@ payloadProcessor:
     # Log verbosity
     v: 3
 
-  # Payload processor plugins configuration.
-  # When plugins are explicitly specified, the runner's default auto-load is skipped.
-  # Both plugins below replicate the default behavior.
-  # Format: type (registered plugin type), name (instance name), json (optional config object)
-  plugins:
-    - type: body-field-to-header
-      name: model-extractor
-      json:
-        fieldName: model
-        headerName: X-Gateway-Model-Name
-    - type: base-model-to-header
-      name: base-model-mapper
+  customConfig: {}
+
+  # Example defining a custom IPP configuration
+  # customConfig:
+  #   plugins:
+  #   - type: body-field-to-header
+  #     parameters:
+  #       fieldName: model
+  #       headerName: X-Gateway-Model-Name
+  #   profiles:
+  #   - name: default
+  #     plugins:
+  #       request:
+  #       - pluginRef: body-field-to-header
 
   tracing:
     enabled: false

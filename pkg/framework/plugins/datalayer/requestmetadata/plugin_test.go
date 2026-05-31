@@ -25,6 +25,7 @@ import (
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/datastore"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/datalayer"
 	dlsrc "github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/datalayer/datasource"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/plugin"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/requesthandling"
 	ctrlbuilder "sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -33,10 +34,14 @@ import (
 // fakeHandle implements plugin.Handle for unit tests, providing only a Datastore.
 type fakeHandle struct{ ds datalayer.Datastore }
 
-func (f *fakeHandle) Context() context.Context                { return context.Background() }
-func (f *fakeHandle) Client() client.Client                   { return nil }
-func (f *fakeHandle) ReconcilerBuilder() *ctrlbuilder.Builder { return nil }
-func (f *fakeHandle) Datastore() datalayer.Datastore          { return f.ds }
+func (f *fakeHandle) Context() context.Context                         { return context.Background() }
+func (f *fakeHandle) Client() client.Client                            { return nil }
+func (f *fakeHandle) ReconcilerBuilder() *ctrlbuilder.Builder          { return nil }
+func (f *fakeHandle) Datastore() datalayer.Datastore                   { return f.ds }
+func (f *fakeHandle) Plugin(name string) plugin.Plugin                 { return nil }
+func (f *fakeHandle) AddPlugin(name string, plugin plugin.Plugin)      {}
+func (f *fakeHandle) GetAllPlugins() []plugin.Plugin                   { return nil }
+func (f *fakeHandle) GetAllPluginsWithNames() map[string]plugin.Plugin { return nil }
 
 // makeRequestEvent creates a RequestEventType event with model and max_tokens.
 func makeRequestEvent(model string, maxTokens float64) dlsrc.Event {
