@@ -59,6 +59,8 @@ func (s *Server) HandleResponseHeaders(ctx context.Context, reqCtx *RequestConte
 
 // HandleResponseBody handles response bodies by executing response plugins in order.
 func (s *Server) HandleResponseBody(ctx context.Context, reqCtx *RequestContext, responseBodyBytes []byte) ([]*eppb.ProcessingResponse, error) {
+	reqCtx.ResponseCompleteTimestamp = time.Now()
+
 	// Notify the data layer of the completed response.
 	if s.eventNotifier != nil {
 		s.eventNotifier.Notify(datasource.Event{
