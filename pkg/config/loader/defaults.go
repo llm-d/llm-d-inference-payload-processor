@@ -26,11 +26,16 @@ import (
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/plugins/requesthandling/bodyfieldtoheader"
 )
 
+const (
+	configAPIVersion = "llm-d.ai/v1alpha1"
+	configKind       = "PayloadProcessorConfig"
+)
+
 func loadDefaultConfig() *configapi.PayloadProcessorConfig {
 	return &configapi.PayloadProcessorConfig{
 		TypeMeta: metav1.TypeMeta{
-			APIVersion: "llm-d.ai/v1alpha1",
-			Kind:       "PayloadProcessorConfig",
+			APIVersion: configAPIVersion,
+			Kind:       configKind,
 		},
 		Plugins: []configapi.PluginSpec{
 			{

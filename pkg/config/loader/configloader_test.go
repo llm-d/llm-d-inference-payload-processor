@@ -60,8 +60,8 @@ func TestLoadRawConfiguration(t *testing.T) {
 			configText: successConfigText,
 			want: &configapi.PayloadProcessorConfig{
 				TypeMeta: metav1.TypeMeta{
-					Kind:       "PayloadProcessorConfig",
-					APIVersion: "llm-d.ai/v1alpha1",
+					Kind:       configKind,
+					APIVersion: configAPIVersion,
 				},
 				Plugins: []configapi.PluginSpec{
 					{Name: testRequestProcType, Type: testRequestProcType},
@@ -78,8 +78,8 @@ func TestLoadRawConfiguration(t *testing.T) {
 			configText: "",
 			want: &configapi.PayloadProcessorConfig{
 				TypeMeta: metav1.TypeMeta{
-					APIVersion: "llm-d.ai/v1alpha1",
-					Kind:       "PayloadProcessorConfig",
+					APIVersion: configAPIVersion,
+					Kind:       configKind,
 				},
 				Plugins: []configapi.PluginSpec{
 					{

@@ -1,0 +1,13 @@
+apiVersion: networking.istio.io/v1
+kind: DestinationRule
+metadata:
+  # Namespace is set by kustomization.yaml
+  name: payload-processor
+spec:
+  # Update the namespace segment (currently "default") to match
+  # the namespace set in kustomization.yaml.
+  host: payload-processor.default.svc.cluster.local
+  trafficPolicy:
+    tls:
+      mode: SIMPLE
+      insecureSkipVerify: true

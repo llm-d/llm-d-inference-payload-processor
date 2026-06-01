@@ -22,6 +22,9 @@ LDFLAGS ?= -s -w -X main.version=$(VERSION)
 
 # Tools
 GOLANGCI_LINT_VERSION ?= v2.8.0
+KUSTOMIZE ?= $(LOCALBIN)/kustomize
+KUSTOMIZE_VERSION ?= v5.4.3
+KUSTOMIZE_OVERLAY ?= default
 
 .DEFAULT_GOAL := help
 
@@ -87,6 +90,29 @@ image-push: ## Build and push multi-arch container image
 		--tag $(IMAGE):$(VERSION) \
 		--tag $(IMAGE):latest \
 		.
+
+##@ Deployment
+
+.PHONY: kustomize
+kustomize: ## Download kustomize locally if necessary
+	@test -f $(KUSTOMIZE) || { \
+		mkdir -p $(LOCALBIN); \
+		curl -sSLo /tmp/kustomize.tar.gz https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2F$(KUSTOMIZE_VERSION)/kustomize_$(KUSTOMIZE_VERSION)_linux_amd64.tar.gz && \
+		tar -xzf /tmp/kustomize.tar.gz -C $(LOCALBIN) && \
+		rm /tmp/kustomize.tar.gz; \
+	}
+
+.PHONY: kustomize-build
+kustomize-build: kustomize ## Render Kustomize manifests (KUSTOMIZE_OVERLAY=default|istio|gke)
+	$(KUSTOMIZE) build config/kustomize/overlays/$(KUSTOMIZE_OVERLAY)
+
+.PHONY: kustomize-deploy
+kustomize-deploy: kustomize ## Deploy using Kustomize (KUSTOMIZE_OVERLAY=default|istio|gke)
+	$(KUSTOMIZE) build config/kustomize/overlays/$(KUSTOMIZE_OVERLAY) | kubectl apply -f -
+
+.PHONY: kustomize-undeploy
+kustomize-undeploy: kustomize ## Remove Kustomize deployment (KUSTOMIZE_OVERLAY=default|istio|gke)
+	$(KUSTOMIZE) build config/kustomize/overlays/$(KUSTOMIZE_OVERLAY) | kubectl delete --ignore-not-found -f -
 
 ##@ CI Helpers
 

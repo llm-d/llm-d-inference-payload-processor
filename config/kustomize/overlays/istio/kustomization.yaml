@@ -1,0 +1,12 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Override the namespace for all resources in the base.
+# IMPORTANT: Also update the cluster_name in envoyfilter.yaml and
+# the host in destinationrule.yaml to match this namespace.
+namespace: default
+
+resources:
+  - ../../base
+  - envoyfilter.yaml
+  - destinationrule.yaml

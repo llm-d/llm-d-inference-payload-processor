@@ -62,7 +62,7 @@ func TestBodyMutation(t *testing.T) {
 	baseModelToHeaderPlugin := &basemodelextractor.BaseModelToHeaderPlugin{AdaptersStore: basemodelextractor.NewAdaptersStore()}
 	h := NewHarnessWithPlugins(t, ctx, []requesthandling.RequestProcessor{plugin, baseModelToHeaderPlugin}, []requesthandling.ResponseProcessor{})
 
-	body := map[string]any{"prompt": "hello"}
+	body := map[string]any{bodyFieldPrompt: "hello"}
 	bodyBytes, _ := json.Marshal(body)
 
 	reqs := []*extProcPb.ProcessingRequest{
@@ -88,8 +88,8 @@ func TestBodyMutation(t *testing.T) {
 	}
 
 	wantBody, _ := json.Marshal(map[string]any{
-		"prompt":   "hello",
-		"injected": "test-value",
+		bodyFieldPrompt: "hello",
+		"injected":      "test-value",
 	})
 	wantResponses := []*extProcPb.ProcessingResponse{
 		{
@@ -101,7 +101,7 @@ func TestBodyMutation(t *testing.T) {
 							SetHeaders: []*envoyCorev3.HeaderValueOption{
 								{
 									Header: &envoyCorev3.HeaderValue{
-										Key:      "Content-Length",
+										Key:      headerContentLength,
 										RawValue: []byte(strconv.Itoa(len(wantBody))),
 									},
 								},
