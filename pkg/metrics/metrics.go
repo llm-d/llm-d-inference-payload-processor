@@ -99,6 +99,16 @@ var (
 		},
 		[]string{"status"},
 	)
+
+	requestTTFT = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Subsystem: component,
+			Name:      "request_ttft_seconds",
+			Help:      metricsutil.HelpMsgWithStability("Time to first token distribution in seconds per model.", compbasemetrics.ALPHA),
+			Buckets:   []float64{0.05, 0.1, 0.2, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0},
+		},
+		[]string{"model"},
+	)
 )
 
 var registerMetrics sync.Once
@@ -113,6 +123,7 @@ func Register(customCollectors ...prometheus.Collector) {
 		metrics.Registry.MustRegister(pluginProcessingLatencies)
 		metrics.Registry.MustRegister(modelSelectorE2ELatency)
 		metrics.Registry.MustRegister(modelSelectorAttemptTotal)
+		metrics.Registry.MustRegister(requestTTFT)
 		for _, collector := range customCollectors {
 			metrics.Registry.MustRegister(collector)
 		}
@@ -147,6 +158,11 @@ func RecordPluginProcessingLatency(extensionPoint, pluginType, pluginName string
 // RecordModelSelectorE2ELatency records the end-to-end latency of model selection.
 func RecordModelSelectorE2ELatency(duration time.Duration) {
 	modelSelectorE2ELatency.WithLabelValues().Observe(duration.Seconds())
+}
+
+// RecordRequestTTFT records the time-to-first-token for a completed request.
+func RecordRequestTTFT(model string, duration time.Duration) {
+	requestTTFT.WithLabelValues(model).Observe(duration.Seconds())
 }
 
 // RecordModelSelectorAttempt records a model selection attempt with success or failure status.
