@@ -27,8 +27,12 @@ jobs:
             done
 
           # Extract /kind values from PR body and apply labels
-          printf '%s' "$PR_BODY" | tr -d '\r' | grep '^/kind ' | \
-            sed 's|^/kind ||' | sort -u | \
+          # Use awk to skip HTML comments and find /kind lines
+          printf '%s' "$PR_BODY" | tr -d '\r' | awk '
+            /<!--/ { in_comment=1 }
+            /-->/ { in_comment=0; next }
+            !in_comment && /^\/kind / { sub(/^\/kind /, ""); print }
+          ' | sort -u | \
             while IFS= read -r kind; do
               [ -z "$kind" ] && continue
               gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label "kind/$kind" || \
