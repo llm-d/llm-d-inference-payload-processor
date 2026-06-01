@@ -63,6 +63,7 @@ type Server struct {
 // RequestContext stores context information during the lifetime of an HTTP request.
 type RequestContext struct {
 	RequestReceivedTimestamp  time.Time
+	FirstChunkTimestamp       time.Time
 	ResponseCompleteTimestamp time.Time
 	CycleState                *plugin.CycleState
 	Request                   *requesthandling.InferenceRequest
@@ -139,10 +140,14 @@ func (s *Server) Process(srv extProcPb.ExternalProcessor_ProcessServer) error {
 			loggerVerbose.Info("processing response headers complete")
 		case *extProcPb.ProcessingRequest_ResponseBody:
 			loggerVerbose.Info("Incoming response body chunk", "EoS", v.ResponseBody.EndOfStream)
+			if reqCtx.FirstChunkTimestamp.IsZero() {
+				reqCtx.FirstChunkTimestamp = time.Now()
+			}
 			responseBody = append(responseBody, v.ResponseBody.Body...)
 			if !v.ResponseBody.EndOfStream {
 				continue
 			}
+			reqCtx.ResponseCompleteTimestamp = time.Now()
 			responses, err = s.HandleResponseBody(ctx, reqCtx, responseBody)
 			loggerVerbose.Info("processing response body complete")
 		case *extProcPb.ProcessingRequest_ResponseTrailers:

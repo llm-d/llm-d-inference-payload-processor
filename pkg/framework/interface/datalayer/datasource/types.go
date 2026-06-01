@@ -56,6 +56,7 @@ type ResponsePayload struct {
 	Request  *requesthandling.InferenceRequest
 	Response *requesthandling.InferenceResponse
 	Duration time.Duration
+	TTFT     time.Duration
 }
 
 // EventNotifier is the narrow interface the producer uses to fire events.
