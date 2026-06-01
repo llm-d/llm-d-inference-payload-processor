@@ -67,3 +67,17 @@ func (s *store) Models() []string {
 	}
 	return names
 }
+
+// GetModels returns all models matching predicate under a single read lock.
+// Pass a predicate that always returns true to retrieve all models.
+func (s *store) GetModels(predicate func(datalayer.Model) bool) []datalayer.Model {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	result := make([]datalayer.Model, 0, len(s.models))
+	for _, m := range s.models {
+		if predicate(m) {
+			result = append(result, m)
+		}
+	}
+	return result
+}

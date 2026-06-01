@@ -155,6 +155,74 @@ func TestAttributeNilValue(t *testing.T) {
 	}
 }
 
+// TestGetModelsAll tests that GetModels with an always-true predicate returns all models.
+func TestGetModelsAll(t *testing.T) {
+	s := NewDatastore()
+	s.GetOrCreateModel("gpt-4")
+	s.GetOrCreateModel("llama-3")
+	s.GetOrCreateModel("mistral")
+
+	models := s.GetModels(func(datalayer.Model) bool { return true })
+	if len(models) != 3 {
+		t.Errorf("expected 3 models, got %d", len(models))
+	}
+
+	names := make(map[string]bool)
+	for _, m := range models {
+		names[m.GetName()] = true
+	}
+	for _, expected := range []string{"gpt-4", "llama-3", "mistral"} {
+		if !names[expected] {
+			t.Errorf("missing expected model: %s", expected)
+		}
+	}
+}
+
+// TestGetModelsWithPredicate tests that GetModels filters correctly.
+func TestGetModelsWithPredicate(t *testing.T) {
+	s := NewDatastore()
+	s.GetOrCreateModel("gpt-4").GetAttributes().Put("vendor", testValue{Value: 1})
+	s.GetOrCreateModel("llama-3").GetAttributes().Put("vendor", testValue{Value: 2})
+	s.GetOrCreateModel("mistral").GetAttributes().Put("vendor", testValue{Value: 1})
+
+	models := s.GetModels(func(m datalayer.Model) bool {
+		v, ok := m.GetAttributes().Get("vendor")
+		return ok && v.(testValue).Value == 1
+	})
+	if len(models) != 2 {
+		t.Errorf("expected 2 models matching predicate, got %d", len(models))
+	}
+
+	names := make(map[string]bool)
+	for _, m := range models {
+		names[m.GetName()] = true
+	}
+	if !names["gpt-4"] || !names["mistral"] {
+		t.Errorf("expected gpt-4 and mistral, got %v", names)
+	}
+}
+
+// TestGetModelsNoneMatch tests that GetModels returns empty when no models match.
+func TestGetModelsNoneMatch(t *testing.T) {
+	s := NewDatastore()
+	s.GetOrCreateModel("gpt-4")
+	s.GetOrCreateModel("llama-3")
+
+	models := s.GetModels(func(datalayer.Model) bool { return false })
+	if len(models) != 0 {
+		t.Errorf("expected 0 models, got %d", len(models))
+	}
+}
+
+// TestGetModelsEmpty tests that GetModels on an empty store returns empty.
+func TestGetModelsEmpty(t *testing.T) {
+	s := NewDatastore()
+	models := s.GetModels(func(datalayer.Model) bool { return true })
+	if len(models) != 0 {
+		t.Errorf("expected 0 models on empty store, got %d", len(models))
+	}
+}
+
 // TestConcurrentAttributeAccess tests concurrent reads and writes to model attributes.
 func TestConcurrentAttributeAccess(t *testing.T) {
 	s := NewDatastore()

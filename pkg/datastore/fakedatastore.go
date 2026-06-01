@@ -38,3 +38,15 @@ func (f *fakeDataStore) Models() []string {
 	}
 	return names
 }
+
+func (f *fakeDataStore) GetModels(predicate func(datalayer.Model) bool) []datalayer.Model {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	result := make([]datalayer.Model, 0, len(f.models))
+	for _, m := range f.models {
+		if predicate(m) {
+			result = append(result, m)
+		}
+	}
+	return result
+}
