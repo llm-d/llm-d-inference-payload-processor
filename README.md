@@ -39,6 +39,35 @@ Helm chart provisions the provider-specific integration automatically:
 - **GKE** — Installs a `GCPRoutingExtension` that registers IPP as a routing extension.
 - **None** — Deploys the core IPP resources (Deployment, Service, config, RBAC) but no proxy integration; you wire that up yourself.
 
+## Deployment
+
+The payload processor can be deployed using either **Helm** or **Kustomize**.
+
+### Helm
+
+```bash
+helm install payload-processor ./config/charts/payload-processor \
+    --set provider.name=[gke|istio] \
+    --set inferenceGateway.name=inference-gateway
+```
+
+See [config/charts/payload-processor/README.md](config/charts/payload-processor/README.md) for the full parameter reference.
+
+### Kustomize
+
+```bash
+# No provider (Deployment + Service only)
+kubectl kustomize config/kustomize/overlays/default | kubectl apply -f -
+
+# Istio (adds EnvoyFilter + DestinationRule)
+kubectl kustomize config/kustomize/overlays/istio | kubectl apply -f -
+
+# GKE (adds GCPRoutingExtension + HealthCheckPolicy)
+kubectl kustomize config/kustomize/overlays/gke | kubectl apply -f -
+```
+
+See [config/kustomize/README.md](config/kustomize/README.md) for customization options (namespace, image tag, custom config, multi-namespace RBAC).
+
 ## Documentation
 
 | Document | Description |
@@ -49,6 +78,7 @@ Helm chart provisions the provider-specific integration automatically:
 | [Creating a Plugin](docs/create_new_plugin.md) | Tutorial for writing and registering a custom plugin. |
 | [Metrics](docs/metrics.md) | Prometheus metrics exposed by IPP. |
 | [Helm Chart](config/charts/payload-processor/README.md) | Chart install reference and values table. |
+| [Kustomize](config/kustomize/README.md) | Kustomize overlay reference and customization options. |
 | [ModelSelector Proposal](docs/proposals/043-model-selection-framework/README.md) | Design of the model-selection framework. |
 
 For end-to-end deployment, see the [llm-d] project documentation and guides.

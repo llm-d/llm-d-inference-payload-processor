@@ -1,0 +1,11 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Override the namespace for all resources in the base.
+# Change this to the namespace where you want to deploy the payload processor.
+namespace: default
+
+resources:
+  - ../../base
+  - gcproutingextension.yaml
+  - healthcheckpolicy.yaml

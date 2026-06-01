@@ -23,6 +23,11 @@ import (
 	extProcPb "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
 )
 
+const (
+	headerContentLength = "Content-Length"
+	bodyFieldPrompt     = "prompt"
+)
+
 // --- Response Expectations (Streaming) ---
 
 // ExpectHeader asserts that the payload processor set the specific model header and cleared the route cache.
@@ -37,7 +42,7 @@ func ExpectHeader(modelName, baseModelName string, contentLength string) *extPro
 						SetHeaders: []*envoyCorev3.HeaderValueOption{
 							{
 								Header: &envoyCorev3.HeaderValue{
-									Key:      "Content-Length",
+									Key:      headerContentLength,
 									RawValue: []byte(contentLength),
 								},
 								AppendAction: envoyCorev3.HeaderValueOption_OVERWRITE_IF_EXISTS_OR_ADD,
@@ -68,7 +73,7 @@ func ExpectHeader(modelName, baseModelName string, contentLength string) *extPro
 // The payload processor buffers the body to inspect it, then sends it downstream as a single chunk (usually).
 func ExpectBodyPassThrough(prompt, model string) *extProcPb.ProcessingResponse {
 	j := map[string]any{
-		"max_tokens": 100, "prompt": prompt, "temperature": 0,
+		"max_tokens": 100, bodyFieldPrompt: prompt, "temperature": 0,
 	}
 	if model != "" {
 		j["model"] = model

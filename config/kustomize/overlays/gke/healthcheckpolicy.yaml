@@ -1,0 +1,18 @@
+apiVersion: networking.gke.io/v1
+kind: HealthCheckPolicy
+metadata:
+  # Namespace is set by kustomization.yaml
+  name: payload-processor-healthcheck
+spec:
+  default:
+    logConfig:
+      enabled: true
+    config:
+      type: "GRPC"
+      grpcHealthCheck:
+        portSpecification: "USE_FIXED_PORT"
+        port: 9005
+  targetRef:
+    group: ""
+    kind: Service
+    name: payload-processor

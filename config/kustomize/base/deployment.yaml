@@ -1,0 +1,39 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payload-processor
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: payload-processor
+  template:
+    metadata:
+      labels:
+        app: payload-processor
+    spec:
+      serviceAccountName: payload-processor
+      containers:
+        - name: payload-processor
+          image: ghcr.io/llm-d/llm-d-inference-payload-processor:main
+          imagePullPolicy: IfNotPresent
+          args:
+            - --config-file
+            - /config/default-ipp-config.yaml
+            - --v=3
+            - --tracing=false
+          env:
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          ports:
+            - containerPort: 9004
+            - containerPort: 9005
+          volumeMounts:
+            - name: config-volume
+              mountPath: /config
+      volumes:
+        - name: config-volume
+          configMap:
+            name: payload-processor

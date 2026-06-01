@@ -1,0 +1,31 @@
+apiVersion: networking.gke.io/v1
+kind: GCPRoutingExtension
+metadata:
+  # Namespace is set by kustomization.yaml
+  name: payload-processor
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      # Update to match your Gateway name.
+      name: inference-gateway
+  extensionChains:
+    - name: chain1
+      extensions:
+        - name: ext1
+          authority: "myext.com"
+          timeout: 1s
+          supportedEvents:
+            - RequestHeaders
+            - RequestBody
+            - RequestTrailers
+            - ResponseHeaders
+            - ResponseBody
+            - ResponseTrailers
+          requestBodySendMode: "FullDuplexStreamed"
+          responseBodySendMode: "FullDuplexStreamed"
+          backendRef:
+            group: ""
+            kind: Service
+            name: payload-processor
+            port: 9004
