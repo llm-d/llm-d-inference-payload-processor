@@ -58,6 +58,11 @@ func makeRequestEvent(model string, maxTokens float64) dlsrc.Event {
 // makeResponseEvent creates a ResponseEventType event with model, duration, and max_tokens.
 // maxTokens mirrors the original request's max_tokens so the extractor can decrement correctly.
 func makeResponseEvent(model string, durationMs int, maxTokens float64) dlsrc.Event {
+	return makeResponseEventWithTTFT(model, durationMs, maxTokens, 0)
+}
+
+// makeResponseEventWithTTFT is like makeResponseEvent but also sets the TTFT field.
+func makeResponseEventWithTTFT(model string, durationMs int, maxTokens float64, ttft time.Duration) dlsrc.Event {
 	req := requesthandling.NewInferenceRequest()
 	req.Body["model"] = model
 	req.Body["max_tokens"] = maxTokens
@@ -67,6 +72,7 @@ func makeResponseEvent(model string, durationMs int, maxTokens float64) dlsrc.Ev
 			Request:  req,
 			Response: requesthandling.NewInferenceResponse(),
 			Duration: time.Duration(durationMs) * time.Millisecond,
+			TTFT:     ttft,
 		},
 	}
 }
@@ -199,6 +205,72 @@ func TestRequestMetadataMissingModelFieldIgnored(t *testing.T) {
 	modelCount := len(ds.GetModels(datalayer.AllModelsPredicate))
 	if modelCount != 0 {
 		t.Errorf("expected no models in datastore, got %d", modelCount)
+	}
+}
+
+// TestAvgTTFTFirstObservation verifies that the first TTFT sets AvgTTFT directly (no EMA blend).
+func TestAvgTTFTFirstObservation(t *testing.T) {
+	ext, ds := newRequestMetadataTest(t)
+
+	batch := []dlsrc.Event{
+		makeRequestEvent("m1", 0),
+		makeResponseEventWithTTFT("m1", 0, 0, 500*time.Millisecond),
+	}
+	if err := ext.Extract(context.Background(), batch); err != nil {
+		t.Fatalf("Extract failed: %v", err)
+	}
+
+	rc := getRequestMetadata(t, ds, "m1")
+	if rc.AvgTTFT != 0.5 {
+		t.Errorf("expected AvgTTFT=0.5, got %f", rc.AvgTTFT)
+	}
+}
+
+// TestAvgTTFTEMABlend verifies subsequent observations are blended with α=0.1.
+// First response: TTFT=1s → AvgTTFT=1.0
+// Second response: TTFT=2s → AvgTTFT = 0.1×2 + 0.9×1 = 1.1
+func TestAvgTTFTEMABlend(t *testing.T) {
+	ext, ds := newRequestMetadataTest(t)
+
+	if err := ext.Extract(context.Background(), []dlsrc.Event{
+		makeResponseEventWithTTFT("m1", 0, 0, 1*time.Second),
+	}); err != nil {
+		t.Fatalf("Extract failed: %v", err)
+	}
+	if err := ext.Extract(context.Background(), []dlsrc.Event{
+		makeResponseEventWithTTFT("m1", 0, 0, 2*time.Second),
+	}); err != nil {
+		t.Fatalf("Extract failed: %v", err)
+	}
+
+	rc := getRequestMetadata(t, ds, "m1")
+	want := 0.1*2.0 + 0.9*1.0 // 1.1
+	if rc.AvgTTFT != want {
+		t.Errorf("expected AvgTTFT=%f, got %f", want, rc.AvgTTFT)
+	}
+}
+
+// TestAvgTTFTZeroIgnored verifies that a zero TTFT does not update AvgTTFT.
+func TestAvgTTFTZeroIgnored(t *testing.T) {
+	ext, ds := newRequestMetadataTest(t)
+
+	// Seed a non-zero AvgTTFT.
+	if err := ext.Extract(context.Background(), []dlsrc.Event{
+		makeResponseEventWithTTFT("m1", 0, 0, 1*time.Second),
+	}); err != nil {
+		t.Fatalf("Extract failed: %v", err)
+	}
+
+	// Response with TTFT=0 must leave AvgTTFT unchanged.
+	if err := ext.Extract(context.Background(), []dlsrc.Event{
+		makeResponseEvent("m1", 0, 0),
+	}); err != nil {
+		t.Fatalf("Extract failed: %v", err)
+	}
+
+	rc := getRequestMetadata(t, ds, "m1")
+	if rc.AvgTTFT != 1.0 {
+		t.Errorf("expected AvgTTFT=1.0 (unchanged), got %f", rc.AvgTTFT)
 	}
 }
 
