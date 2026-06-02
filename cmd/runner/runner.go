@@ -49,6 +49,7 @@ import (
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/plugins/modelselector/picker/maxscore"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/plugins/modelselector/picker/random"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/plugins/modelselector/picker/weightedrandom"
+	avgttftscorer "github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/plugins/modelselector/scorer/avgttft"
 	inflightrequestsscorer "github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/plugins/modelselector/scorer/inflightrequests"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/plugins/requesthandling/basemodelextractor"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/plugins/requesthandling/bodyfieldtoheader"
@@ -262,6 +263,7 @@ func (r *Runner) registerInTreePlugins() {
 	plugin.Register(weightedrandom.WeightedRandomPickerType, weightedrandom.WeightedRandomPickerFactory)
 	plugin.Register(modelselectorplugin.ModelSelectorPluginType, modelselectorplugin.ModelSelectorPluginFactory)
 	plugin.Register(inflightrequestsscorer.PluginType, inflightrequestsscorer.ScorerFactory)
+	plugin.Register(avgttftscorer.PluginType, avgttftscorer.ScorerFactory)
 }
 
 // registerHealthServer adds the Health gRPC server as a Runnable to the given manager.
