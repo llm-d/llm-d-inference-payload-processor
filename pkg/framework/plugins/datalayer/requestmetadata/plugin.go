@@ -41,10 +41,12 @@ func ExtractorFactory(name string, _ json.RawMessage, h plugin.Handle) (plugin.P
 	return NewRequestMetadataExtractor(h.Datastore()).WithName(name), nil
 }
 
-// RequestMetadataCount holds in-flight request and token counts for one model.
+// RequestMetadataCount holds in-flight request and token counts for one model,
+// along with an EMA of observed TTFT values.
 type RequestMetadataCount struct {
 	Requests int64
 	Tokens   int64
+	AvgTTFT  float64 // AvgTTFT is a moving average of TTFT
 }
 
 func (r RequestMetadataCount) Clone() datalayer.Cloneable { return r }
@@ -114,6 +116,14 @@ func (e *RequestMetadataExtractor) Extract(_ context.Context, events []dlsrc.Eve
 			c := e.counters[model]
 			floorDecrement(&c.Requests, 1)
 			floorDecrement(&c.Tokens, int64(maxTokens))
+			if p.TTFT > 0 {
+				ttft := p.TTFT.Seconds()
+				if c.AvgTTFT == 0 {
+					c.AvgTTFT = ttft
+				} else {
+					c.AvgTTFT = 0.1*ttft + 0.9*c.AvgTTFT
+				}
+			}
 			e.counters[model] = c
 			updated[model] = c
 		}
