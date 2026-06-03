@@ -33,8 +33,6 @@ const (
 	// RequestMetadataAttributeKey is the attribute key written to each model's attribute store.
 	RequestMetadataAttributeKey = "request-metadata"
 
-	// defaultWindowDuration is the interval over which TTFT/TPOT observations are averaged
-	// before a single EMA update is applied.
 	defaultWindowDuration = 5 * time.Second
 )
 
@@ -46,20 +44,20 @@ func ExtractorFactory(name string, _ json.RawMessage, h plugin.Handle) (plugin.P
 	return NewRequestMetadataExtractor(h.Datastore()).WithName(name), nil
 }
 
-// RequestMetadataCount holds per-model metadata: in-flight request count and
-// EMA estimates for TTFT and TPOT.
-type RequestMetadataCount struct {
+// ModelMetrics holds per-model metadata: in-flight request count and
+// EMA estimates for TTFT and TPOT (α = 0.1).
+type ModelMetrics struct {
 	Requests int64
 	AvgTTFT  float64
 	AvgTPOT  float64
 }
 
-func (r RequestMetadataCount) Clone() datalayer.Cloneable { return r }
+func (r ModelMetrics) Clone() datalayer.Cloneable { return r }
 
-// modelState embeds the published counter and adds the internal window accumulator.
+// modelWindowAccumulator embeds the published counter and adds the internal window accumulator.
 // Observations collected within the window are averaged and applied as one EMA update on flush.
-type modelState struct {
-	RequestMetadataCount
+type modelWindowAccumulator struct {
+	ModelMetrics
 
 	windowStart time.Time
 	ttftSum     float64
@@ -69,7 +67,7 @@ type modelState struct {
 }
 
 // flush averages the accumulated window observations into the EMA and resets the window.
-func (s *modelState) flush(now time.Time) {
+func (s *modelWindowAccumulator) flush(now time.Time) {
 	if s.ttftN > 0 {
 		s.AvgTTFT = ema(s.AvgTTFT, s.ttftSum/float64(s.ttftN))
 	}
@@ -82,7 +80,7 @@ func (s *modelState) flush(now time.Time) {
 }
 
 // RequestMetadataExtractor tracks per-model in-flight request counts and latency estimates.
-// It writes RequestMetadataCount to each model's RequestMetadataAttributeKey attribute.
+// It writes ModelMetrics to each model's RequestMetadataAttributeKey attribute.
 //
 // Extract is assumed to be called from a single goroutine (the NotificationSource event loop).
 // If parallel dispatch is introduced, add a sync.Mutex around state and the DataStore write.
@@ -93,7 +91,7 @@ func (s *modelState) flush(now time.Time) {
 type RequestMetadataExtractor struct {
 	typedName      plugin.TypedName
 	ds             datalayer.Datastore
-	state          map[string]*modelState
+	state          map[string]*modelWindowAccumulator
 	windowDuration time.Duration
 }
 
@@ -101,7 +99,7 @@ func NewRequestMetadataExtractor(ds datalayer.Datastore) *RequestMetadataExtract
 	return &RequestMetadataExtractor{
 		typedName:      plugin.TypedName{Type: PluginType, Name: PluginType},
 		ds:             ds,
-		state:          make(map[string]*modelState),
+		state:          make(map[string]*modelWindowAccumulator),
 		windowDuration: defaultWindowDuration,
 	}
 }
@@ -115,6 +113,7 @@ func (e *RequestMetadataExtractor) WithName(name string) *RequestMetadataExtract
 }
 
 // WithWindowDuration overrides the aggregation window. Pass 0 to flush after every response
+// (useful in unit tests where real time cannot advance between calls).
 func (e *RequestMetadataExtractor) WithWindowDuration(d time.Duration) *RequestMetadataExtractor {
 	e.windowDuration = d
 	return e
@@ -176,16 +175,16 @@ func (e *RequestMetadataExtractor) Extract(_ context.Context, events []dlsrc.Eve
 	}
 
 	for model := range updated {
-		e.ds.GetOrCreateModel(model).GetAttributes().Put(RequestMetadataAttributeKey, e.state[model].RequestMetadataCount)
+		e.ds.GetOrCreateModel(model).GetAttributes().Put(RequestMetadataAttributeKey, e.state[model].ModelMetrics)
 	}
 	return nil
 }
 
-func (e *RequestMetadataExtractor) getOrCreate(model string, now time.Time) *modelState {
+func (e *RequestMetadataExtractor) getOrCreate(model string, now time.Time) *modelWindowAccumulator {
 	if s, ok := e.state[model]; ok {
 		return s
 	}
-	s := &modelState{windowStart: now}
+	s := &modelWindowAccumulator{windowStart: now}
 	e.state[model] = s
 	return s
 }
