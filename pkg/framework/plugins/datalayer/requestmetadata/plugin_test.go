@@ -84,15 +84,15 @@ func makeResponseEventFull(durationMs int, ttft time.Duration, completionTokens 
 }
 
 // getInflightRequests asserts the inflight-requests attribute exists for model and returns it.
-func getRequestMetadata(t testing.TB, ds datalayer.Datastore, model string) RequestMetadataCount {
+func getRequestMetadata(t testing.TB, ds datalayer.Datastore, model string) ModelMetrics {
 	t.Helper()
 	val, ok := ds.GetOrCreateModel(model).GetAttributes().Get(RequestMetadataAttributeKey)
 	if !ok {
 		t.Fatalf("expected %q attribute for model %q", RequestMetadataAttributeKey, model)
 	}
-	rc, ok := val.(RequestMetadataCount)
+	rc, ok := val.(ModelMetrics)
 	if !ok {
-		t.Fatalf("expected RequestMetadataCount for model %q", model)
+		t.Fatalf("expected ModelMetrics for model %q", model)
 	}
 	return rc
 }
