@@ -42,11 +42,11 @@ func ExtractorFactory(name string, _ json.RawMessage, h plugin.Handle) (plugin.P
 }
 
 // RequestMetadataCount holds in-flight request and token counts for one model,
-// along with an EMA of observed TTFT values.
+// along with EMA values for TTFT and TPOT (both α = 0.1).
 type RequestMetadataCount struct {
 	Requests int64
-	Tokens   int64
-	AvgTTFT  float64 // AvgTTFT is a moving average of TTFT
+	AvgTTFT  float64
+	AvgTPOT  float64
 }
 
 func (r RequestMetadataCount) Clone() datalayer.Cloneable { return r }
@@ -96,10 +96,8 @@ func (e *RequestMetadataExtractor) Extract(_ context.Context, events []dlsrc.Eve
 			if model == "" {
 				continue
 			}
-			maxTokens, _ := p.Request.Body["max_tokens"].(float64)
 			c := e.counters[model]
 			c.Requests++
-			c.Tokens += int64(maxTokens)
 			e.counters[model] = c
 			updated[model] = c
 
@@ -112,18 +110,21 @@ func (e *RequestMetadataExtractor) Extract(_ context.Context, events []dlsrc.Eve
 			if model == "" {
 				continue
 			}
-			maxTokens, _ := p.Request.Body["max_tokens"].(float64)
 			c := e.counters[model]
 			floorDecrement(&c.Requests, 1)
-			floorDecrement(&c.Tokens, int64(maxTokens))
+
 			if p.TTFT > 0 {
-				ttft := p.TTFT.Seconds()
-				if c.AvgTTFT == 0 {
-					c.AvgTTFT = ttft
-				} else {
-					c.AvgTTFT = 0.1*ttft + 0.9*c.AvgTTFT
+				c.AvgTTFT = ema(c.AvgTTFT, p.TTFT.Seconds())
+			}
+			if usage, ok := p.Response.Body["usage"].(map[string]any); ok {
+				if ct, ok := usage["completion_tokens"].(float64); ok && ct > 0 {
+					// Decode time only: subtract TTFT so queue wait and prefill are not mixed into TPOT.
+					if decodeTime := p.Duration - p.TTFT; decodeTime > 0 {
+						c.AvgTPOT = ema(c.AvgTPOT, decodeTime.Seconds()/ct)
+					}
 				}
 			}
+
 			e.counters[model] = c
 			updated[model] = c
 		}
@@ -133,6 +134,14 @@ func (e *RequestMetadataExtractor) Extract(_ context.Context, events []dlsrc.Eve
 		e.ds.GetOrCreateModel(model).GetAttributes().Put(RequestMetadataAttributeKey, c)
 	}
 	return nil
+}
+
+// ema applies an exponential moving average update with α = 0.1.
+func ema(current, newValue float64) float64 {
+	if current == 0 {
+		return newValue
+	}
+	return 0.1*newValue + 0.9*current
 }
 
 // floorDecrement decrements v by delta, flooring at zero.
