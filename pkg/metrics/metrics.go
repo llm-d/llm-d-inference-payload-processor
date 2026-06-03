@@ -109,6 +109,27 @@ var (
 		},
 		[]string{"model"},
 	)
+
+	// modelAvgTTFT and modelAvgTPOT expose the EMA estimates used by latency-aware scorers.
+	// Unlike requestTTFT (raw histogram), these are smoothed signals — useful for debugging
+	// routing decisions but not a substitute for raw latency measurement.
+	modelAvgTTFT = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Subsystem: component,
+			Name:      "model_avg_ttft_seconds",
+			Help:      metricsutil.HelpMsgWithStability("Exponential moving average of time-to-first-token in seconds per model.", compbasemetrics.ALPHA),
+		},
+		[]string{"model"},
+	)
+
+	modelAvgTPOT = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Subsystem: component,
+			Name:      "model_avg_tpot_seconds",
+			Help:      metricsutil.HelpMsgWithStability("Exponential moving average of time-per-output-token in seconds per model.", compbasemetrics.ALPHA),
+		},
+		[]string{"model"},
+	)
 )
 
 var registerMetrics sync.Once
@@ -124,6 +145,8 @@ func Register(customCollectors ...prometheus.Collector) {
 		metrics.Registry.MustRegister(modelSelectorE2ELatency)
 		metrics.Registry.MustRegister(modelSelectorAttemptTotal)
 		metrics.Registry.MustRegister(requestTTFT)
+		metrics.Registry.MustRegister(modelAvgTTFT)
+		metrics.Registry.MustRegister(modelAvgTPOT)
 		for _, collector := range customCollectors {
 			metrics.Registry.MustRegister(collector)
 		}
@@ -163,6 +186,16 @@ func RecordModelSelectorE2ELatency(duration time.Duration) {
 // RecordRequestTTFT records the time-to-first-token for a completed request.
 func RecordRequestTTFT(model string, duration time.Duration) {
 	requestTTFT.WithLabelValues(model).Observe(duration.Seconds())
+}
+
+// RecordModelAvgTTFT records the current EMA of time-to-first-token for a model.
+func RecordModelAvgTTFT(model string, seconds float64) {
+	modelAvgTTFT.WithLabelValues(model).Set(seconds)
+}
+
+// RecordModelAvgTPOT records the current EMA of time-per-output-token for a model.
+func RecordModelAvgTPOT(model string, seconds float64) {
+	modelAvgTPOT.WithLabelValues(model).Set(seconds)
 }
 
 // RecordModelSelectorAttempt records a model selection attempt with success or failure status.

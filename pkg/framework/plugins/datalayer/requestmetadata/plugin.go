@@ -24,6 +24,7 @@ import (
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/datalayer"
 	dlsrc "github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/datalayer/datasource"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/plugin"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/metrics"
 )
 
 const (
@@ -33,6 +34,8 @@ const (
 	// RequestMetadataAttributeKey is the attribute key written to each model's attribute store.
 	RequestMetadataAttributeKey = "request-metadata"
 
+	// defaultWindowDuration is the interval over which TTFT/TPOT observations are averaged
+	// before a single EMA update is applied.
 	defaultWindowDuration = 5 * time.Second
 )
 
@@ -45,7 +48,7 @@ func ExtractorFactory(name string, _ json.RawMessage, h plugin.Handle) (plugin.P
 }
 
 // ModelMetrics holds per-model metadata: in-flight request count and
-// EMA estimates for TTFT and TPOT (α = 0.1).
+// EMA estimates for TTFT and TPOT.
 type ModelMetrics struct {
 	Requests int64
 	AvgTTFT  float64
@@ -66,13 +69,15 @@ type modelWindowAccumulator struct {
 	tpotN       int
 }
 
-// flush averages the accumulated window observations into the EMA and resets the window.
-func (s *modelWindowAccumulator) flush(now time.Time) {
+// flush averages the accumulated window observations into the EMA, emits Prometheus gauges, and resets the window.
+func (s *modelWindowAccumulator) flush(now time.Time, model string) {
 	if s.ttftN > 0 {
 		s.AvgTTFT = ema(s.AvgTTFT, s.ttftSum/float64(s.ttftN))
+		metrics.RecordModelAvgTTFT(model, s.AvgTTFT)
 	}
 	if s.tpotN > 0 {
 		s.AvgTPOT = ema(s.AvgTPOT, s.tpotSum/float64(s.tpotN))
+		metrics.RecordModelAvgTPOT(model, s.AvgTPOT)
 	}
 	s.windowStart = now
 	s.ttftSum, s.ttftN = 0, 0
@@ -168,7 +173,7 @@ func (e *RequestMetadataExtractor) Extract(_ context.Context, events []dlsrc.Eve
 			// Once the window has elapsed, average all accumulated observations and apply one EMA update.
 			// windowDuration=0 means flush after every response (used in unit tests).
 			if now.Sub(s.windowStart) >= e.windowDuration {
-				s.flush(now)
+				s.flush(now, model)
 			}
 			updated[model] = true
 		}
