@@ -21,6 +21,9 @@ import (
 	"encoding/json"
 	"math"
 
+	"sigs.k8s.io/controller-runtime/pkg/log"
+
+	logutil "github.com/llm-d/llm-d-inference-payload-processor/pkg/common/observability/logging"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/datalayer"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/modelselector"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/plugin"
@@ -60,7 +63,7 @@ func (s *AvgTTFTScorer) WithName(name string) *AvgTTFTScorer {
 
 // Score returns a score in [0,1] for each model.
 // Formula: score = (max - avgTTFT) / (max - min)
-func (s *AvgTTFTScorer) Score(_ context.Context, _ *plugin.CycleState, _ *requesthandling.InferenceRequest, models []datalayer.Model) map[datalayer.Model]float64 {
+func (s *AvgTTFTScorer) Score(ctx context.Context, _ *plugin.CycleState, _ *requesthandling.InferenceRequest, models []datalayer.Model) map[datalayer.Model]float64 {
 	ttfts := make(map[datalayer.Model]float64, len(models))
 	minTTFT := math.MaxFloat64
 	maxTTFT := 0.0
@@ -84,6 +87,13 @@ func (s *AvgTTFTScorer) Score(_ context.Context, _ *plugin.CycleState, _ *reques
 			scores[model] = (maxTTFT - ttfts[model]) / (maxTTFT - minTTFT)
 		}
 	}
+
+	if debugLogger := log.FromContext(ctx).V(logutil.DEBUG); debugLogger.Enabled() {
+		for _, model := range models {
+			debugLogger.Info("avg-ttft score", "model", model.GetName(), "avgTTFT", ttfts[model], "score", scores[model])
+		}
+	}
+
 	return scores
 }
 
@@ -93,7 +103,7 @@ func avgTTFT(model datalayer.Model) float64 {
 	if !ok {
 		return 0
 	}
-	rc, ok := val.(requestmetadata.RequestMetadataCount)
+	rc, ok := val.(requestmetadata.ModelMetrics)
 	if !ok {
 		return 0
 	}

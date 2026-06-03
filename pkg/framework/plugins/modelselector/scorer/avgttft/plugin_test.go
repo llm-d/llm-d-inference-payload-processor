@@ -26,7 +26,7 @@ import (
 
 func modelWithAvgTTFT(name string, avgTTFT float64) fwdatalayer.Model {
 	model := fwdatalayer.NewModel(name)
-	model.GetAttributes().Put(requestmetadata.RequestMetadataAttributeKey, requestmetadata.RequestMetadataCount{
+	model.GetAttributes().Put(requestmetadata.RequestMetadataAttributeKey, requestmetadata.ModelMetrics{
 		AvgTTFT: avgTTFT,
 	})
 	return model
