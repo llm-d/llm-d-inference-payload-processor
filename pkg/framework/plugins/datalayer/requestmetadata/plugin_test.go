@@ -44,24 +44,22 @@ func (f *fakeHandle) AddPlugin(name string, plugin plugin.Plugin)      {}
 func (f *fakeHandle) GetAllPlugins() []plugin.Plugin                   { return nil }
 func (f *fakeHandle) GetAllPluginsWithNames() map[string]plugin.Plugin { return nil }
 
-// makeRequestEvent creates a RequestEventType event with model and max_tokens.
-func makeRequestEvent(model string, maxTokens float64) dlsrc.Event {
+// makeRequestEvent creates a RequestEventType event with the given model.
+func makeRequestEvent(model string) dlsrc.Event {
 	req := requesthandling.NewInferenceRequest()
 	req.Body["model"] = model
-	req.Body["max_tokens"] = maxTokens
 	return dlsrc.Event{
 		Type:    dlsrc.RequestEventType,
 		Payload: dlsrc.RequestPayload{Request: req},
 	}
 }
 
-// makeResponseEvent creates a ResponseEventType event with model, duration, and max_tokens.
-// maxTokens mirrors the original request's max_tokens so the extractor can decrement correctly.
-func makeResponseEvent(model string, durationMs int, maxTokens float64) dlsrc.Event {
-	return makeResponseEventWithTTFT(model, durationMs, maxTokens, 0)
+// makeResponseEvent creates a ResponseEventType event for model "m1".
+func makeResponseEvent(durationMs int, maxTokens float64) dlsrc.Event {
+	return makeResponseEventWithTTFT("m1", durationMs, maxTokens, 0)
 }
 
-// makeResponseEventWithTTFT is like makeResponseEvent but also sets the TTFT field.
+// makeResponseEventWithTTFT is like makeResponseEvent but sets the TTFT field.
 func makeResponseEventWithTTFT(model string, durationMs int, maxTokens float64, ttft time.Duration) dlsrc.Event {
 	return makeResponseEventFull(model, durationMs, maxTokens, ttft, 0)
 }
@@ -111,7 +109,7 @@ func newRequestMetadataTest(t *testing.T) (*RequestMetadataExtractor, datalayer.
 func TestRequestIncrementsCounter(t *testing.T) {
 	ext, ds := newRequestMetadataTest(t)
 
-	if err := ext.Extract(context.Background(), []dlsrc.Event{makeRequestEvent("m1", 0)}); err != nil {
+	if err := ext.Extract(context.Background(), []dlsrc.Event{makeRequestEvent("m1")}); err != nil {
 		t.Fatalf("Extract failed: %v", err)
 	}
 
@@ -125,8 +123,8 @@ func TestResponseDecrementsCounter(t *testing.T) {
 	ext, ds := newRequestMetadataTest(t)
 
 	batch := []dlsrc.Event{
-		makeRequestEvent("m1", 0),
-		makeResponseEvent("m1", 0, 0),
+		makeRequestEvent("m1"),
+		makeResponseEvent(0, 0),
 	}
 	if err := ext.Extract(context.Background(), batch); err != nil {
 		t.Fatalf("Extract failed: %v", err)
@@ -142,7 +140,7 @@ func TestCounterFloorsAtZero(t *testing.T) {
 	ext, ds := newRequestMetadataTest(t)
 
 	// Response with no prior request — Requests must floor at zero.
-	if err := ext.Extract(context.Background(), []dlsrc.Event{makeResponseEvent("m1", 0, 0)}); err != nil {
+	if err := ext.Extract(context.Background(), []dlsrc.Event{makeResponseEvent(0, 0)}); err != nil {
 		t.Fatalf("Extract failed: %v", err)
 	}
 
@@ -156,8 +154,8 @@ func TestRequestMetadataMultipleModels(t *testing.T) {
 	ext, ds := newRequestMetadataTest(t)
 
 	batch := []dlsrc.Event{
-		makeRequestEvent("m1", 0),
-		makeRequestEvent("m2", 0),
+		makeRequestEvent("m1"),
+		makeRequestEvent("m2"),
 	}
 	if err := ext.Extract(context.Background(), batch); err != nil {
 		t.Fatalf("Extract failed: %v", err)
@@ -257,7 +255,7 @@ func TestAvgTTFTZeroIgnored(t *testing.T) {
 		t.Fatalf("Extract failed: %v", err)
 	}
 	if err := ext.Extract(context.Background(), []dlsrc.Event{
-		makeResponseEvent("m1", 0, 0),
+		makeResponseEvent(0, 0),
 	}); err != nil {
 		t.Fatalf("Extract failed: %v", err)
 	}
@@ -320,7 +318,7 @@ func TestAvgTPOTZeroCompletionTokensIgnored(t *testing.T) {
 		t.Fatalf("Extract failed: %v", err)
 	}
 	if err := ext.Extract(context.Background(), []dlsrc.Event{
-		makeResponseEvent("m1", 1000, 0),
+		makeResponseEvent(1000, 0),
 	}); err != nil {
 		t.Fatalf("Extract failed: %v", err)
 	}
