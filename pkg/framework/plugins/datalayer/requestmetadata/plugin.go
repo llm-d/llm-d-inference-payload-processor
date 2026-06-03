@@ -37,6 +37,10 @@ const (
 	// defaultWindowDuration is the interval over which TTFT/TPOT observations are averaged
 	// before a single EMA update is applied.
 	defaultWindowDuration = 5 * time.Second
+
+	// emaAlpha is the smoothing factor for the exponential moving average.
+	// A smaller value makes the average more stable but slower to react to changes.
+	emaAlpha = 0.1
 )
 
 // compile-time interface assertion
@@ -194,13 +198,13 @@ func (e *RequestMetadataExtractor) getOrCreate(model string, now time.Time) *mod
 	return s
 }
 
-// ema applies an exponential moving average update with α = 0.1.
+// ema applies an exponential moving average update with α = emaAlpha.
 // If current is zero (no prior observation), the new value is returned directly.
 func ema(current, newValue float64) float64 {
 	if current == 0 {
 		return newValue
 	}
-	return 0.1*newValue + 0.9*current
+	return emaAlpha*newValue + (1-emaAlpha)*current
 }
 
 // floorDecrement decrements v by delta, flooring at zero.
