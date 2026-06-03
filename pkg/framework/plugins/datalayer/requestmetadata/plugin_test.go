@@ -103,7 +103,9 @@ func getRequestMetadata(t testing.TB, ds datalayer.Datastore, model string) Requ
 func newRequestMetadataTest(t *testing.T) (*RequestMetadataExtractor, datalayer.Datastore) {
 	t.Helper()
 	ds := datastore.NewFakeDataStore()
-	return NewRequestMetadataExtractor(ds), ds
+	// windowDuration=0 disables time-windowed batching so EMA updates are immediate,
+	// allowing unit tests to verify behaviour without advancing real time.
+	return NewRequestMetadataExtractor(ds).WithWindowDuration(0), ds
 }
 
 func TestRequestIncrementsCounter(t *testing.T) {
