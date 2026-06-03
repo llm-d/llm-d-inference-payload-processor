@@ -115,7 +115,6 @@ func (e *RequestMetadataExtractor) WithName(name string) *RequestMetadataExtract
 }
 
 // WithWindowDuration overrides the aggregation window. Pass 0 to flush after every response
-// (useful in unit tests where real time cannot advance between calls).
 func (e *RequestMetadataExtractor) WithWindowDuration(d time.Duration) *RequestMetadataExtractor {
 	e.windowDuration = d
 	return e

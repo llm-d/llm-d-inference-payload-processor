@@ -55,20 +55,19 @@ func makeRequestEvent(model string) dlsrc.Event {
 }
 
 // makeResponseEvent creates a ResponseEventType event for model "m1".
-func makeResponseEvent(durationMs int, maxTokens float64) dlsrc.Event {
-	return makeResponseEventWithTTFT("m1", durationMs, maxTokens, 0)
+func makeResponseEvent(durationMs int) dlsrc.Event {
+	return makeResponseEventWithTTFT(durationMs, 0)
 }
 
 // makeResponseEventWithTTFT is like makeResponseEvent but sets the TTFT field.
-func makeResponseEventWithTTFT(model string, durationMs int, maxTokens float64, ttft time.Duration) dlsrc.Event {
-	return makeResponseEventFull(model, durationMs, maxTokens, ttft, 0)
+func makeResponseEventWithTTFT(durationMs int, ttft time.Duration) dlsrc.Event {
+	return makeResponseEventFull(durationMs, ttft, 0)
 }
 
-// makeResponseEventFull creates a ResponseEventType event with all fields including TTFT and completion_tokens.
-func makeResponseEventFull(model string, durationMs int, maxTokens float64, ttft time.Duration, completionTokens float64) dlsrc.Event {
+// makeResponseEventFull creates a ResponseEventType event for model "m1" with all fields.
+func makeResponseEventFull(durationMs int, ttft time.Duration, completionTokens float64) dlsrc.Event {
 	req := requesthandling.NewInferenceRequest()
-	req.Body["model"] = model
-	req.Body["max_tokens"] = maxTokens
+	req.Body["model"] = "m1"
 	resp := requesthandling.NewInferenceResponse()
 	if completionTokens > 0 {
 		resp.Body["usage"] = map[string]any{"completion_tokens": completionTokens}
@@ -124,7 +123,7 @@ func TestResponseDecrementsCounter(t *testing.T) {
 
 	batch := []dlsrc.Event{
 		makeRequestEvent("m1"),
-		makeResponseEvent(0, 0),
+		makeResponseEvent(0),
 	}
 	if err := ext.Extract(context.Background(), batch); err != nil {
 		t.Fatalf("Extract failed: %v", err)
@@ -140,7 +139,7 @@ func TestCounterFloorsAtZero(t *testing.T) {
 	ext, ds := newRequestMetadataTest(t)
 
 	// Response with no prior request — Requests must floor at zero.
-	if err := ext.Extract(context.Background(), []dlsrc.Event{makeResponseEvent(0, 0)}); err != nil {
+	if err := ext.Extract(context.Background(), []dlsrc.Event{makeResponseEvent(0)}); err != nil {
 		t.Fatalf("Extract failed: %v", err)
 	}
 
@@ -210,7 +209,7 @@ func TestAvgTTFTFirstObservation(t *testing.T) {
 	ext, ds := newRequestMetadataTest(t)
 
 	if err := ext.Extract(context.Background(), []dlsrc.Event{
-		makeResponseEventWithTTFT("m1", 0, 0, 500*time.Millisecond),
+		makeResponseEventWithTTFT(0, 500*time.Millisecond),
 	}); err != nil {
 		t.Fatalf("Extract failed: %v", err)
 	}
@@ -228,12 +227,12 @@ func TestAvgTTFTEMABlend(t *testing.T) {
 	ext, ds := newRequestMetadataTest(t)
 
 	if err := ext.Extract(context.Background(), []dlsrc.Event{
-		makeResponseEventWithTTFT("m1", 0, 0, 1*time.Second),
+		makeResponseEventWithTTFT(0, 1*time.Second),
 	}); err != nil {
 		t.Fatalf("Extract failed: %v", err)
 	}
 	if err := ext.Extract(context.Background(), []dlsrc.Event{
-		makeResponseEventWithTTFT("m1", 0, 0, 2*time.Second),
+		makeResponseEventWithTTFT(0, 2*time.Second),
 	}); err != nil {
 		t.Fatalf("Extract failed: %v", err)
 	}
@@ -250,12 +249,12 @@ func TestAvgTTFTZeroIgnored(t *testing.T) {
 	ext, ds := newRequestMetadataTest(t)
 
 	if err := ext.Extract(context.Background(), []dlsrc.Event{
-		makeResponseEventWithTTFT("m1", 0, 0, 1*time.Second),
+		makeResponseEventWithTTFT(0, 1*time.Second),
 	}); err != nil {
 		t.Fatalf("Extract failed: %v", err)
 	}
 	if err := ext.Extract(context.Background(), []dlsrc.Event{
-		makeResponseEvent(0, 0),
+		makeResponseEvent(0),
 	}); err != nil {
 		t.Fatalf("Extract failed: %v", err)
 	}
@@ -272,7 +271,7 @@ func TestAvgTPOTFirstObservation(t *testing.T) {
 	ext, ds := newRequestMetadataTest(t)
 
 	if err := ext.Extract(context.Background(), []dlsrc.Event{
-		makeResponseEventFull("m1", 3000, 0, 1*time.Second, 4),
+		makeResponseEventFull(3000, 1*time.Second, 4),
 	}); err != nil {
 		t.Fatalf("Extract failed: %v", err)
 	}
@@ -290,12 +289,12 @@ func TestAvgTPOTEMABlend(t *testing.T) {
 	ext, ds := newRequestMetadataTest(t)
 
 	if err := ext.Extract(context.Background(), []dlsrc.Event{
-		makeResponseEventFull("m1", 3000, 0, 1*time.Second, 4),
+		makeResponseEventFull(3000, 1*time.Second, 4),
 	}); err != nil {
 		t.Fatalf("Extract failed: %v", err)
 	}
 	if err := ext.Extract(context.Background(), []dlsrc.Event{
-		makeResponseEventFull("m1", 3000, 0, 1*time.Second, 2),
+		makeResponseEventFull(3000, 1*time.Second, 2),
 	}); err != nil {
 		t.Fatalf("Extract failed: %v", err)
 	}
@@ -313,12 +312,12 @@ func TestAvgTPOTZeroCompletionTokensIgnored(t *testing.T) {
 	ext, ds := newRequestMetadataTest(t)
 
 	if err := ext.Extract(context.Background(), []dlsrc.Event{
-		makeResponseEventFull("m1", 3000, 0, 1*time.Second, 4),
+		makeResponseEventFull(3000, 1*time.Second, 4),
 	}); err != nil {
 		t.Fatalf("Extract failed: %v", err)
 	}
 	if err := ext.Extract(context.Background(), []dlsrc.Event{
-		makeResponseEvent(1000, 0),
+		makeResponseEvent(1000),
 	}); err != nil {
 		t.Fatalf("Extract failed: %v", err)
 	}
