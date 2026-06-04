@@ -36,10 +36,12 @@ const (
 
 	// defaultWindowDuration is the interval over which TTFT/TPOT observations are averaged
 	// before a single EMA update is applied.
+	// TODO: make configurable via plugin parameters.
 	defaultWindowDuration = 5 * time.Second
 
 	// defaultEmaAlpha is the smoothing factor for the exponential moving average.
 	// A smaller value makes the average more stable but slower to react to changes.
+	// TODO: make configurable via plugin parameters.
 	defaultEmaAlpha = 0.1
 )
 
