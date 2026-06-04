@@ -34,14 +34,12 @@ const (
 	// RequestMetadataAttributeKey is the attribute key written to each model's attribute store.
 	RequestMetadataAttributeKey = "request-metadata"
 
-	// defaultWindowDuration is the interval over which TTFT/TPOT observations are averaged
-	// before a single EMA update is applied.
-	// TODO: make configurable via plugin parameters.
-	defaultWindowDuration = 5 * time.Second
+	// defaultIntervalDuration is the interval over which TTFT/TPOT observations are averaged
+	// before a single exponential moving average (EMA) update is applied.
+	defaultIntervalDuration = 5 * time.Second
 
 	// defaultEmaAlpha is the smoothing factor for the exponential moving average.
 	// A smaller value makes the average more stable but slower to react to changes.
-	// TODO: make configurable via plugin parameters.
 	defaultEmaAlpha = 0.1
 )
 
@@ -63,20 +61,20 @@ type ModelMetrics struct {
 
 func (r ModelMetrics) Clone() datalayer.Cloneable { return r }
 
-// modelWindowAccumulator embeds the published counter and adds the internal window accumulator.
-// Observations collected within the window are averaged and applied as one EMA update on flush.
-type modelWindowAccumulator struct {
+// modelIntervalAccumulator embeds the published counter and adds the internal interval accumulator.
+// Observations collected within the interval are averaged and applied as one EMA update on flush.
+type modelIntervalAccumulator struct {
 	ModelMetrics
 
-	windowStart time.Time
-	ttftSum     float64
-	ttftN       int
-	tpotSum     float64
-	tpotN       int
+	intervalStart time.Time
+	ttftSum       float64
+	ttftN         int
+	tpotSum       float64
+	tpotN         int
 }
 
-// flush averages the accumulated window observations into the EMA, emits Prometheus gauges, and resets the window.
-func (s *modelWindowAccumulator) flush(now time.Time, model string) {
+// flush averages the accumulated interval observations into the EMA, emits Prometheus gauges, and resets the interval.
+func (s *modelIntervalAccumulator) flush(now time.Time, model string) {
 	if s.ttftN > 0 {
 		s.AvgTTFT = ema(s.AvgTTFT, s.ttftSum/float64(s.ttftN))
 		metrics.RecordModelAvgTTFT(model, s.AvgTTFT)
@@ -85,7 +83,7 @@ func (s *modelWindowAccumulator) flush(now time.Time, model string) {
 		s.AvgTPOT = ema(s.AvgTPOT, s.tpotSum/float64(s.tpotN))
 		metrics.RecordModelAvgTPOT(model, s.AvgTPOT)
 	}
-	s.windowStart = now
+	s.intervalStart = now
 	s.ttftSum, s.ttftN = 0, 0
 	s.tpotSum, s.tpotN = 0, 0
 }
@@ -100,18 +98,18 @@ func (s *modelWindowAccumulator) flush(now time.Time, model string) {
 // drop, upstream error, context cancellation). The call site should fire a
 // synthetic ResponseEventType in its error/EOF path to keep counts accurate.
 type RequestMetadataExtractor struct {
-	typedName      plugin.TypedName
-	ds             datalayer.Datastore
-	state          map[string]*modelWindowAccumulator
-	windowDuration time.Duration
+	typedName        plugin.TypedName
+	ds               datalayer.Datastore
+	state            map[string]*modelIntervalAccumulator
+	intervalDuration time.Duration
 }
 
 func NewRequestMetadataExtractor(ds datalayer.Datastore) *RequestMetadataExtractor {
 	return &RequestMetadataExtractor{
-		typedName:      plugin.TypedName{Type: PluginType, Name: PluginType},
-		ds:             ds,
-		state:          make(map[string]*modelWindowAccumulator),
-		windowDuration: defaultWindowDuration,
+		typedName:        plugin.TypedName{Type: PluginType, Name: PluginType},
+		ds:               ds,
+		state:            make(map[string]*modelIntervalAccumulator),
+		intervalDuration: defaultIntervalDuration,
 	}
 }
 
@@ -123,10 +121,10 @@ func (e *RequestMetadataExtractor) WithName(name string) *RequestMetadataExtract
 	return e
 }
 
-// WithWindowDuration overrides the aggregation window. Pass 0 to flush after every response
+// WithIntervalDuration overrides the aggregation interval. Pass 0 to flush after every response
 // (useful in unit tests where real time cannot advance between calls).
-func (e *RequestMetadataExtractor) WithWindowDuration(d time.Duration) *RequestMetadataExtractor {
-	e.windowDuration = d
+func (e *RequestMetadataExtractor) WithIntervalDuration(d time.Duration) *RequestMetadataExtractor {
+	e.intervalDuration = d
 	return e
 }
 
@@ -145,7 +143,7 @@ func (e *RequestMetadataExtractor) Extract(_ context.Context, events []dlsrc.Eve
 			if model == "" {
 				continue
 			}
-			s := e.getOrCreateModelWindowAccumulator(model)
+			s := e.getOrCreateModelIntervalAccumulator(model)
 			s.Requests++
 			updated[model] = true
 
@@ -158,10 +156,10 @@ func (e *RequestMetadataExtractor) Extract(_ context.Context, events []dlsrc.Eve
 			if model == "" {
 				continue
 			}
-			s := e.getOrCreateModelWindowAccumulator(model)
+			s := e.getOrCreateModelIntervalAccumulator(model)
 			floorDecrement(&s.Requests, 1)
 
-			// Accumulate latency observations into the current window.
+			// Accumulate latency observations into the current interval.
 			if p.TTFT > 0 {
 				s.ttftSum += p.TTFT.Seconds()
 				s.ttftN++
@@ -176,9 +174,9 @@ func (e *RequestMetadataExtractor) Extract(_ context.Context, events []dlsrc.Eve
 				}
 			}
 
-			// Once the window has elapsed, average all accumulated observations and apply one EMA update.
-			// windowDuration=0 means flush after every response (used in unit tests).
-			if now.Sub(s.windowStart) >= e.windowDuration {
+			// Once the interval has elapsed, average all accumulated observations and apply one EMA update.
+			// intervalDuration=0 means flush after every response (used in unit tests).
+			if now.Sub(s.intervalStart) >= e.intervalDuration {
 				s.flush(now, model)
 			}
 			updated[model] = true
@@ -191,11 +189,11 @@ func (e *RequestMetadataExtractor) Extract(_ context.Context, events []dlsrc.Eve
 	return nil
 }
 
-func (e *RequestMetadataExtractor) getOrCreateModelWindowAccumulator(model string) *modelWindowAccumulator {
+func (e *RequestMetadataExtractor) getOrCreateModelIntervalAccumulator(model string) *modelIntervalAccumulator {
 	if s, ok := e.state[model]; ok {
 		return s
 	}
-	s := &modelWindowAccumulator{}
+	s := &modelIntervalAccumulator{}
 	e.state[model] = s
 	return s
 }
