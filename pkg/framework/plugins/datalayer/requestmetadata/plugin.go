@@ -38,9 +38,9 @@ const (
 	// before a single EMA update is applied.
 	defaultWindowDuration = 5 * time.Second
 
-	// emaAlpha is the smoothing factor for the exponential moving average.
+	// defaultEmaAlpha is the smoothing factor for the exponential moving average.
 	// A smaller value makes the average more stable but slower to react to changes.
-	emaAlpha = 0.1
+	defaultEmaAlpha = 0.1
 )
 
 // compile-time interface assertion
@@ -143,7 +143,7 @@ func (e *RequestMetadataExtractor) Extract(_ context.Context, events []dlsrc.Eve
 			if model == "" {
 				continue
 			}
-			s := e.getOrCreate(model, now)
+			s := e.getOrCreateModelWindowAccumulator(model)
 			s.Requests++
 			updated[model] = true
 
@@ -156,7 +156,7 @@ func (e *RequestMetadataExtractor) Extract(_ context.Context, events []dlsrc.Eve
 			if model == "" {
 				continue
 			}
-			s := e.getOrCreate(model, now)
+			s := e.getOrCreateModelWindowAccumulator(model)
 			floorDecrement(&s.Requests, 1)
 
 			// Accumulate latency observations into the current window.
@@ -189,22 +189,22 @@ func (e *RequestMetadataExtractor) Extract(_ context.Context, events []dlsrc.Eve
 	return nil
 }
 
-func (e *RequestMetadataExtractor) getOrCreate(model string, now time.Time) *modelWindowAccumulator {
+func (e *RequestMetadataExtractor) getOrCreateModelWindowAccumulator(model string) *modelWindowAccumulator {
 	if s, ok := e.state[model]; ok {
 		return s
 	}
-	s := &modelWindowAccumulator{windowStart: now}
+	s := &modelWindowAccumulator{}
 	e.state[model] = s
 	return s
 }
 
-// ema applies an exponential moving average update with α = emaAlpha.
+// ema applies an exponential moving average update with α = defaultEmaAlpha.
 // If current is zero (no prior observation), the new value is returned directly.
 func ema(current, newValue float64) float64 {
 	if current == 0 {
 		return newValue
 	}
-	return emaAlpha*newValue + (1-emaAlpha)*current
+	return defaultEmaAlpha*newValue + (1-defaultEmaAlpha)*current
 }
 
 // floorDecrement decrements v by delta, flooring at zero.
