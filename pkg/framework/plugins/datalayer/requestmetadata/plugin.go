@@ -54,9 +54,10 @@ func ExtractorFactory(name string, _ json.RawMessage, h plugin.Handle) (plugin.P
 // ModelMetrics holds per-model metadata: in-flight request count and
 // EMA estimates for TTFT and TPOT.
 type ModelMetrics struct {
-	Requests int64
-	AvgTTFT  float64
-	AvgTPOT  float64
+	Requests       int64
+	AvgTTFT        float64
+	AvgTPOT        float64
+	LastObservedAt int64 // Unix nanoseconds of the last TTFT EMA update; 0 if never observed.
 }
 
 func (r ModelMetrics) Clone() datalayer.Cloneable { return r }
@@ -77,6 +78,7 @@ type modelIntervalAccumulator struct {
 func (s *modelIntervalAccumulator) flush(now time.Time, model string) {
 	if s.ttftN > 0 {
 		s.AvgTTFT = ema(s.AvgTTFT, s.ttftSum/float64(s.ttftN))
+		s.LastObservedAt = now.UnixNano()
 		metrics.RecordModelAvgTTFT(model, s.AvgTTFT)
 	}
 	if s.tpotN > 0 {
