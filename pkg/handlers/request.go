@@ -77,14 +77,6 @@ func (s *Server) HandleRequestBody(ctx context.Context, reqCtx *RequestContext, 
 		return nil, err
 	}
 
-	// Notify the data layer of the incoming request.
-	if s.eventNotifier != nil {
-		s.eventNotifier.Notify(datasource.Event{
-			Type:    datasource.RequestEventType,
-			Payload: datasource.RequestPayload{Request: reqCtx.Request},
-		})
-	}
-
 	bodyMutated := reqCtx.Request.BodyMutated()
 	var mutatedBodyBytes []byte
 	if bodyMutated {
@@ -100,12 +92,10 @@ func (s *Server) HandleRequestBody(ctx context.Context, reqCtx *RequestContext, 
 	}
 
 	// Notify the data layer of the incoming request after headers are fully formed.
-	if s.eventNotifier != nil {
-		s.eventNotifier.Notify(datasource.Event{
-			Type:    datasource.RequestEventType,
-			Payload: datasource.RequestPayload{Request: reqCtx.Request},
-		})
-	}
+	s.eventNotifier.Notify(datasource.Event{
+		Type:    datasource.RequestEventType,
+		Payload: datasource.RequestPayload{Request: reqCtx.Request},
+	})
 
 	metrics.RecordSuccessCounter()
 	reqCtx.RequestSentTimestamp = time.Now()

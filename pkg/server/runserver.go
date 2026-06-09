@@ -69,10 +69,7 @@ func (r *ExtProcServerRunner) AsRunnable(logger logr.Logger) manager.Runnable {
 			srv = grpc.NewServer()
 		}
 
-		server := handlers.NewServer(r.ProfilePicker, r.Profiles)
-		if r.EventNotifier != nil {
-			server.WithEventNotifier(r.EventNotifier)
-		}
+		server := handlers.NewServer(r.ProfilePicker, r.Profiles).WithEventNotifier(r.EventNotifier)
 		extProcPb.RegisterExternalProcessorServer(srv, server)
 
 		// Forward to the gRPC runnable.

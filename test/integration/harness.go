@@ -30,6 +30,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	logutil "github.com/llm-d/llm-d-inference-payload-processor/pkg/common/observability/logging"
+	datasource "github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/datalayer/datasource"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/requesthandling"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/plugins/requesthandling/basemodelextractor"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/plugins/requesthandling/bodyfieldtoheader"
@@ -122,6 +123,7 @@ func NewHarnessWithPlugins(
 			ResponsePlugins: responsePlugins,
 		},
 	}
+	runner.EventNotifier = noopNotifier{}
 
 	// 3. Start Server in Background
 	serverCtx, serverCancel := context.WithCancel(ctx)
@@ -153,3 +155,7 @@ func NewHarnessWithPlugins(
 
 	return h
 }
+
+type noopNotifier struct{}
+
+func (noopNotifier) Notify(datasource.Event) {}

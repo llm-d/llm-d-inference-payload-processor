@@ -198,7 +198,7 @@ func (r *Runner) Run(ctx context.Context) error {
 		SecureServing: opts.SecureServing,
 		ProfilePicker: r.profilePicker,
 		Profiles:      r.profiles,
-		EventNotifier:   notifSrc,
+		EventNotifier: r.processor,
 	}
 
 	// Register health server.

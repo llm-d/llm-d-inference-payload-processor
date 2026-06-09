@@ -62,17 +62,15 @@ func (s *Server) HandleResponseBody(ctx context.Context, reqCtx *RequestContext,
 	reqCtx.ResponseCompleteTimestamp = time.Now()
 
 	// Notify the data layer of the completed response.
-	if s.eventNotifier != nil {
-		s.eventNotifier.Notify(datasource.Event{
-			Type: datasource.ResponseEventType,
-			Payload: datasource.ResponsePayload{
-				Request:  reqCtx.Request,
-				Response: reqCtx.Response,
-				Duration: reqCtx.ResponseCompleteTimestamp.Sub(reqCtx.RequestReceivedTimestamp),
-				TTFT:     reqCtx.ResponseFirstChunkTimestamp.Sub(reqCtx.RequestSentTimestamp),
-			},
-		})
-	}
+	s.eventNotifier.Notify(datasource.Event{
+		Type: datasource.ResponseEventType,
+		Payload: datasource.ResponsePayload{
+			Request:  reqCtx.Request,
+			Response: reqCtx.Response,
+			Duration: reqCtx.ResponseCompleteTimestamp.Sub(reqCtx.RequestReceivedTimestamp),
+			TTFT:     reqCtx.ResponseFirstChunkTimestamp.Sub(reqCtx.RequestSentTimestamp),
+		},
+	})
 
 	logger := log.FromContext(ctx)
 	if len(reqCtx.Profile.ResponsePlugins) == 0 {
