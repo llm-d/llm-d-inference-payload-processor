@@ -27,7 +27,11 @@ func (f *fakeDataStore) GetOrCreateModel(name string) datalayer.Model {
 	return m
 }
 
-func (f *fakeDataStore) DeleteModel(name string) {}
+func (f *fakeDataStore) DeleteModel(name string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	delete(f.models, name)
+}
 
 func (f *fakeDataStore) Models() []string {
 	f.mu.Lock()
