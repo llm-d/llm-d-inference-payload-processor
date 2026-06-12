@@ -21,9 +21,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	eppb "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/propagation"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	envoy "github.com/llm-d/llm-d-inference-payload-processor/pkg/common/envoy"
@@ -46,15 +49,34 @@ func (s *Server) HandleRequestHeaders(ctx context.Context, reqCtx *RequestContex
 		}
 	}
 
+	// Inject the active trace context into the egress headers so the next
+	// filter in the chain is parented to this span rather than the upstream one.
+	traceCarrier := propagation.MapCarrier{}
+	otel.GetTextMapPropagator().Inject(ctx, traceCarrier)
+	for key, value := range traceCarrier {
+		// Normalize keys to lowercase; HTTP/2 (used by ext_proc) requires
+		// lowercase header names, and a non-W3C propagator may emit mixed case.
+		reqCtx.Request.SetHeader(strings.ToLower(key), value)
+	}
+
 	if !headers.GetEndOfStream() {
 		log.FromContext(ctx).V(logutil.VERBOSE).Info("captured request headers, deferring response until body arrives...")
 		return nil
 	}
 	// EndOfStream means no body is expected, return HeadersResponse immediately
+	headersResponse := &eppb.HeadersResponse{}
+	if len(reqCtx.Request.MutatedHeaders()) > 0 || len(reqCtx.Request.RemovedHeaders()) > 0 {
+		headersResponse.Response = &eppb.CommonResponse{
+			HeaderMutation: &eppb.HeaderMutation{
+				SetHeaders:    envoy.GenerateHeadersMutation(reqCtx.Request.MutatedHeaders()),
+				RemoveHeaders: reqCtx.Request.RemovedHeaders(),
+			},
+		}
+	}
 	return []*eppb.ProcessingResponse{
 		{
 			Response: &eppb.ProcessingResponse_RequestHeaders{
-				RequestHeaders: &eppb.HeadersResponse{},
+				RequestHeaders: headersResponse,
 			},
 		},
 	}

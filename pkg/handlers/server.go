@@ -20,12 +20,14 @@ import (
 	"context"
 	"errors"
 	"io"
+	"strings"
 	"time"
 
 	extProcPb "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
 	"github.com/go-logr/logr"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -107,10 +109,24 @@ func loggerWithSpanContext(logger logr.Logger, sc trace.SpanContext) (logr.Logge
 	), true
 }
 
+// extractTraceContext returns ctx augmented with the upstream trace context
+// (traceparent, tracestate, baggage) propagated via the Envoy request headers.
+func extractTraceContext(ctx context.Context, headers *extProcPb.HttpHeaders) context.Context {
+	carrier := propagation.MapCarrier{}
+	if headers != nil && headers.Headers != nil {
+		for _, header := range headers.Headers.Headers {
+			carrier[strings.ToLower(header.Key)] = envoy.GetHeaderValue(header)
+		}
+	}
+	return otel.GetTextMapPropagator().Extract(ctx, carrier)
+}
+
 func (s *Server) Process(srv extProcPb.ExternalProcessor_ProcessServer) error {
 	ctx := srv.Context()
 
-	// Start tracing span for the request
+	// The server span is started when the request headers arrive, so it can be
+	// parented to the upstream trace context they carry instead of starting an
+	// orphan root trace.
 	tracer := otel.Tracer(
 		"llm-d-inference-payload-processor/pkg/handlers",
 		trace.WithInstrumentationVersion(version.BuildRef),
@@ -118,8 +134,12 @@ func (s *Server) Process(srv extProcPb.ExternalProcessor_ProcessServer) error {
 			attribute.String("commit-sha", version.CommitSHA),
 		),
 	)
-	ctx, span := tracer.Start(ctx, "gateway.request", trace.WithSpanKind(trace.SpanKindServer))
-	defer span.End()
+	var span trace.Span
+	defer func() {
+		if span != nil {
+			span.End()
+		}
+	}()
 
 	logger := log.FromContext(ctx)
 	// Correlate logs with traces: enrich the request logger with the active
@@ -170,6 +190,10 @@ func (s *Server) Process(srv extProcPb.ExternalProcessor_ProcessServer) error {
 		var err error
 		switch v := req.Request.(type) {
 		case *extProcPb.ProcessingRequest_RequestHeaders:
+			if span == nil {
+				ctx, span = tracer.Start(extractTraceContext(ctx, v.RequestHeaders),
+					"gateway.request", trace.WithSpanKind(trace.SpanKindServer))
+			}
 			if requestId := envoy.ExtractHeaderValue(v, requestIdHeaderKey); len(requestId) > 0 {
 				logger = logger.WithValues(requestIdHeaderKey, requestId)
 				loggerVerbose = logger.V(logutil.VERBOSE)

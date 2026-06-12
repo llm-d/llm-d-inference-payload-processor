@@ -26,6 +26,7 @@ import (
 	basepb "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	extProcPb "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
 	"github.com/google/go-cmp/cmp"
+	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/protobuf/testing/protocmp"
 	metricsutils "k8s.io/component-base/metrics/testutil"
 	crmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
@@ -168,6 +169,85 @@ func TestHandleRequestHeaders(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestHandleRequestHeaders_InjectsTraceContext(t *testing.T) {
+	withTraceContextPropagator(t)
+
+	traceID, err := trace.TraceIDFromHex(testTraceID)
+	if err != nil {
+		t.Fatalf("failed to parse trace ID: %v", err)
+	}
+	spanID, err := trace.SpanIDFromHex(testSpanID)
+	if err != nil {
+		t.Fatalf("failed to parse span ID: %v", err)
+	}
+	ctx := trace.ContextWithSpanContext(context.Background(), trace.NewSpanContext(trace.SpanContextConfig{
+		TraceID:    traceID,
+		SpanID:     spanID,
+		TraceFlags: trace.FlagsSampled,
+	}))
+
+	wantTraceparent := "00-" + testTraceID + "-" + testSpanID + "-01"
+
+	t.Run("records traceparent as a header mutation", func(t *testing.T) {
+		server := newServerForTest(newTestProfiles())
+		reqCtx := &RequestContext{Request: requesthandling.NewInferenceRequest()}
+
+		resp := server.HandleRequestHeaders(ctx, reqCtx, &extProcPb.HttpHeaders{
+			Headers: &basepb.HeaderMap{Headers: []*basepb.HeaderValue{}},
+		})
+		if resp != nil {
+			t.Fatalf("expected deferred response, got %v", resp)
+		}
+		if got := reqCtx.Request.MutatedHeaders()["traceparent"]; got != wantTraceparent {
+			t.Errorf("mutated traceparent = %q, want %q", got, wantTraceparent)
+		}
+	})
+
+	t.Run("end of stream response carries the traceparent mutation", func(t *testing.T) {
+		server := newServerForTest(newTestProfiles())
+		reqCtx := &RequestContext{Request: requesthandling.NewInferenceRequest()}
+
+		resp := server.HandleRequestHeaders(ctx, reqCtx, &extProcPb.HttpHeaders{
+			Headers:     &basepb.HeaderMap{Headers: []*basepb.HeaderValue{}},
+			EndOfStream: true,
+		})
+		if len(resp) != 1 {
+			t.Fatalf("expected a single response, got %d", len(resp))
+		}
+		mutation := resp[0].GetRequestHeaders().GetResponse().GetHeaderMutation()
+		if mutation == nil {
+			t.Fatal("expected a header mutation in the end-of-stream response")
+		}
+		var got string
+		for _, h := range mutation.GetSetHeaders() {
+			if h.GetHeader().GetKey() == "traceparent" {
+				got = string(h.GetHeader().GetRawValue())
+			}
+		}
+		if got != wantTraceparent {
+			t.Errorf("traceparent in header mutation = %q, want %q", got, wantTraceparent)
+		}
+	})
+
+	t.Run("upstream traceparent matching current context is not re-set", func(t *testing.T) {
+		server := newServerForTest(newTestProfiles())
+		reqCtx := &RequestContext{Request: requesthandling.NewInferenceRequest()}
+
+		resp := server.HandleRequestHeaders(ctx, reqCtx, &extProcPb.HttpHeaders{
+			Headers: &basepb.HeaderMap{Headers: []*basepb.HeaderValue{
+				{Key: "traceparent", RawValue: []byte(wantTraceparent)},
+			}},
+			EndOfStream: true,
+		})
+		if len(resp) != 1 {
+			t.Fatalf("expected a single response, got %d", len(resp))
+		}
+		if mutation := resp[0].GetRequestHeaders().GetResponse().GetHeaderMutation(); mutation != nil {
+			t.Errorf("expected no header mutation, got %v", mutation)
+		}
+	})
 }
 
 // === Request Body Tests (built-in plugins) ===
