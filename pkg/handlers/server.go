@@ -86,7 +86,7 @@ func (s *Server) Process(srv extProcPb.ExternalProcessor_ProcessServer) error {
 
 	// Start tracing span for the request
 	tracer := otel.Tracer(
-		"llm-d/inference-payload-processor/extproc",
+		"llm-d-inference-payload-processor/pkg/handlers",
 		trace.WithInstrumentationVersion(version.BuildRef),
 		trace.WithInstrumentationAttributes(
 			attribute.String("commit-sha", version.CommitSHA),

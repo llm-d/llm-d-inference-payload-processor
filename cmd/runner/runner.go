@@ -119,7 +119,7 @@ func (r *Runner) Run(ctx context.Context) error {
 	})
 
 	if opts.Tracing {
-		err := tracing.InitTracing(ctx, setupLog, "llm-d/inference-payload-processor")
+		err := tracing.InitTracing(ctx, setupLog, "llm-d-ipp")
 		if err != nil {
 			setupLog.Error(err, "failed to initialize tracing")
 			return err
