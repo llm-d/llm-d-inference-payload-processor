@@ -50,6 +50,10 @@ const (
 
 	requestPluginExtensionPoint  = "request"
 	responsePluginExtensionPoint = "response"
+
+	// handlersTracerScope is the OTel instrumentation scope for spans emitted by
+	// the request/response handlers, following the package-path naming convention.
+	handlersTracerScope = "llm-d-inference-payload-processor/pkg/handlers"
 )
 
 func NewServer(preProcessors []requesthandling.RequestProcessor, profilePicker requesthandling.ProfilePicker,

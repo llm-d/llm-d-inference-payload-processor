@@ -24,16 +24,39 @@ import (
 
 	"github.com/go-logr/logr"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/exporters/stdout/stdouttrace"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.37.0"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/common/observability/logging"
 	"github.com/llm-d/llm-d-inference-payload-processor/version"
 )
+
+// instrumentationName is the default OTel instrumentation scope used when no
+// explicit scope is supplied to Tracer.
+const instrumentationName = "llm-d-inference-payload-processor"
+
+// Tracer returns a tracer for the given instrumentation scope, defaulting to
+// "llm-d-inference-payload-processor". The build version and commit SHA are
+// attached so every span in a trace carries consistent scope metadata.
+func Tracer(scope ...string) trace.Tracer {
+	name := instrumentationName
+	if len(scope) > 0 && scope[0] != "" {
+		name = scope[0]
+	}
+	return otel.Tracer(
+		name,
+		trace.WithInstrumentationVersion(version.BuildRef),
+		trace.WithInstrumentationAttributes(
+			attribute.String("commit-sha", version.CommitSHA),
+		),
+	)
+}
 
 type errorHandler struct {
 	logger logr.Logger

@@ -26,12 +26,16 @@ import (
 
 	eppb "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/trace"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	envoy "github.com/llm-d/llm-d-inference-payload-processor/pkg/common/envoy"
 	errcommon "github.com/llm-d/llm-d-inference-payload-processor/pkg/common/error"
 	logutil "github.com/llm-d/llm-d-inference-payload-processor/pkg/common/observability/logging"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/common/observability/tracing"
 	datasource "github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/datalayer/datasource"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/plugin"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/requesthandling"
@@ -160,17 +164,34 @@ func (s *Server) runRequestPlugins(ctx context.Context, cycleState *plugin.Cycle
 	verboseLogger := logger.V(logutil.VERBOSE)
 	verboseEnabled := verboseLogger.Enabled()
 
+	// Stage span grouping the per-plugin spans under gateway.request.
+	tracer := tracing.Tracer(handlersTracerScope)
+	ctx, stageSpan := tracer.Start(ctx, "request_plugins", trace.WithSpanKind(trace.SpanKindInternal))
+	defer stageSpan.End()
+
 	for _, reqPlugin := range reqPlugins {
+		name := reqPlugin.TypedName()
 		if verboseEnabled {
-			verboseLogger.Info("Executing request plugin", "plugin", reqPlugin.TypedName())
+			verboseLogger.Info("Executing request plugin", "plugin", name)
 		}
+		pluginCtx, span := tracer.Start(ctx, "plugin."+name.Type,
+			trace.WithSpanKind(trace.SpanKindInternal),
+			trace.WithAttributes(
+				attribute.String("llm_d.plugin.extension_point", requestPluginExtensionPoint),
+				attribute.String("llm_d.plugin.type", name.Type),
+				attribute.String("llm_d.plugin.name", name.Name),
+			))
 		before := time.Now()
-		err := reqPlugin.ProcessRequest(ctx, cycleState, request)
-		metrics.RecordPluginProcessingLatency(requestPluginExtensionPoint, reqPlugin.TypedName().Type, reqPlugin.TypedName().Name, time.Since(before))
+		err := reqPlugin.ProcessRequest(pluginCtx, cycleState, request)
+		metrics.RecordPluginProcessingLatency(requestPluginExtensionPoint, name.Type, name.Name, time.Since(before))
 		if err != nil {
-			logger.Error(err, "Failed to execute request plugin", "plugin", reqPlugin.TypedName())
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
+			span.End()
+			logger.Error(err, "Failed to execute request plugin", "plugin", name)
 			return err
 		}
+		span.End()
 	}
 
 	return nil
