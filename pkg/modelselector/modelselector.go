@@ -74,8 +74,6 @@ func (s *ModelSelector) Select(ctx context.Context, request *requesthandling.Inf
 		if err != nil {
 			span.RecordError(err)
 			span.SetStatus(codes.Error, err.Error())
-		} else if result != nil && result.TargetModel != nil {
-			span.SetAttributes(attribute.String("llm_d.model_selector.selected_model", result.TargetModel.GetName()))
 		}
 	}()
 
@@ -95,6 +93,7 @@ func (s *ModelSelector) Select(ctx context.Context, request *requesthandling.Inf
 		return nil, err
 	}
 
+	span.SetAttributes(attribute.String("llm_d.model_selector.selected_model", result.TargetModel.GetName()))
 	logger.V(logutil.VERBOSE).Info("Model selection completed", "selectedModel", result.TargetModel.GetName())
 
 	return result, nil

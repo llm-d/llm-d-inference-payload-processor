@@ -297,25 +297,25 @@ func (s *Server) runResponsePlugins(ctx context.Context, cycleState *plugin.Cycl
 	defer stageSpan.End()
 
 	for _, respPlugin := range respPlugins {
-		name := respPlugin.TypedName()
+		typedName := respPlugin.TypedName()
 		if verboseEnabled {
-			verboseLogger.Info("Executing response plugin", "plugin", name)
+			verboseLogger.Info("Executing response plugin", "plugin", typedName)
 		}
-		pluginCtx, span := tracer.Start(ctx, "plugin."+name.Type,
+		pluginCtx, span := tracer.Start(ctx, "plugin."+typedName.Type,
 			trace.WithSpanKind(trace.SpanKindInternal),
 			trace.WithAttributes(
 				attribute.String("llm_d.plugin.extension_point", responsePluginExtensionPoint),
-				attribute.String("llm_d.plugin.type", name.Type),
-				attribute.String("llm_d.plugin.name", name.Name),
+				attribute.String("llm_d.plugin.type", typedName.Type),
+				attribute.String("llm_d.plugin.name", typedName.Name),
 			))
 		before := time.Now()
 		err := respPlugin.ProcessResponse(pluginCtx, cycleState, response)
-		metrics.RecordPluginProcessingLatency(responsePluginExtensionPoint, name.Type, name.Name, time.Since(before))
+		metrics.RecordPluginProcessingLatency(responsePluginExtensionPoint, typedName.Type, typedName.Name, time.Since(before))
 		if err != nil {
 			span.RecordError(err)
 			span.SetStatus(codes.Error, err.Error())
 			span.End()
-			logger.Error(err, "Failed to execute response plugin", "plugin", name)
+			logger.Error(err, "Failed to execute response plugin", "plugin", typedName)
 			return err
 		}
 		span.End()

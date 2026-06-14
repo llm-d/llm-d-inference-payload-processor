@@ -184,29 +184,29 @@ func (p *ModelSelectorPipeline) runFilterPlugins(ctx context.Context, request *r
 
 	tracer := tracing.Tracer(modelSelectorTracerScope)
 	for _, filter := range p.filters {
-		name := filter.TypedName()
+		typedName := filter.TypedName()
 		if verboseEnabled {
-			verboseLogger.Info("Running filter plugin", "plugin", name)
+			verboseLogger.Info("Running filter plugin", "plugin", typedName)
 		}
-		spanCtx, span := tracer.Start(ctx, "plugin."+name.Type,
+		spanCtx, span := tracer.Start(ctx, "plugin."+typedName.Type,
 			trace.WithSpanKind(trace.SpanKindInternal),
 			trace.WithAttributes(
 				attribute.String("llm_d.plugin.extension_point", filterExtensionPoint),
-				attribute.String("llm_d.plugin.type", name.Type),
-				attribute.String("llm_d.plugin.name", name.Name),
+				attribute.String("llm_d.plugin.type", typedName.Type),
+				attribute.String("llm_d.plugin.name", typedName.Name),
 				attribute.Int("llm_d.filter.candidates_in", len(filteredModels)),
 			))
 		before := time.Now()
 		filteredModels = filter.Filter(spanCtx, cycleState, request, filteredModels)
-		metrics.RecordPluginProcessingLatency(filterExtensionPoint, name.Type, name.Name, time.Since(before))
+		metrics.RecordPluginProcessingLatency(filterExtensionPoint, typedName.Type, typedName.Name, time.Since(before))
 		span.SetAttributes(attribute.Int("llm_d.filter.candidates_out", len(filteredModels)))
 		span.End()
 		if debugEnabled {
-			debugLogger.Info("Completed running filter plugin", "plugin", name, "remainingModels", len(filteredModels))
+			debugLogger.Info("Completed running filter plugin", "plugin", typedName, "remainingModels", len(filteredModels))
 		}
 		if len(filteredModels) == 0 {
 			if verboseEnabled {
-				verboseLogger.Info("Filter eliminated all models", "plugin", name)
+				verboseLogger.Info("Filter eliminated all models", "plugin", typedName)
 			}
 			break
 		}
@@ -238,22 +238,22 @@ func (p *ModelSelectorPipeline) runScorerPlugins(ctx context.Context, request *r
 
 	tracer := tracing.Tracer(modelSelectorTracerScope)
 	for _, scorer := range p.scorers {
-		name := scorer.TypedName()
+		typedName := scorer.TypedName()
 		if verboseEnabled {
-			verboseLogger.Info("Running scorer plugin", "plugin", name)
+			verboseLogger.Info("Running scorer plugin", "plugin", typedName)
 		}
-		spanCtx, span := tracer.Start(ctx, "plugin."+name.Type,
+		spanCtx, span := tracer.Start(ctx, "plugin."+typedName.Type,
 			trace.WithSpanKind(trace.SpanKindInternal),
 			trace.WithAttributes(
 				attribute.String("llm_d.plugin.extension_point", scorerExtensionPoint),
-				attribute.String("llm_d.plugin.type", name.Type),
-				attribute.String("llm_d.plugin.name", name.Name),
+				attribute.String("llm_d.plugin.type", typedName.Type),
+				attribute.String("llm_d.plugin.name", typedName.Name),
 				attribute.Int("llm_d.scorer.candidate_count", len(models)),
 				attribute.Float64("llm_d.scorer.weight", scorer.Weight()),
 			))
 		before := time.Now()
 		scores := scorer.Score(spanCtx, cycleState, request, models)
-		metrics.RecordPluginProcessingLatency(scorerExtensionPoint, name.Type, name.Name, time.Since(before))
+		metrics.RecordPluginProcessingLatency(scorerExtensionPoint, typedName.Type, typedName.Name, time.Since(before))
 		span.End()
 		for model, score := range scores {
 			if sm, exists := scoredModels[model.GetName()]; exists {
@@ -261,7 +261,7 @@ func (p *ModelSelectorPipeline) runScorerPlugins(ctx context.Context, request *r
 			}
 		}
 		if debugEnabled {
-			debugLogger.Info("Completed running scorer plugin", "plugin", name)
+			debugLogger.Info("Completed running scorer plugin", "plugin", typedName)
 		}
 	}
 	verboseLogger.Info("Completed running scorer plugins")
@@ -286,27 +286,25 @@ func (p *ModelSelectorPipeline) runPickerPlugin(ctx context.Context, cycleState 
 		i++
 	}
 
-	name := p.picker.TypedName()
+	typedName := p.picker.TypedName()
 	if verboseEnabled {
-		verboseLogger.Info("Running picker plugin", "plugin", name)
+		verboseLogger.Info("Running picker plugin", "plugin", typedName)
 	}
-	spanCtx, span := tracing.Tracer(modelSelectorTracerScope).Start(ctx, "plugin."+name.Type,
+	spanCtx, span := tracing.Tracer(modelSelectorTracerScope).Start(ctx, "plugin."+typedName.Type,
 		trace.WithSpanKind(trace.SpanKindInternal),
 		trace.WithAttributes(
 			attribute.String("llm_d.plugin.extension_point", pickerExtensionPoint),
-			attribute.String("llm_d.plugin.type", name.Type),
-			attribute.String("llm_d.plugin.name", name.Name),
+			attribute.String("llm_d.plugin.type", typedName.Type),
+			attribute.String("llm_d.plugin.name", typedName.Name),
 			attribute.Int("llm_d.picker.candidate_count", len(scoredModels)),
 		))
 	before := time.Now()
 	result := p.picker.Pick(spanCtx, cycleState, scoredModels)
-	metrics.RecordPluginProcessingLatency(pickerExtensionPoint, name.Type, name.Name, time.Since(before))
-	if result != nil && result.TargetModel != nil {
-		span.SetAttributes(attribute.String("llm_d.picker.selected_model", result.TargetModel.GetName()))
-	}
+	metrics.RecordPluginProcessingLatency(pickerExtensionPoint, typedName.Type, typedName.Name, time.Since(before))
+	span.SetAttributes(attribute.String("llm_d.picker.selected_model", result.TargetModel.GetName()))
 	span.End()
 	if debugEnabled {
-		debugLogger.Info("Completed running picker plugin", "plugin", name, "result", result)
+		debugLogger.Info("Completed running picker plugin", "plugin", typedName, "result", result)
 	}
 
 	return result
