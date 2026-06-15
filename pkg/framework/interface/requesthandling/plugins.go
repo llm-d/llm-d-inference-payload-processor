@@ -89,3 +89,11 @@ func (m ResponseBodyMode) String() string {
 type ResponseBodyRequirement interface {
 	ResponseBodyMode() ResponseBodyMode
 }
+
+// ChunkProcessor allows a response plugin to process individual response body chunks without
+// waiting for the full body. Plugins declaring BodyChunked MUST implement this interface
+// (validated at startup). The framework calls ProcessResponseChunk for each chunk as it arrives,
+// then acks the chunk to Envoy so it's forwarded to the client immediately.
+type ChunkProcessor interface {
+	ProcessResponseChunk(ctx context.Context, cycleState *plugin.CycleState, chunk []byte, isFinal bool) ([]byte, error)
+}

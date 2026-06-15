@@ -126,4 +126,9 @@ type Profile struct {
 	// HandleResponseBody with the full body on EndOfStream. When false, each chunk is acked
 	// immediately and forwarded to the client without buffering.
 	NeedsResponseBuffering bool
+
+	// ChunkProcessors are the response plugins that implement ChunkProcessor, pre-computed at
+	// startup. When NeedsResponseBuffering is false, these are called for each response body
+	// chunk before it is acked to Envoy.
+	ChunkProcessors []ChunkProcessor
 }

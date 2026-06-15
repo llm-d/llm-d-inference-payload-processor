@@ -131,9 +131,10 @@ func (s *Server) generateEmptyResponseBodyResponse(responseBodyBytes []byte) []*
 	return responses
 }
 
-// ackResponseBodyChunk returns an immediate ack for a response body chunk, allowing Envoy
-// to forward it to the client without waiting for the full body to be accumulated.
-func (s *Server) ackResponseBodyChunk(body *eppb.HttpBody) []*eppb.ProcessingResponse {
+// ackResponseBodyChunkData returns an immediate ack for a response body chunk with the given
+// data and EndOfStream flag, allowing Envoy to forward it to the client without waiting for
+// the full body to be accumulated.
+func (s *Server) ackResponseBodyChunkData(data []byte, endOfStream bool) []*eppb.ProcessingResponse {
 	return []*eppb.ProcessingResponse{
 		{
 			Response: &eppb.ProcessingResponse_ResponseBody{
@@ -142,8 +143,8 @@ func (s *Server) ackResponseBodyChunk(body *eppb.HttpBody) []*eppb.ProcessingRes
 						BodyMutation: &eppb.BodyMutation{
 							Mutation: &eppb.BodyMutation_StreamedResponse{
 								StreamedResponse: &eppb.StreamedBodyResponse{
-									Body:        body.Body,
-									EndOfStream: body.EndOfStream,
+									Body:        data,
+									EndOfStream: endOfStream,
 								},
 							},
 						},
@@ -152,6 +153,21 @@ func (s *Server) ackResponseBodyChunk(body *eppb.HttpBody) []*eppb.ProcessingRes
 			},
 		},
 	}
+}
+
+// runChunkProcessors runs all ChunkProcessors for the selected profile on a response body chunk.
+func (s *Server) runChunkProcessors(ctx context.Context, reqCtx *RequestContext, chunk []byte, isFinal bool) ([]byte, error) {
+	logger := log.FromContext(ctx).V(logutil.DEFAULT)
+	data := chunk
+	for _, cp := range reqCtx.Profile.ChunkProcessors {
+		var err error
+		data, err = cp.ProcessResponseChunk(ctx, reqCtx.CycleState, data, isFinal)
+		if err != nil {
+			logger.Error(err, "ChunkProcessor failed")
+			return nil, err
+		}
+	}
+	return data, nil
 }
 
 // HandleResponseTrailers handles response trailers.

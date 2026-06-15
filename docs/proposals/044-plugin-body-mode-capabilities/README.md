@@ -73,12 +73,27 @@ Plugins that don't implement `ResponseBodyRequirement` get a warning:
 INFO  Response plugin does not declare ResponseBodyRequirement, defaulting to BodyFull  profile=default plugin=legacy-plugin/legacy
 ```
 
+### ChunkProcessor Interface
+
+Plugins that declare `BodyChunked` must also implement `ChunkProcessor`:
+
+```go
+type ChunkProcessor interface {
+    ProcessResponseChunk(ctx context.Context, cycleState *CycleState, chunk []byte, isFinal bool) ([]byte, error)
+}
+```
+
+- Validated at startup: declaring `BodyChunked` without implementing `ChunkProcessor` is a fatal error
+- `ProcessResponseChunk` receives each chunk as it arrives and returns (possibly modified) bytes
+- The returned bytes are sent to Envoy as the ack — the ChunkProcessor can transform the data in-flight
+- `ChunkProcessors` are pre-computed per profile and stored on the `Profile` struct
+
 ## Implementation Phases
 
 | Phase | Scope | Status |
 |-------|-------|--------|
-| 1 — Framework | `ResponseBodyMode`, `ResponseBodyRequirement` interface, pre-computation, conditional buffering, tests | **This PR** |
-| 2 — ChunkProcessor | `ChunkProcessor` interface for `BodyChunked` plugins, per-chunk dispatch in server loop | Next PR |
+| 1 — Framework | `ResponseBodyMode`, `ResponseBodyRequirement` interface, pre-computation, conditional buffering, tests | **Done** (PR #169) |
+| 2 — ChunkProcessor | `ChunkProcessor` interface for `BodyChunked` plugins, per-chunk dispatch in server loop | **This PR** |
 | 3 — Plugin declarations | Existing plugins implement `ResponseBodyRequirement` (ODH repo) | Separate PR |
 
 ## Migration

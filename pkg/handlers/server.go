@@ -167,7 +167,14 @@ func (s *Server) Process(srv extProcPb.ExternalProcessor_ProcessServer) error {
 				responses, err = s.HandleResponseBody(ctx, reqCtx, responseBody)
 				loggerVerbose.Info("processing response body complete")
 			} else {
-				responses = s.ackResponseBodyChunk(v.ResponseBody)
+				chunkData := v.ResponseBody.Body
+				if len(reqCtx.Profile.ChunkProcessors) > 0 {
+					chunkData, err = s.runChunkProcessors(ctx, reqCtx, chunkData, v.ResponseBody.EndOfStream)
+					if err != nil {
+						break
+					}
+				}
+				responses = s.ackResponseBodyChunkData(chunkData, v.ResponseBody.EndOfStream)
 				if v.ResponseBody.EndOfStream {
 					reqCtx.ResponseCompleteTimestamp = time.Now()
 					model, _ := reqCtx.Request.Body["model"].(string)

@@ -96,7 +96,10 @@ func LoadConfiguration(configBytes []byte, handle plugin.Handle, processor datas
 		return nil, err
 	}
 
-	computeResponseBuffering(profiles, logger)
+	if err = computeResponseBuffering(profiles, logger); err != nil {
+		logger.Error(err, "failed to compute response buffering requirements")
+		return nil, err
+	}
 
 	return &config.Config{
 		ProfilePicker:  profilePicker,
@@ -309,13 +312,15 @@ func buildPostProcessors(rawConfig *configapi.PluginRefList, handle plugin.Handl
 	return postProcessors, nil
 }
 
-// computeResponseBuffering pre-computes NeedsResponseBuffering for each profile based on the
-// ResponseBodyMode declared by each response plugin. If any response plugin returns BodyFull
-// or doesn't implement ResponseBodyRequirement, the profile needs buffering.
-func computeResponseBuffering(profiles map[string]*requesthandling.Profile, logger logr.Logger) {
+// computeResponseBuffering pre-computes NeedsResponseBuffering and ChunkProcessors for each
+// profile based on the ResponseBodyMode declared by each response plugin. If any response
+// plugin returns BodyFull or doesn't implement ResponseBodyRequirement, the profile needs
+// buffering. Returns an error if a plugin declares BodyChunked but doesn't implement ChunkProcessor.
+func computeResponseBuffering(profiles map[string]*requesthandling.Profile, logger logr.Logger) error {
 	for name, profile := range profiles {
 		needsBuffering := false
 		var bufferingPlugins []string
+		var chunkProcessors []requesthandling.ChunkProcessor
 
 		for _, rp := range profile.ResponsePlugins {
 			mode := requesthandling.BodyFull
@@ -325,18 +330,30 @@ func computeResponseBuffering(profiles map[string]*requesthandling.Profile, logg
 				logger.Info("Response plugin does not declare ResponseBodyRequirement, defaulting to BodyFull",
 					"profile", name, "plugin", rp.TypedName())
 			}
-			if mode == requesthandling.BodyFull {
+
+			switch mode {
+			case requesthandling.BodyFull:
 				needsBuffering = true
 				bufferingPlugins = append(bufferingPlugins, rp.TypedName().Name)
+			case requesthandling.BodyChunked:
+				cp, ok := rp.(requesthandling.ChunkProcessor)
+				if !ok {
+					return fmt.Errorf("plugin %q in profile %q declares BodyChunked but does not implement ChunkProcessor",
+						rp.TypedName().Name, name)
+				}
+				chunkProcessors = append(chunkProcessors, cp)
 			}
 		}
 
 		profile.NeedsResponseBuffering = needsBuffering
+		profile.ChunkProcessors = chunkProcessors
 		logger.Info("Profile response buffering computed",
 			"profile", name,
 			"needsResponseBuffering", needsBuffering,
-			"bufferingPlugins", bufferingPlugins)
+			"bufferingPlugins", bufferingPlugins,
+			"chunkProcessors", len(chunkProcessors))
 	}
+	return nil
 }
 
 // buildModelSelector iterates all built profiles and, for each model-selector plugin found in

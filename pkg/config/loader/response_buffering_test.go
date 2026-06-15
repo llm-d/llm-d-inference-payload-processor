@@ -18,6 +18,7 @@ package loader
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -52,6 +53,22 @@ var (
 	_ requesthandling.ResponseBodyRequirement = &fakeResponsePlugin{}
 )
 
+// fakeChunkPlugin declares BodyChunked and implements ChunkProcessor.
+type fakeChunkPlugin struct {
+	fakeResponsePlugin
+}
+
+func (p *fakeChunkPlugin) ProcessResponseChunk(_ context.Context, _ *plugin.CycleState, chunk []byte, _ bool) ([]byte, error) {
+	return chunk, nil
+}
+
+var _ requesthandling.ChunkProcessor = &fakeChunkPlugin{}
+
+// badChunkedPlugin declares BodyChunked but does NOT implement ChunkProcessor.
+type badChunkedPlugin struct {
+	fakeResponsePlugin
+}
+
 type legacyResponsePlugin struct {
 	name string
 }
@@ -71,10 +88,13 @@ func modePtr(m requesthandling.ResponseBodyMode) *requesthandling.ResponseBodyMo
 func TestComputeResponseBuffering(t *testing.T) {
 	logger := log.FromContext(logutil.NewTestLoggerIntoContext(context.Background()))
 
+	chunkedMode := modePtr(requesthandling.BodyChunked)
+
 	tests := []struct {
-		name           string
-		plugins        []requesthandling.ResponseProcessor
-		wantBuffering  bool
+		name              string
+		plugins           []requesthandling.ResponseProcessor
+		wantBuffering     bool
+		wantChunkCount    int
 	}{
 		{
 			name:          "no response plugins",
@@ -90,11 +110,12 @@ func TestComputeResponseBuffering(t *testing.T) {
 			wantBuffering: false,
 		},
 		{
-			name: "all BodyChunked",
+			name: "BodyChunked with ChunkProcessor",
 			plugins: []requesthandling.ResponseProcessor{
-				&fakeResponsePlugin{name: "a", mode: modePtr(requesthandling.BodyChunked)},
+				&fakeChunkPlugin{fakeResponsePlugin{name: "chunker", mode: chunkedMode}},
 			},
-			wantBuffering: false,
+			wantBuffering:  false,
+			wantChunkCount: 1,
 		},
 		{
 			name: "one BodyFull forces buffering",
@@ -114,18 +135,20 @@ func TestComputeResponseBuffering(t *testing.T) {
 		{
 			name: "mixed: BodyChunked + legacy forces buffering",
 			plugins: []requesthandling.ResponseProcessor{
-				&fakeResponsePlugin{name: "a", mode: modePtr(requesthandling.BodyChunked)},
+				&fakeChunkPlugin{fakeResponsePlugin{name: "a", mode: chunkedMode}},
 				&legacyResponsePlugin{name: "legacy"},
 			},
-			wantBuffering: true,
+			wantBuffering:  true,
+			wantChunkCount: 1,
 		},
 		{
 			name: "mixed: BodyNotNeeded + BodyChunked — no buffering",
 			plugins: []requesthandling.ResponseProcessor{
 				&fakeResponsePlugin{name: "a", mode: modePtr(requesthandling.BodyNotNeeded)},
-				&fakeResponsePlugin{name: "b", mode: modePtr(requesthandling.BodyChunked)},
+				&fakeChunkPlugin{fakeResponsePlugin{name: "b", mode: chunkedMode}},
 			},
-			wantBuffering: false,
+			wantBuffering:  false,
+			wantChunkCount: 1,
 		},
 	}
 
@@ -136,21 +159,53 @@ func TestComputeResponseBuffering(t *testing.T) {
 					ResponsePlugins: tc.plugins,
 				},
 			}
-			computeResponseBuffering(profiles, logger)
+			if err := computeResponseBuffering(profiles, logger); err != nil {
+				t.Fatalf("computeResponseBuffering() unexpected error: %v", err)
+			}
 			if profiles["test"].NeedsResponseBuffering != tc.wantBuffering {
 				t.Errorf("NeedsResponseBuffering = %v, want %v", profiles["test"].NeedsResponseBuffering, tc.wantBuffering)
 			}
+			if got := len(profiles["test"].ChunkProcessors); got != tc.wantChunkCount {
+				t.Errorf("ChunkProcessors count = %d, want %d", got, tc.wantChunkCount)
+			}
 		})
+	}
+}
+
+func TestComputeResponseBuffering_BodyChunkedWithoutChunkProcessor(t *testing.T) {
+	logger := log.FromContext(logutil.NewTestLoggerIntoContext(context.Background()))
+
+	profiles := map[string]*requesthandling.Profile{
+		"test": {
+			ResponsePlugins: []requesthandling.ResponseProcessor{
+				&badChunkedPlugin{fakeResponsePlugin{name: "bad", mode: modePtr(requesthandling.BodyChunked)}},
+			},
+		},
+	}
+
+	err := computeResponseBuffering(profiles, logger)
+	if err == nil {
+		t.Fatal("expected error for BodyChunked plugin without ChunkProcessor")
+	}
+	if !strings.Contains(err.Error(), "does not implement ChunkProcessor") {
+		t.Errorf("error message should mention ChunkProcessor, got: %v", err)
 	}
 }
 
 func TestComputeResponseBuffering_MultipleProfiles(t *testing.T) {
 	logger := log.FromContext(logutil.NewTestLoggerIntoContext(context.Background()))
 
+	chunkedMode := modePtr(requesthandling.BodyChunked)
+
 	profiles := map[string]*requesthandling.Profile{
 		"streaming": {
 			ResponsePlugins: []requesthandling.ResponseProcessor{
 				&fakeResponsePlugin{name: "headers-only", mode: modePtr(requesthandling.BodyNotNeeded)},
+			},
+		},
+		"chunked": {
+			ResponsePlugins: []requesthandling.ResponseProcessor{
+				&fakeChunkPlugin{fakeResponsePlugin{name: "meter", mode: chunkedMode}},
 			},
 		},
 		"full-body": {
@@ -160,10 +215,18 @@ func TestComputeResponseBuffering_MultipleProfiles(t *testing.T) {
 		},
 	}
 
-	computeResponseBuffering(profiles, logger)
+	if err := computeResponseBuffering(profiles, logger); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	if profiles["streaming"].NeedsResponseBuffering {
 		t.Error("streaming profile should not need buffering")
+	}
+	if profiles["chunked"].NeedsResponseBuffering {
+		t.Error("chunked profile should not need buffering")
+	}
+	if len(profiles["chunked"].ChunkProcessors) != 1 {
+		t.Errorf("chunked profile should have 1 ChunkProcessor, got %d", len(profiles["chunked"].ChunkProcessors))
 	}
 	if !profiles["full-body"].NeedsResponseBuffering {
 		t.Error("full-body profile should need buffering")
