@@ -33,7 +33,6 @@ import (
 	envoy "github.com/llm-d/llm-d-inference-payload-processor/pkg/common/envoy"
 	logutil "github.com/llm-d/llm-d-inference-payload-processor/pkg/common/observability/logging"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/common/observability/tracing"
-	datasource "github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/datalayer/datasource"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/plugin"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/requesthandling"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/metrics"

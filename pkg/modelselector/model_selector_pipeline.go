@@ -47,7 +47,7 @@ const (
 	// modelSelectorTracerScope is the OTel instrumentation scope for spans
 	// emitted by the model-selector pipeline, following the package-path
 	// naming convention.
-	modelSelectorTracerScope = "llm-d-inference-payload-processor/pkg/modelselector"
+	modelSelectorTracerScope = "llm-d-ipp/pkg/modelselector"
 )
 
 // NewModelSelectorPipeline creates a new ModelSelectorPipeline object and returns its pointer.
