@@ -96,6 +96,8 @@ func LoadConfiguration(configBytes []byte, handle plugin.Handle, processor datas
 		return nil, err
 	}
 
+	computeResponseBuffering(profiles, logger)
+
 	return &config.Config{
 		ProfilePicker:  profilePicker,
 		Profiles:       profiles,
@@ -305,6 +307,36 @@ func buildPostProcessors(rawConfig *configapi.PluginRefList, handle plugin.Handl
 	}
 
 	return postProcessors, nil
+}
+
+// computeResponseBuffering pre-computes NeedsResponseBuffering for each profile based on the
+// ResponseBodyMode declared by each response plugin. If any response plugin returns BodyFull
+// or doesn't implement ResponseBodyRequirement, the profile needs buffering.
+func computeResponseBuffering(profiles map[string]*requesthandling.Profile, logger logr.Logger) {
+	for name, profile := range profiles {
+		needsBuffering := false
+		var bufferingPlugins []string
+
+		for _, rp := range profile.ResponsePlugins {
+			mode := requesthandling.BodyFull
+			if req, ok := rp.(requesthandling.ResponseBodyRequirement); ok {
+				mode = req.ResponseBodyMode()
+			} else {
+				logger.Info("Response plugin does not declare ResponseBodyRequirement, defaulting to BodyFull",
+					"profile", name, "plugin", rp.TypedName())
+			}
+			if mode == requesthandling.BodyFull {
+				needsBuffering = true
+				bufferingPlugins = append(bufferingPlugins, rp.TypedName().Name)
+			}
+		}
+
+		profile.NeedsResponseBuffering = needsBuffering
+		logger.Info("Profile response buffering computed",
+			"profile", name,
+			"needsResponseBuffering", needsBuffering,
+			"bufferingPlugins", bufferingPlugins)
+	}
 }
 
 // buildModelSelector iterates all built profiles and, for each model-selector plugin found in

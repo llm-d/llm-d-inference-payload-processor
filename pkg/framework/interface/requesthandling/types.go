@@ -120,4 +120,10 @@ type Profile struct {
 	// ModelSelectorPlugins are the Filter, Scorer (including WeightedScorer), and Picker plugin
 	// instances to be wired into any model-selector plugin present in RequestPlugins.
 	ModelSelectorPlugins []plugin.Plugin
+
+	// NeedsResponseBuffering is pre-computed at startup from the ResponsePlugins' ResponseBodyMode
+	// declarations. When true, the server accumulates all response body chunks and calls
+	// HandleResponseBody with the full body on EndOfStream. When false, each chunk is acked
+	// immediately and forwarded to the client without buffering.
+	NeedsResponseBuffering bool
 }

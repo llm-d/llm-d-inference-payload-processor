@@ -154,15 +154,36 @@ func (s *Server) Process(srv extProcPb.ExternalProcessor_ProcessServer) error {
 			if reqCtx.ResponseFirstChunkTimestamp.IsZero() {
 				reqCtx.ResponseFirstChunkTimestamp = time.Now()
 			}
-			responseBody = append(responseBody, v.ResponseBody.Body...)
-			if !v.ResponseBody.EndOfStream {
-				continue
+
+			needsBuffering := reqCtx.Profile != nil && reqCtx.Profile.NeedsResponseBuffering
+			if needsBuffering {
+				responseBody = append(responseBody, v.ResponseBody.Body...)
+				if !v.ResponseBody.EndOfStream {
+					continue
+				}
+				reqCtx.ResponseCompleteTimestamp = time.Now()
+				model, _ := reqCtx.Request.Body["model"].(string)
+				metrics.RecordRequestTTFT(model, reqCtx.ResponseFirstChunkTimestamp.Sub(reqCtx.RequestReceivedTimestamp))
+				responses, err = s.HandleResponseBody(ctx, reqCtx, responseBody)
+				loggerVerbose.Info("processing response body complete")
+			} else {
+				responses = s.ackResponseBodyChunk(v.ResponseBody)
+				if v.ResponseBody.EndOfStream {
+					reqCtx.ResponseCompleteTimestamp = time.Now()
+					model, _ := reqCtx.Request.Body["model"].(string)
+					metrics.RecordRequestTTFT(model, reqCtx.ResponseFirstChunkTimestamp.Sub(reqCtx.RequestReceivedTimestamp))
+					s.eventNotifier.Notify(datasource.Event{
+						Type: datasource.ResponseEventType,
+						Payload: datasource.ResponsePayload{
+							Request:  reqCtx.Request,
+							Response: reqCtx.Response,
+							Duration: reqCtx.ResponseCompleteTimestamp.Sub(reqCtx.RequestReceivedTimestamp),
+							TTFT:     reqCtx.ResponseFirstChunkTimestamp.Sub(reqCtx.RequestSentTimestamp),
+						},
+					})
+					loggerVerbose.Info("response body streaming pass-through complete")
+				}
 			}
-			reqCtx.ResponseCompleteTimestamp = time.Now()
-			model, _ := reqCtx.Request.Body["model"].(string)
-			metrics.RecordRequestTTFT(model, reqCtx.ResponseFirstChunkTimestamp.Sub(reqCtx.RequestReceivedTimestamp))
-			responses, err = s.HandleResponseBody(ctx, reqCtx, responseBody)
-			loggerVerbose.Info("processing response body complete")
 		case *extProcPb.ProcessingRequest_ResponseTrailers:
 			responses, err = s.HandleResponseTrailers(v.ResponseTrailers)
 		default:

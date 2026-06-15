@@ -56,3 +56,36 @@ type PostProcessor interface {
 	// PostProcess is invoked to post-process requests after the response plugins of the selected profile run.
 	PostProcess(ctx context.Context, cycleState *plugin.CycleState, response *InferenceResponse) error
 }
+
+type ResponseBodyMode int
+
+const (
+	// BodyNotNeeded indicates the plugin does not need the response body at all (headers-only plugin).
+	BodyNotNeeded ResponseBodyMode = iota
+	// BodyChunked indicates the plugin can process individual response body chunks as they stream through.
+	// Plugins declaring BodyChunked MUST also implement ChunkProcessor (validated at startup).
+	BodyChunked
+	// BodyFull indicates the plugin needs the complete response body buffered in memory before processing.
+	// This is the default for plugins that do not implement ResponseBodyRequirement (backward compatible).
+	BodyFull
+)
+
+func (m ResponseBodyMode) String() string {
+	switch m {
+	case BodyNotNeeded:
+		return "BodyNotNeeded"
+	case BodyChunked:
+		return "BodyChunked"
+	case BodyFull:
+		return "BodyFull"
+	default:
+		return "Unknown"
+	}
+}
+
+// ResponseBodyRequirement allows response plugins to declare what level of access they need
+// to the response body. Plugins that don't implement this interface default to BodyFull
+// (backward compatible — the framework buffers the full response before calling ProcessResponse).
+type ResponseBodyRequirement interface {
+	ResponseBodyMode() ResponseBodyMode
+}

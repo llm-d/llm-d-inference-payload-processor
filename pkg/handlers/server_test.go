@@ -264,8 +264,9 @@ func newServerForTest(profiles map[string]*requesthandling.Profile) *Server {
 func newTestProfiles() map[string]*requesthandling.Profile {
 	return map[string]*requesthandling.Profile{
 		testProfileName: {
-			RequestPlugins:  []requesthandling.RequestProcessor{},
-			ResponsePlugins: []requesthandling.ResponseProcessor{},
+			RequestPlugins:         []requesthandling.RequestProcessor{},
+			ResponsePlugins:        []requesthandling.ResponseProcessor{},
+			NeedsResponseBuffering: true,
 		},
 	}
 }

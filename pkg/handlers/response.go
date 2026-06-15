@@ -131,6 +131,29 @@ func (s *Server) generateEmptyResponseBodyResponse(responseBodyBytes []byte) []*
 	return responses
 }
 
+// ackResponseBodyChunk returns an immediate ack for a response body chunk, allowing Envoy
+// to forward it to the client without waiting for the full body to be accumulated.
+func (s *Server) ackResponseBodyChunk(body *eppb.HttpBody) []*eppb.ProcessingResponse {
+	return []*eppb.ProcessingResponse{
+		{
+			Response: &eppb.ProcessingResponse_ResponseBody{
+				ResponseBody: &eppb.BodyResponse{
+					Response: &eppb.CommonResponse{
+						BodyMutation: &eppb.BodyMutation{
+							Mutation: &eppb.BodyMutation_StreamedResponse{
+								StreamedResponse: &eppb.StreamedBodyResponse{
+									Body:        body.Body,
+									EndOfStream: body.EndOfStream,
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
 // HandleResponseTrailers handles response trailers.
 func (s *Server) HandleResponseTrailers(trailers *eppb.HttpTrailers) ([]*eppb.ProcessingResponse, error) {
 	return []*eppb.ProcessingResponse{
