@@ -167,7 +167,7 @@ func TestHandleResponseBody_Streaming(t *testing.T) {
 			respHeaders := utils.BuildEnvoyGRPCHeaders(map[string]string{
 				"x-test":       "body",
 				":method":      "POST",
-				"content-type": "text/event-stream",
+				"content-type": "application/json",
 			}, true)
 			request := &extProcPb.ProcessingRequest{
 				Request: &extProcPb.ProcessingRequest_ResponseHeaders{
@@ -176,6 +176,12 @@ func TestHandleResponseBody_Streaming(t *testing.T) {
 			}
 			if err := process.Send(request); err != nil {
 				t.Fatalf("send response headers: %v", err)
+			}
+
+			// Receive the response header ack before sending body chunks.
+			// HandleResponseHeaders always responds immediately so Envoy proceeds.
+			if _, err := process.Recv(); err != nil {
+				t.Fatalf("recv response headers ack: %v", err)
 			}
 
 			for _, c := range tc.chunks {
@@ -189,6 +195,12 @@ func TestHandleResponseBody_Streaming(t *testing.T) {
 				}
 				if err := process.Send(request); err != nil {
 					t.Fatalf("send response body chunk: %v", err)
+				}
+				// For non-final chunks, receive the streaming ack
+				if !c.endOfStream {
+					if _, err := process.Recv(); err != nil {
+						t.Fatalf("recv chunk ack: %v", err)
+					}
 				}
 			}
 
