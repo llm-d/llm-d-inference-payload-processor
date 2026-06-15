@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	eppb "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
@@ -76,14 +77,20 @@ func (s *Server) HandleResponseBody(ctx context.Context, reqCtx *RequestContext,
 		return s.generateEmptyResponseBodyResponse(responseBodyBytes), nil
 	}
 
-	if err := json.Unmarshal(responseBodyBytes, &reqCtx.Response.Body); err != nil {
-		// Try parsing as SSE (Server-Sent Events) — streaming responses from providers
-		// like Anthropic use SSE format which isn't valid JSON.
-		if sseBody, sseErr := parseSSEResponseBody(responseBodyBytes); sseErr == nil && sseBody != nil {
-			reqCtx.Response.Body = sseBody
-			logger.V(logutil.VERBOSE).Info("parsed SSE response body for response plugins")
-		} else {
-			logger.Error(err, "Failed to parse response body as JSON or SSE, skipping response plugins")
+	contentType := reqCtx.Response.Headers["content-type"]
+	isSSE := strings.Contains(contentType, "text/event-stream")
+
+	if isSSE {
+		sseBody, err := parseSSEResponseBody(responseBodyBytes)
+		if err != nil || sseBody == nil {
+			logger.Error(err, "failed to parse SSE response body, skipping response plugins")
+			return s.generateEmptyResponseBodyResponse(responseBodyBytes), nil
+		}
+		reqCtx.Response.Body = sseBody
+		logger.V(logutil.VERBOSE).Info("parsed SSE response body for response plugins")
+	} else {
+		if err := json.Unmarshal(responseBodyBytes, &reqCtx.Response.Body); err != nil {
+			logger.Error(err, "failed to parse response body as JSON, skipping response plugins")
 			return s.generateEmptyResponseBodyResponse(responseBodyBytes), nil
 		}
 	}
