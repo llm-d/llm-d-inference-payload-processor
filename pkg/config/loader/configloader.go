@@ -323,22 +323,22 @@ func computeResponseBuffering(profiles map[string]*requesthandling.Profile, logg
 		var chunkProcessors []requesthandling.ChunkProcessor
 
 		for _, rp := range profile.ResponsePlugins {
-			mode := requesthandling.BodyFull
+			mode := requesthandling.Full
 			if req, ok := rp.(requesthandling.ResponseBodyRequirement); ok {
-				mode = req.ResponseBodyMode()
+				mode = req.BodyProcessingMode()
 			} else {
-				logger.Info("Response plugin does not declare ResponseBodyRequirement, defaulting to BodyFull",
+				logger.Info("Response plugin does not declare ResponseBodyRequirement, defaulting to Full",
 					"profile", name, "plugin", rp.TypedName())
 			}
 
 			switch mode {
-			case requesthandling.BodyFull:
+			case requesthandling.Full:
 				needsBuffering = true
 				bufferingPlugins = append(bufferingPlugins, rp.TypedName().Name)
-			case requesthandling.BodyChunked:
+			case requesthandling.Chunks:
 				cp, ok := rp.(requesthandling.ChunkProcessor)
 				if !ok {
-					return fmt.Errorf("plugin %q in profile %q declares BodyChunked but does not implement ChunkProcessor",
+					return fmt.Errorf("plugin %q in profile %q declares Chunks but does not implement ChunkProcessor",
 						rp.TypedName().Name, name)
 				}
 				chunkProcessors = append(chunkProcessors, cp)

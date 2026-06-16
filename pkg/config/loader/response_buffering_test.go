@@ -30,7 +30,7 @@ import (
 
 type fakeResponsePlugin struct {
 	name string
-	mode *requesthandling.ResponseBodyMode
+	mode *requesthandling.BodyProcessingMode
 }
 
 func (p *fakeResponsePlugin) TypedName() plugin.TypedName {
@@ -41,11 +41,11 @@ func (p *fakeResponsePlugin) ProcessResponse(_ context.Context, _ *plugin.CycleS
 	return nil
 }
 
-func (p *fakeResponsePlugin) ResponseBodyMode() requesthandling.ResponseBodyMode {
+func (p *fakeResponsePlugin) BodyProcessingMode() requesthandling.BodyProcessingMode {
 	if p.mode != nil {
 		return *p.mode
 	}
-	return requesthandling.BodyFull
+	return requesthandling.Full
 }
 
 var (
@@ -53,7 +53,7 @@ var (
 	_ requesthandling.ResponseBodyRequirement = &fakeResponsePlugin{}
 )
 
-// fakeChunkPlugin declares BodyChunked and implements ChunkProcessor.
+// fakeChunkPlugin declares Chunks and implements ChunkProcessor.
 type fakeChunkPlugin struct {
 	fakeResponsePlugin
 }
@@ -64,7 +64,7 @@ func (p *fakeChunkPlugin) ProcessResponseChunk(_ context.Context, _ *plugin.Cycl
 
 var _ requesthandling.ChunkProcessor = &fakeChunkPlugin{}
 
-// badChunkedPlugin declares BodyChunked but does NOT implement ChunkProcessor.
+// badChunkedPlugin declares Chunks but does NOT implement ChunkProcessor.
 type badChunkedPlugin struct {
 	fakeResponsePlugin
 }
@@ -83,12 +83,12 @@ func (p *legacyResponsePlugin) ProcessResponse(_ context.Context, _ *plugin.Cycl
 
 var _ requesthandling.ResponseProcessor = &legacyResponsePlugin{}
 
-func modePtr(m requesthandling.ResponseBodyMode) *requesthandling.ResponseBodyMode { return &m }
+func modePtr(m requesthandling.BodyProcessingMode) *requesthandling.BodyProcessingMode { return &m }
 
 func TestComputeResponseBuffering(t *testing.T) {
 	logger := log.FromContext(logutil.NewTestLoggerIntoContext(context.Background()))
 
-	chunkedMode := modePtr(requesthandling.BodyChunked)
+	chunkedMode := modePtr(requesthandling.Chunks)
 
 	tests := []struct {
 		name              string
@@ -102,15 +102,15 @@ func TestComputeResponseBuffering(t *testing.T) {
 			wantBuffering: false,
 		},
 		{
-			name: "all BodyNotNeeded",
+			name: "all Skip",
 			plugins: []requesthandling.ResponseProcessor{
-				&fakeResponsePlugin{name: "a", mode: modePtr(requesthandling.BodyNotNeeded)},
-				&fakeResponsePlugin{name: "b", mode: modePtr(requesthandling.BodyNotNeeded)},
+				&fakeResponsePlugin{name: "a", mode: modePtr(requesthandling.Skip)},
+				&fakeResponsePlugin{name: "b", mode: modePtr(requesthandling.Skip)},
 			},
 			wantBuffering: false,
 		},
 		{
-			name: "BodyChunked with ChunkProcessor",
+			name: "Chunks with ChunkProcessor",
 			plugins: []requesthandling.ResponseProcessor{
 				&fakeChunkPlugin{fakeResponsePlugin{name: "chunker", mode: chunkedMode}},
 			},
@@ -118,22 +118,22 @@ func TestComputeResponseBuffering(t *testing.T) {
 			wantChunkCount: 1,
 		},
 		{
-			name: "one BodyFull forces buffering",
+			name: "one Full forces buffering",
 			plugins: []requesthandling.ResponseProcessor{
-				&fakeResponsePlugin{name: "a", mode: modePtr(requesthandling.BodyNotNeeded)},
-				&fakeResponsePlugin{name: "b", mode: modePtr(requesthandling.BodyFull)},
+				&fakeResponsePlugin{name: "a", mode: modePtr(requesthandling.Skip)},
+				&fakeResponsePlugin{name: "b", mode: modePtr(requesthandling.Full)},
 			},
 			wantBuffering: true,
 		},
 		{
-			name: "legacy plugin without ResponseBodyRequirement defaults to BodyFull",
+			name: "legacy plugin without ResponseBodyRequirement defaults to Full",
 			plugins: []requesthandling.ResponseProcessor{
 				&legacyResponsePlugin{name: "old-plugin"},
 			},
 			wantBuffering: true,
 		},
 		{
-			name: "mixed: BodyChunked + legacy forces buffering",
+			name: "mixed: Chunks + legacy forces buffering",
 			plugins: []requesthandling.ResponseProcessor{
 				&fakeChunkPlugin{fakeResponsePlugin{name: "a", mode: chunkedMode}},
 				&legacyResponsePlugin{name: "legacy"},
@@ -142,9 +142,9 @@ func TestComputeResponseBuffering(t *testing.T) {
 			wantChunkCount: 1,
 		},
 		{
-			name: "mixed: BodyNotNeeded + BodyChunked — no buffering",
+			name: "mixed: Skip + Chunks — no buffering",
 			plugins: []requesthandling.ResponseProcessor{
-				&fakeResponsePlugin{name: "a", mode: modePtr(requesthandling.BodyNotNeeded)},
+				&fakeResponsePlugin{name: "a", mode: modePtr(requesthandling.Skip)},
 				&fakeChunkPlugin{fakeResponsePlugin{name: "b", mode: chunkedMode}},
 			},
 			wantBuffering:  false,
@@ -172,20 +172,20 @@ func TestComputeResponseBuffering(t *testing.T) {
 	}
 }
 
-func TestComputeResponseBuffering_BodyChunkedWithoutChunkProcessor(t *testing.T) {
+func TestComputeResponseBuffering_ChunksWithoutChunkProcessor(t *testing.T) {
 	logger := log.FromContext(logutil.NewTestLoggerIntoContext(context.Background()))
 
 	profiles := map[string]*requesthandling.Profile{
 		"test": {
 			ResponsePlugins: []requesthandling.ResponseProcessor{
-				&badChunkedPlugin{fakeResponsePlugin{name: "bad", mode: modePtr(requesthandling.BodyChunked)}},
+				&badChunkedPlugin{fakeResponsePlugin{name: "bad", mode: modePtr(requesthandling.Chunks)}},
 			},
 		},
 	}
 
 	err := computeResponseBuffering(profiles, logger)
 	if err == nil {
-		t.Fatal("expected error for BodyChunked plugin without ChunkProcessor")
+		t.Fatal("expected error for Chunks plugin without ChunkProcessor")
 	}
 	if !strings.Contains(err.Error(), "does not implement ChunkProcessor") {
 		t.Errorf("error message should mention ChunkProcessor, got: %v", err)
@@ -195,12 +195,12 @@ func TestComputeResponseBuffering_BodyChunkedWithoutChunkProcessor(t *testing.T)
 func TestComputeResponseBuffering_MultipleProfiles(t *testing.T) {
 	logger := log.FromContext(logutil.NewTestLoggerIntoContext(context.Background()))
 
-	chunkedMode := modePtr(requesthandling.BodyChunked)
+	chunkedMode := modePtr(requesthandling.Chunks)
 
 	profiles := map[string]*requesthandling.Profile{
 		"streaming": {
 			ResponsePlugins: []requesthandling.ResponseProcessor{
-				&fakeResponsePlugin{name: "headers-only", mode: modePtr(requesthandling.BodyNotNeeded)},
+				&fakeResponsePlugin{name: "headers-only", mode: modePtr(requesthandling.Skip)},
 			},
 		},
 		"chunked": {
@@ -210,7 +210,7 @@ func TestComputeResponseBuffering_MultipleProfiles(t *testing.T) {
 		},
 		"full-body": {
 			ResponsePlugins: []requesthandling.ResponseProcessor{
-				&fakeResponsePlugin{name: "translator", mode: modePtr(requesthandling.BodyFull)},
+				&fakeResponsePlugin{name: "translator", mode: modePtr(requesthandling.Full)},
 			},
 		},
 	}

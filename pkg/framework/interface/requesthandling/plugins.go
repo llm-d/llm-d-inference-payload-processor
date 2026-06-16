@@ -57,37 +57,37 @@ type PostProcessor interface {
 	PostProcess(ctx context.Context, cycleState *plugin.CycleState, response *InferenceResponse) error
 }
 
-type ResponseBodyMode int
+type BodyProcessingMode int
 
 const (
-	// BodyNotNeeded indicates the plugin does not need the response body at all (headers-only plugin).
-	BodyNotNeeded ResponseBodyMode = iota
-	// BodyChunked indicates the plugin can process individual response body chunks as they stream through.
-	// Plugins declaring BodyChunked MUST also implement ChunkProcessor (validated at startup).
-	BodyChunked
-	// BodyFull indicates the plugin needs the complete response body buffered in memory before processing.
+	// Skip indicates the plugin does not need the response body at all (headers-only plugin).
+	Skip BodyProcessingMode = iota
+	// Chunks indicates the plugin can process individual response body chunks as they stream through.
+	// Plugins declaring Chunks MUST also implement ChunkProcessor (validated at startup).
+	Chunks
+	// Full indicates the plugin needs the complete response body buffered in memory before processing.
 	// This is the default for plugins that do not implement ResponseBodyRequirement (backward compatible).
-	BodyFull
+	Full
 )
 
-func (m ResponseBodyMode) String() string {
+func (m BodyProcessingMode) String() string {
 	switch m {
-	case BodyNotNeeded:
-		return "BodyNotNeeded"
-	case BodyChunked:
-		return "BodyChunked"
-	case BodyFull:
-		return "BodyFull"
+	case Skip:
+		return "Skip"
+	case Chunks:
+		return "Chunks"
+	case Full:
+		return "Full"
 	default:
 		return "Unknown"
 	}
 }
 
 // ResponseBodyRequirement allows response plugins to declare what level of access they need
-// to the response body. Plugins that don't implement this interface default to BodyFull
+// to the response body. Plugins that don't implement this interface default to Full
 // (backward compatible — the framework buffers the full response before calling ProcessResponse).
 type ResponseBodyRequirement interface {
-	ResponseBodyMode() ResponseBodyMode
+	BodyProcessingMode() BodyProcessingMode
 }
 
 // ChunkProcessor allows a response plugin to process individual response body chunks without
