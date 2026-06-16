@@ -98,13 +98,10 @@ func (r *Runner) WithCustomCollectors(collectors ...prometheus.Collector) *Runne
 	return r
 }
 
-// WithCustomControllers registers controller setup functions that run outside
-// the plugin chain. Use this for control-plane controllers that create
+// WithCustomControllers registers custom controllers within the 
+// controller manager. Use this for control-plane controllers that create
 // infrastructure resources (Services, HTTPRoutes, etc.) and should not be
 // coupled to data-plane plugin lifecycle.
-// Each function receives a client (for scheme access and reconciler construction)
-// and a builder scoped to the manager — matching the Handle.ReconcilerBuilder()
-// pattern used by plugins.
 func (r *Runner) WithCustomControllers(setupFuncs ...func(client.Client, *ctrlbuilder.Builder) error) *Runner {
 	r.customControllers = setupFuncs
 	return r
