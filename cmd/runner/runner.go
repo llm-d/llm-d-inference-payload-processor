@@ -98,7 +98,7 @@ func (r *Runner) WithCustomCollectors(collectors ...prometheus.Collector) *Runne
 	return r
 }
 
-// WithCustomControllers registers custom controllers within the 
+// WithCustomControllers registers custom controllers within the
 // controller manager. Use this for control-plane controllers that create
 // infrastructure resources (Services, HTTPRoutes, etc.) and should not be
 // coupled to data-plane plugin lifecycle.
