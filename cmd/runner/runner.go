@@ -29,7 +29,9 @@ import (
 	healthPb "google.golang.org/grpc/health/grpc_health_v1"
 	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
+	ctrlbuilder "sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
@@ -66,6 +68,7 @@ func NewRunner() *Runner {
 		payloadProcessorExecutableName: "payload-processor",
 		profiles:                       map[string]*requesthandling.Profile{},
 		customCollectors:               []prometheus.Collector{},
+		customControllers:              []func(client.Client, *ctrlbuilder.Builder) error{},
 	}
 }
 
@@ -77,8 +80,9 @@ type Runner struct {
 	// profiles is the set of named profiles loaded from the configuration
 	profiles map[string]*requesthandling.Profile
 
-	customCollectors []prometheus.Collector
-	processor        datasource.DatalayerProcessor
+	customCollectors  []prometheus.Collector
+	customControllers []func(client.Client, *ctrlbuilder.Builder) error
+	processor         datasource.DatalayerProcessor
 }
 
 // WithExecutableName sets the name of the executable containing the runner.
@@ -91,6 +95,18 @@ func (r *Runner) WithExecutableName(exeName string) *Runner {
 // WithCustomCollectors sets custom prometheus metrics collectors
 func (r *Runner) WithCustomCollectors(collectors ...prometheus.Collector) *Runner {
 	r.customCollectors = collectors
+	return r
+}
+
+// WithCustomControllers registers controller setup functions that run outside
+// the plugin chain. Use this for control-plane controllers that create
+// infrastructure resources (Services, HTTPRoutes, etc.) and should not be
+// coupled to data-plane plugin lifecycle.
+// Each function receives a client (for scheme access and reconciler construction)
+// and a builder scoped to the manager — matching the Handle.ReconcilerBuilder()
+// pattern used by plugins.
+func (r *Runner) WithCustomControllers(setupFuncs ...func(client.Client, *ctrlbuilder.Builder) error) *Runner {
+	r.customControllers = setupFuncs
 	return r
 }
 
@@ -174,6 +190,13 @@ func (r *Runner) Run(ctx context.Context) error {
 		setupLog.Info("Setting pprof handlers")
 		if err = profiling.SetupPprofHandlers(mgr); err != nil {
 			setupLog.Error(err, "Failed to setup pprof handlers")
+			return err
+		}
+	}
+
+	for _, customControllerFunc := range r.customControllers {
+		if err := customControllerFunc(mgr.GetClient(), ctrl.NewControllerManagedBy(mgr)); err != nil {
+			setupLog.Error(err, "Failed to register custom controller")
 			return err
 		}
 	}
