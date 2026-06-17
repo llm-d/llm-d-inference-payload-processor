@@ -137,7 +137,9 @@ func (s *Server) Process(srv extProcPb.ExternalProcessor_ProcessServer) error {
 			responses = s.HandleRequestHeaders(ctx, reqCtx, v.RequestHeaders)
 			loggerVerbose.Info("processing request headers complete")
 		case *extProcPb.ProcessingRequest_RequestBody:
-			loggerVerbose.Info("Incoming request body chunk", "EoS", v.RequestBody.EndOfStream)
+			chunkStr := string(v.RequestBody.Body)
+			if len(chunkStr) > 200 { chunkStr = chunkStr[:200] + "..." }
+			logger.Info("REQUEST CHUNK", "EoS", v.RequestBody.EndOfStream, "len", len(v.RequestBody.Body), "data", chunkStr)
 			requestBody = append(requestBody, v.RequestBody.Body...)
 			if !v.RequestBody.EndOfStream {
 				continue
