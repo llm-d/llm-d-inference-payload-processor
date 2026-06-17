@@ -67,7 +67,13 @@ func (s *Server) HandleRequestBody(ctx context.Context, reqCtx *RequestContext, 
 
 
 	// Strip stream_options from raw bytes before parsing — body mutations dont work in FDS mode.
+	if bytes.Contains(requestBodyBytes, []byte("stream_options")) {
+		log.FromContext(ctx).Info("DEBUG: stream_options found in raw body, stripping", "bodyLen", len(requestBodyBytes), "snippet", string(requestBodyBytes[max(0,bytes.Index(requestBodyBytes, []byte("stream_options"))-10):min(len(requestBodyBytes),bytes.Index(requestBodyBytes, []byte("stream_options"))+60)]))
+	}
 	requestBodyBytes = stripStreamOptions(requestBodyBytes)
+	if bytes.Contains(requestBodyBytes, []byte("stream_options")) {
+		log.FromContext(ctx).Error(nil, "DEBUG: stream_options STILL in body after strip!", "bodyLen", len(requestBodyBytes))
+	}
 
 	if err := json.Unmarshal(requestBodyBytes, &reqCtx.Request.Body); err != nil {
 		return nil, errcommon.Error{Code: errcommon.BadRequest, Msg: fmt.Sprintf("failed to parse request body: %v", err)}
