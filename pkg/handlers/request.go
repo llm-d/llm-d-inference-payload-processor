@@ -183,45 +183,20 @@ func (s *Server) HandleRequestTrailers(trailers *eppb.HttpTrailers) ([]*eppb.Pro
 	}, nil
 }
 
-// stripStreamOptions removes "stream_options":{...} from JSON body bytes.
+// stripStreamOptions removes the top-level "stream_options" key from JSON request bodies.
+// Uses JSON parse/delete/re-serialize to avoid false matches inside string values.
 func stripStreamOptions(body []byte) []byte {
-	idx := bytes.Index(body, []byte(`"stream_options"`))
-	if idx < 0 {
+	var parsed map[string]interface{}
+	if err := json.Unmarshal(body, &parsed); err != nil {
 		return body
 	}
-	// Find the comma before or after and the closing brace
-	start := idx
-	// Walk back to find the preceding comma
-	for start > 0 && body[start-1] != ',' {
-		start--
+	if _, exists := parsed["stream_options"]; !exists {
+		return body
 	}
-	if start > 0 && body[start-1] == ',' {
-		start-- // include the comma
+	delete(parsed, "stream_options")
+	result, err := json.Marshal(parsed)
+	if err != nil {
+		return body
 	}
-	// Find the closing brace of stream_options value
-	end := idx + len(`"stream_options"`)
-	// Skip whitespace and colon
-	for end < len(body) && (body[end] == ' ' || body[end] == ':') {
-		end++
-	}
-	if end < len(body) && body[end] == '{' {
-		depth := 1
-		end++
-		for end < len(body) && depth > 0 {
-			if body[end] == '{' {
-				depth++
-			} else if body[end] == '}' {
-				depth--
-			}
-			end++
-		}
-	}
-	// Remove trailing comma if present
-	for end < len(body) && body[end] == ',' {
-		end++
-	}
-	result := make([]byte, 0, len(body))
-	result = append(result, body[:start]...)
-	result = append(result, body[end:]...)
 	return result
 }
