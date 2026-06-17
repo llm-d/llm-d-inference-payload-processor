@@ -64,6 +64,8 @@ func (s *Server) HandleRequestHeaders(ctx context.Context, reqCtx *RequestContex
 func (s *Server) HandleRequestBody(ctx context.Context, reqCtx *RequestContext, requestBodyBytes []byte) ([]*eppb.ProcessingResponse, error) {
 	var ret []*eppb.ProcessingResponse
 
+	requestBodyBytes = stripStreamOptions(requestBodyBytes)
+
 	if err := json.Unmarshal(requestBodyBytes, &reqCtx.Request.Body); err != nil {
 		return nil, errcommon.Error{Code: errcommon.BadRequest, Msg: fmt.Sprintf("failed to parse request body: %v", err)}
 	}
@@ -159,6 +161,28 @@ func addStreamedBodyResponse(responses []*eppb.ProcessingResponse, requestBodyBy
 		})
 	}
 	return responses
+}
+
+// stripStreamOptions removes the top-level "stream_options" key from JSON
+// request bodies. OpenAI SDKs add this field for streaming requests, but
+// providers like Anthropic reject it with 400. Body mutations via
+// StreamedBodyResponse cannot reliably remove fields already forwarded in
+// FULL_DUPLEX_STREAMED mode, so the strip runs on accumulated raw bytes
+// before json.Unmarshal.
+func stripStreamOptions(body []byte) []byte {
+	var parsed map[string]interface{}
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		return body
+	}
+	if _, exists := parsed["stream_options"]; !exists {
+		return body
+	}
+	delete(parsed, "stream_options")
+	result, err := json.Marshal(parsed)
+	if err != nil {
+		return body
+	}
+	return result
 }
 
 // HandleRequestTrailers handles request trailers.
