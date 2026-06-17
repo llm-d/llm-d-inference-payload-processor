@@ -18,6 +18,7 @@ package handlers
 
 import (
 	"context"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"strconv"
@@ -63,6 +64,10 @@ func (s *Server) HandleRequestHeaders(ctx context.Context, reqCtx *RequestContex
 // HandleRequestBody parses the raw body bytes into reqCtx.Request.Body and processes the request.
 func (s *Server) HandleRequestBody(ctx context.Context, reqCtx *RequestContext, requestBodyBytes []byte) ([]*eppb.ProcessingResponse, error) {
 	var ret []*eppb.ProcessingResponse
+
+
+	// Strip stream_options from raw bytes before parsing — body mutations dont work in FDS mode.
+	requestBodyBytes = stripStreamOptions(requestBodyBytes)
 
 	if err := json.Unmarshal(requestBodyBytes, &reqCtx.Request.Body); err != nil {
 		return nil, errcommon.Error{Code: errcommon.BadRequest, Msg: fmt.Sprintf("failed to parse request body: %v", err)}
@@ -170,4 +175,47 @@ func (s *Server) HandleRequestTrailers(trailers *eppb.HttpTrailers) ([]*eppb.Pro
 			},
 		},
 	}, nil
+}
+
+// stripStreamOptions removes "stream_options":{...} from JSON body bytes.
+func stripStreamOptions(body []byte) []byte {
+	idx := bytes.Index(body, []byte(`"stream_options"`))
+	if idx < 0 {
+		return body
+	}
+	// Find the comma before or after and the closing brace
+	start := idx
+	// Walk back to find the preceding comma
+	for start > 0 && body[start-1] != ',' {
+		start--
+	}
+	if start > 0 && body[start-1] == ',' {
+		start-- // include the comma
+	}
+	// Find the closing brace of stream_options value
+	end := idx + len(`"stream_options"`)
+	// Skip whitespace and colon
+	for end < len(body) && (body[end] == ' ' || body[end] == ':') {
+		end++
+	}
+	if end < len(body) && body[end] == '{' {
+		depth := 1
+		end++
+		for end < len(body) && depth > 0 {
+			if body[end] == '{' {
+				depth++
+			} else if body[end] == '}' {
+				depth--
+			}
+			end++
+		}
+	}
+	// Remove trailing comma if present
+	for end < len(body) && body[end] == ',' {
+		end++
+	}
+	result := make([]byte, 0, len(body))
+	result = append(result, body[:start]...)
+	result = append(result, body[end:]...)
+	return result
 }
