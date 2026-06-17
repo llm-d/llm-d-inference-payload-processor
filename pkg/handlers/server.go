@@ -17,7 +17,6 @@ limitations under the License.
 package handlers
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -141,30 +140,6 @@ func (s *Server) Process(srv extProcPb.ExternalProcessor_ProcessServer) error {
 			loggerVerbose.Info("Incoming request body chunk", "EoS", v.RequestBody.EndOfStream)
 			requestBody = append(requestBody, v.RequestBody.Body...)
 			if !v.RequestBody.EndOfStream {
-				// In FDS mode, ack each chunk so envoy can forward it.
-				// Strip stream_options from chunks that contain it.
-				chunkData := v.RequestBody.Body
-				if bytes.Contains(chunkData, []byte("stream_options")) {
-					chunkData = stripStreamOptions(chunkData)
-				}
-				if err := srv.Send(&extProcPb.ProcessingResponse{
-					Response: &extProcPb.ProcessingResponse_RequestBody{
-						RequestBody: &extProcPb.BodyResponse{
-							Response: &extProcPb.CommonResponse{
-								BodyMutation: &extProcPb.BodyMutation{
-									Mutation: &extProcPb.BodyMutation_StreamedResponse{
-										StreamedResponse: &extProcPb.StreamedBodyResponse{
-											Body:        chunkData,
-											EndOfStream: false,
-										},
-									},
-								},
-							},
-						},
-					},
-				}); err != nil {
-					return status.Errorf(codes.Unknown, "failed to ack request body chunk: %v", err)
-				}
 				continue
 			}
 			responses, err = s.HandleRequestBody(ctx, reqCtx, requestBody)
