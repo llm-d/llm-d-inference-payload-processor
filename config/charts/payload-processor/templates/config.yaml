@@ -26,4 +26,11 @@ data:
     kind: PayloadProcessorConfig
     {{- .Values.payloadProcessor.customConfig | toYaml | nindent 4 }}
   {{- end }}
+  {{- if .Values.payloadProcessor.listModels }}
+  {{- $models := list }}
+  {{- range .Values.payloadProcessor.listModels }}
+  {{- $models = append $models (dict "name" .) }}
+  {{- end }}
+  models.json: {{ dict "models" $models | toJson | quote }}
+  {{- end }}
 ---
