@@ -1,4 +1,4 @@
-name: CI - Release
+name: CI - Release - Docker Container Image
 
 on:
   push:
@@ -10,44 +10,40 @@ on:
 permissions:
   contents: read
   packages: write
+  security-events: write
 
 jobs:
-  docker-build-and-push:
+  set-params:
     runs-on: ubuntu-latest
+    outputs:
+      image_name: ${{ steps.version.outputs.image_name }}
+      tag: ${{ steps.tag.outputs.tag }}
+      prerelease: ${{ steps.tag.outputs.prerelease }}
     steps:
-      - name: Checkout source
-        uses: actions/checkout@v4
-
-      - name: Set project name from repository
-        id: meta
+      - name: Set image name
+        id: version
         run: |
           repo="${GITHUB_REPOSITORY##*/}"
-          echo "project_name=$repo" >> "$GITHUB_OUTPUT"
+          echo "image_name=${repo}" >> "$GITHUB_OUTPUT"
 
-      - name: Determine tag
+      - name: Determine tag name
         id: tag
         run: |
           if [[ "${GITHUB_EVENT_NAME}" == "release" ]]; then
             echo "tag=${GITHUB_REF##refs/tags/}" >> "$GITHUB_OUTPUT"
-            echo "prerelease=${{ github.event.release.prerelease }}" >> "$GITHUB_OUTPUT"
           elif [[ "${GITHUB_REF}" == refs/tags/* ]]; then
             echo "tag=${GITHUB_REF##refs/tags/}" >> "$GITHUB_OUTPUT"
-            echo "prerelease=false" >> "$GITHUB_OUTPUT"
           else
             echo "tag=latest" >> "$GITHUB_OUTPUT"
-            echo "prerelease=false" >> "$GITHUB_OUTPUT"
           fi
+          PRE_RELEASE=${{ github.event_name != 'release' || github.event.release.prerelease }}
+          echo "prerelease=${PRE_RELEASE}" >> "$GITHUB_OUTPUT"
         shell: bash
 
-      - name: Build and push
-        uses: ./.github/actions/docker-build-and-push
-        with:
-          image-name: ${{ steps.meta.outputs.project_name }}
-          tag: ${{ steps.tag.outputs.tag }}
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          prerelease: ${{ steps.tag.outputs.prerelease }}
-
-      - name: Trivy security scan
-        uses: ./.github/actions/trivy-scan
-        with:
-          image: ghcr.io/llm-d/${{ steps.meta.outputs.project_name }}:${{ steps.tag.outputs.tag }}
+  build-and-push:
+    needs: set-params
+    uses: ./.github/workflows/ci-build-images.yaml
+    with:
+      image-name: ${{ needs.set-params.outputs.image_name }}
+      tag: ${{ needs.set-params.outputs.tag }}
+      prerelease: ${{ fromJSON(needs.set-params.outputs.prerelease) }}

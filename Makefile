@@ -16,6 +16,10 @@ TARGETARCH ?= amd64
 GIT_COMMIT_SHA ?= $(shell git rev-parse HEAD 2>/dev/null || echo "unknown")
 BUILD_REF ?= $(VERSION)
 
+# Helm configuration
+CHART ?= payload-processor
+IMAGE_REPOSITORY ?= $(PROJECT_NAME)
+
 # Go configuration
 GOFLAGS ?=
 LDFLAGS ?= -s -w -X main.version=$(VERSION)
@@ -87,6 +91,27 @@ image-push: ## Build and push multi-arch container image
 		--tag $(IMAGE):$(VERSION) \
 		--tag $(IMAGE):latest \
 		.
+
+##@ Helm
+
+HELM_VERSION ?= v3.17.1
+YQ_VERSION ?= v4.45.1
+HELM ?= $(LOCALBIN)/helm
+YQ ?= $(LOCALBIN)/yq
+
+.PHONY: helm-install
+helm-install: $(HELM) ## Download helm locally if necessary.
+$(HELM): | $(LOCALBIN)
+	$(call go-install-tool,$(HELM),helm.sh/helm/v3/cmd/helm,$(HELM_VERSION))
+
+.PHONY: yq
+yq: $(YQ) ## Download yq locally if necessary.
+$(YQ): | $(LOCALBIN)
+	$(call go-install-tool,$(YQ),github.com/mikefarah/yq/v4,$(YQ_VERSION))
+
+.PHONY: helm-push
+helm-push: yq helm-install ## Package and push the payload-processor Helm chart.
+	CHART=$(CHART) EXTRA_TAG="$(EXTRA_TAG)" IMAGE_REPOSITORY="$(IMAGE_REPOSITORY)" YQ="$(YQ)" HELM="$(HELM)" ./hack/push-chart.sh
 
 ##@ CI Helpers
 
