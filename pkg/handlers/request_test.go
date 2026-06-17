@@ -886,6 +886,191 @@ func buildStreamingResponse(bodyBytes []byte, setHeaders map[string]string, remo
 	}
 }
 
+// === stripStreamOptions Tests ===
+
+func TestStripStreamOptions(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		wantBody map[string]any
+	}{
+		{
+			name:  "removes top-level stream_options key",
+			input: `{"model":"claude-opus-4-8","messages":[{"role":"user","content":"hi"}],"max_tokens":5,"stream":true,"stream_options":{"include_usage":true}}`,
+			wantBody: map[string]any{
+				"model":      "claude-opus-4-8",
+				"messages":   []any{map[string]any{"role": "user", "content": "hi"}},
+				"max_tokens": float64(5),
+				"stream":     true,
+			},
+		},
+		{
+			name:  "no stream_options — body unchanged",
+			input: `{"model":"claude-opus-4-8","messages":[{"role":"user","content":"hi"}],"max_tokens":5}`,
+			wantBody: map[string]any{
+				"model":      "claude-opus-4-8",
+				"messages":   []any{map[string]any{"role": "user", "content": "hi"}},
+				"max_tokens": float64(5),
+			},
+		},
+		{
+			name:  "stream_options text inside message string is preserved",
+			input: `{"model":"claude-opus-4-8","messages":[{"role":"user","content":"please fix stream_options handling"}],"max_tokens":5,"stream_options":{"include_usage":true}}`,
+			wantBody: map[string]any{
+				"model":      "claude-opus-4-8",
+				"messages":   []any{map[string]any{"role": "user", "content": "please fix stream_options handling"}},
+				"max_tokens": float64(5),
+			},
+		},
+		{
+			name:  "only stream_options text inside string — no top-level key to remove",
+			input: `{"model":"test","messages":[{"role":"user","content":"the stream_options field should not appear"}],"max_tokens":5}`,
+			wantBody: map[string]any{
+				"model":      "test",
+				"messages":   []any{map[string]any{"role": "user", "content": "the stream_options field should not appear"}},
+				"max_tokens": float64(5),
+			},
+		},
+		{
+			name:  "stream_options with empty object",
+			input: `{"model":"test","stream_options":{}}`,
+			wantBody: map[string]any{
+				"model": "test",
+			},
+		},
+		{
+			name:  "large body with stream_options",
+			input: `{"model":"claude-opus-4-8","messages":[{"role":"user","content":"` + strings.Repeat("A", 50000) + `"}],"max_tokens":5,"stream":true,"stream_options":{"include_usage":true}}`,
+			wantBody: map[string]any{
+				"model":      "claude-opus-4-8",
+				"messages":   []any{map[string]any{"role": "user", "content": strings.Repeat("A", 50000)}},
+				"max_tokens": float64(5),
+				"stream":     true,
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := stripStreamOptions([]byte(tc.input))
+
+			var got map[string]any
+			if err := json.Unmarshal(result, &got); err != nil {
+				t.Fatalf("failed to unmarshal result: %v", err)
+			}
+
+			if _, exists := got["stream_options"]; exists {
+				t.Error("stream_options key still present after stripping")
+			}
+
+			wantBytes, _ := json.Marshal(tc.wantBody)
+			gotBytes, _ := json.Marshal(got)
+			if string(wantBytes) != string(gotBytes) {
+				t.Errorf("body mismatch:\nwant: %s\ngot:  %s", wantBytes, gotBytes)
+			}
+		})
+	}
+
+	t.Run("invalid JSON returns original bytes", func(t *testing.T) {
+		input := []byte(`not json at all`)
+		result := stripStreamOptions(input)
+		if string(result) != string(input) {
+			t.Errorf("expected original bytes for invalid JSON, got: %s", result)
+		}
+	})
+
+	t.Run("empty body returns original bytes", func(t *testing.T) {
+		result := stripStreamOptions([]byte{})
+		if len(result) != 0 {
+			t.Errorf("expected empty result for empty input, got: %s", result)
+		}
+	})
+}
+
+func TestHandleRequestBody_StripsStreamOptions(t *testing.T) {
+	metrics.Register()
+	ctx := logutil.NewTestLoggerIntoContext(context.Background())
+
+	tests := []struct {
+		name     string
+		body     string
+		wantBody map[string]any
+	}{
+		{
+			name: "small body with stream_options is stripped before plugin processing",
+			body: `{"model":"claude-opus-4-8","messages":[{"role":"user","content":"hi"}],"max_tokens":5,"stream":true,"stream_options":{"include_usage":true}}`,
+			wantBody: map[string]any{
+				"model":      "claude-opus-4-8",
+				"messages":   []any{map[string]any{"role": "user", "content": "hi"}},
+				"max_tokens": float64(5),
+				"stream":     true,
+			},
+		},
+		{
+			name: "large body with stream_options (simulates multi-chunk Claude Code request)",
+			body: `{"model":"claude-opus-4-8","messages":[{"role":"user","content":"` + strings.Repeat("X", 100000) + `"}],"max_tokens":5,"stream":true,"stream_options":{"include_usage":true}}`,
+			wantBody: map[string]any{
+				"model":      "claude-opus-4-8",
+				"messages":   []any{map[string]any{"role": "user", "content": strings.Repeat("X", 100000)}},
+				"max_tokens": float64(5),
+				"stream":     true,
+			},
+		},
+		{
+			name: "body without stream_options passes through unchanged",
+			body: `{"model":"claude-opus-4-8","messages":[{"role":"user","content":"hi"}],"max_tokens":5}`,
+			wantBody: map[string]any{
+				"model":      "claude-opus-4-8",
+				"messages":   []any{map[string]any{"role": "user", "content": "hi"}},
+				"max_tokens": float64(5),
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			profiles := newTestProfiles()
+			server := newServerForTest(profiles)
+			reqCtx := &RequestContext{
+				CycleState: plugin.NewCycleState(),
+				Request:    requesthandling.NewInferenceRequest(),
+			}
+
+			resp, err := server.HandleRequestBody(ctx, reqCtx, []byte(tc.body))
+			if err != nil {
+				t.Fatalf("HandleRequestBody returned unexpected error: %v", err)
+			}
+
+			// The parsed body in reqCtx should NOT have stream_options
+			if _, exists := reqCtx.Request.Body["stream_options"]; exists {
+				t.Error("stream_options still present in parsed request body after HandleRequestBody")
+			}
+
+			// Verify the body in the StreamedBodyResponse doesn't contain stream_options as a JSON key
+			for _, r := range resp {
+				if rb, ok := r.Response.(*extProcPb.ProcessingResponse_RequestBody); ok {
+					if rb.RequestBody != nil && rb.RequestBody.Response != nil {
+						if bm := rb.RequestBody.Response.BodyMutation; bm != nil {
+							if sr, ok := bm.Mutation.(*extProcPb.BodyMutation_StreamedResponse); ok {
+								var bodyMap map[string]any
+								if err := json.Unmarshal(sr.StreamedResponse.Body, &bodyMap); err == nil {
+									if _, exists := bodyMap["stream_options"]; exists {
+										t.Errorf("stream_options found in StreamedBodyResponse body chunk")
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+
+			if len(resp) < 2 {
+				t.Fatalf("expected at least 2 responses (headers + body), got %d", len(resp))
+			}
+		})
+	}
+}
+
 // === Request Body Tests (body mutations) ===
 
 type bodyMutatingPlugin struct {

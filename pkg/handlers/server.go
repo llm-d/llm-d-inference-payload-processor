@@ -140,15 +140,6 @@ func (s *Server) Process(srv extProcPb.ExternalProcessor_ProcessServer) error {
 			loggerVerbose.Info("Incoming request body chunk", "EoS", v.RequestBody.EndOfStream, "len", len(v.RequestBody.Body))
 			requestBody = append(requestBody, v.RequestBody.Body...)
 			if !v.RequestBody.EndOfStream {
-				// In STREAMED mode, ack each chunk so envoy sends the next one.
-				// In FDS mode, this is harmless (envoy doesn't wait for ack).
-				if err := srv.Send(&extProcPb.ProcessingResponse{
-					Response: &extProcPb.ProcessingResponse_RequestBody{
-						RequestBody: &extProcPb.BodyResponse{},
-					},
-				}); err != nil {
-					return status.Errorf(codes.Unknown, "failed to ack request body chunk: %v", err)
-				}
 				continue
 			}
 			responses, err = s.HandleRequestBody(ctx, reqCtx, requestBody)
