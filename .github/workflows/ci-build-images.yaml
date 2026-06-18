@@ -23,7 +23,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout source
-        uses: actions/checkout@v6 # v6 df4cb1c069e1874edd31b4311f1884172cec0e10
+        uses: actions/checkout@v7 # v6 df4cb1c069e1874edd31b4311f1884172cec0e10
 
       - name: Build AMD64 image (no push)
         uses: ./.github/actions/docker-build-and-push
@@ -57,7 +57,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repo
-        uses: actions/checkout@v6 # v6 df4cb1c069e1874edd31b4311f1884172cec0e10
+        uses: actions/checkout@v7 # v6 df4cb1c069e1874edd31b4311f1884172cec0e10
 
       - name: Log in to GHCR
         uses: docker/login-action@v4 # v4 650006c6eb7dba73a995cc03b0b2d7f5ca915bee
