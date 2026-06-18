@@ -41,6 +41,9 @@ spec:
             fieldRef:
               fieldPath: metadata.namespace
         {{- end }}
+        {{- if .Values.payloadProcessor.env }}
+        {{- toYaml .Values.payloadProcessor.env | nindent 8 }}
+        {{- end }}
         {{- if .Values.payloadProcessor.tracing.enabled}}
         - name: OTEL_SERVICE_NAME
           value: {{ .Values.payloadProcessor.tracing.otelServiceName }}

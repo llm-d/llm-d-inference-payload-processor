@@ -14,6 +14,13 @@ payloadProcessor:
     # Log verbosity
     v: 3
 
+  # Additional environment variables for the payload processor container.
+  # Example:
+  # env:
+  #   - name: GATEWAY_NAME
+  #     value: "my-gateway"
+  env: []
+
   customConfig: {}
 
   # Example defining a custom IPP configuration
