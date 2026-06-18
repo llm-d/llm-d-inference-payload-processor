@@ -45,7 +45,10 @@ func (s *Server) HandleRequestHeaders(ctx context.Context, reqCtx *RequestContex
 
 	if headers != nil && headers.Headers != nil {
 		for _, header := range headers.Headers.Headers {
-			reqCtx.Request.Headers[header.Key] = envoy.GetHeaderValue(header)
+			// Normalize keys to lowercase so later case-insensitive lookups and
+			// mutations (e.g. the trace context injection below) overwrite the
+			// upstream header instead of producing a case-differentiated duplicate.
+			reqCtx.Request.Headers[strings.ToLower(header.Key)] = envoy.GetHeaderValue(header)
 		}
 	}
 

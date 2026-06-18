@@ -142,14 +142,6 @@ func (s *Server) Process(srv extProcPb.ExternalProcessor_ProcessServer) error {
 	}()
 
 	logger := log.FromContext(ctx)
-	// Correlate logs with traces: enrich the request logger with the active
-	// span's trace_id/span_id and store it back into the context so every
-	// downstream log line (handlers, plugins, model selector) can be queried
-	// by trace_id alongside the OpenTelemetry spans.
-	if enriched, ok := loggerWithSpanContext(logger, span.SpanContext()); ok {
-		logger = enriched
-		ctx = log.IntoContext(ctx, logger)
-	}
 	loggerVerbose := logger.V(logutil.VERBOSE)
 	loggerVerbose.Info("Processing")
 
@@ -193,6 +185,15 @@ func (s *Server) Process(srv extProcPb.ExternalProcessor_ProcessServer) error {
 			if span == nil {
 				ctx, span = tracer.Start(extractTraceContext(ctx, v.RequestHeaders),
 					"gateway.request", trace.WithSpanKind(trace.SpanKindServer))
+				// Correlate logs with traces: enrich the request logger with the
+				// active span's trace_id/span_id and store it back into the context
+				// so every downstream log line (handlers, plugins, model selector)
+				// can be queried by trace_id alongside the OpenTelemetry spans.
+				if enriched, ok := loggerWithSpanContext(logger, span.SpanContext()); ok {
+					logger = enriched
+					loggerVerbose = logger.V(logutil.VERBOSE)
+					ctx = log.IntoContext(ctx, logger)
+				}
 			}
 			if requestId := envoy.ExtractHeaderValue(v, requestIdHeaderKey); len(requestId) > 0 {
 				logger = logger.WithValues(requestIdHeaderKey, requestId)
