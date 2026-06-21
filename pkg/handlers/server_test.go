@@ -24,7 +24,9 @@ import (
 
 	basepb "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	extProcPb "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
+	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp"
+	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/protobuf/testing/protocmp"
 
 	envoytest "github.com/llm-d/llm-d-inference-payload-processor/pkg/common/envoy/test"
@@ -248,6 +250,84 @@ func TestHandleResponseBody_Streaming(t *testing.T) {
 			envoytest.SortSetHeadersInResponses(got)
 			if diff := cmp.Diff(want, got, protocmp.Transform()); diff != "" {
 				t.Errorf("unexpected ProcessingResponse after buffered streaming response body, diff(-want, +got): %s", diff)
+			}
+		})
+	}
+}
+
+// recordingSink is a minimal logr.LogSink that records the key/value pairs added
+// via WithValues so tests can assert on logger enrichment.
+type recordingSink struct {
+	values []any
+}
+
+func (s *recordingSink) Init(logr.RuntimeInfo)        {}
+func (s *recordingSink) Enabled(int) bool             { return true }
+func (s *recordingSink) Info(int, string, ...any)     {}
+func (s *recordingSink) Error(error, string, ...any)  {}
+func (s *recordingSink) WithName(string) logr.LogSink { return s }
+func (s *recordingSink) WithValues(kv ...any) logr.LogSink {
+	return &recordingSink{values: append(append([]any{}, s.values...), kv...)}
+}
+
+func TestLoggerWithSpanContext(t *testing.T) {
+	traceID, err := trace.TraceIDFromHex("0123456789abcdef0123456789abcdef")
+	if err != nil {
+		t.Fatalf("TraceIDFromHex: %v", err)
+	}
+	spanID, err := trace.SpanIDFromHex("0123456789abcdef")
+	if err != nil {
+		t.Fatalf("SpanIDFromHex: %v", err)
+	}
+
+	tests := []struct {
+		name    string
+		sc      trace.SpanContext
+		wantOK  bool
+		wantKVs map[string]string
+	}{
+		{
+			name: "valid span context is injected",
+			sc: trace.NewSpanContext(trace.SpanContextConfig{
+				TraceID: traceID,
+				SpanID:  spanID,
+			}),
+			wantOK: true,
+			wantKVs: map[string]string{
+				"trace_id": traceID.String(),
+				"span_id":  spanID.String(),
+			},
+		},
+		{
+			name:   "invalid span context is left unchanged",
+			sc:     trace.SpanContext{},
+			wantOK: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			sink := &recordingSink{}
+			got, ok := loggerWithSpanContext(logr.New(sink), tc.sc)
+			if ok != tc.wantOK {
+				t.Fatalf("loggerWithSpanContext ok = %v, want %v", ok, tc.wantOK)
+			}
+
+			gotKVs := map[string]string{}
+			for i := 0; i+1 < len(got.GetSink().(*recordingSink).values); i += 2 {
+				k, _ := got.GetSink().(*recordingSink).values[i].(string)
+				v, _ := got.GetSink().(*recordingSink).values[i+1].(string)
+				gotKVs[k] = v
+			}
+
+			if !tc.wantOK {
+				if len(gotKVs) != 0 {
+					t.Fatalf("expected no values for invalid span context, got %v", gotKVs)
+				}
+				return
+			}
+			if diff := cmp.Diff(tc.wantKVs, gotKVs); diff != "" {
+				t.Errorf("injected values mismatch, diff(-want, +got): %v", diff)
 			}
 		})
 	}

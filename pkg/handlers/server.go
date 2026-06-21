@@ -23,6 +23,7 @@ import (
 	"time"
 
 	extProcPb "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
+	"github.com/go-logr/logr"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
@@ -81,6 +82,19 @@ type RequestContext struct {
 	Response                    *requesthandling.InferenceResponse
 }
 
+// loggerWithSpanContext returns a copy of logger enriched with the trace_id and
+// span_id of sc so log lines can be correlated with the corresponding trace. The
+// returned bool reports whether sc was valid and enrichment was applied.
+func loggerWithSpanContext(logger logr.Logger, sc trace.SpanContext) (logr.Logger, bool) {
+	if !sc.IsValid() {
+		return logger, false
+	}
+	return logger.WithValues(
+		"trace_id", sc.TraceID().String(),
+		"span_id", sc.SpanID().String(),
+	), true
+}
+
 func (s *Server) Process(srv extProcPb.ExternalProcessor_ProcessServer) error {
 	ctx := srv.Context()
 
@@ -96,6 +110,14 @@ func (s *Server) Process(srv extProcPb.ExternalProcessor_ProcessServer) error {
 	defer span.End()
 
 	logger := log.FromContext(ctx)
+	// Correlate logs with traces: enrich the request logger with the active
+	// span's trace_id/span_id and store it back into the context so every
+	// downstream log line (handlers, plugins, model selector) can be queried
+	// by trace_id alongside the OpenTelemetry spans.
+	if enriched, ok := loggerWithSpanContext(logger, span.SpanContext()); ok {
+		logger = enriched
+		ctx = log.IntoContext(ctx, logger)
+	}
 	loggerVerbose := logger.V(logutil.VERBOSE)
 	loggerVerbose.Info("Processing")
 
