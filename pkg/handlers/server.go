@@ -172,7 +172,9 @@ func (s *Server) Process(srv extProcPb.ExternalProcessor_ProcessServer) error {
 			responses = s.HandleResponseHeaders(ctx, reqCtx, v.ResponseHeaders)
 			loggerVerbose.Info("processing response headers complete")
 		case *extProcPb.ProcessingRequest_ResponseBody:
-			loggerVerbose.Info("Incoming response body chunk", "EoS", v.ResponseBody.EndOfStream)
+			// Logged at TRACE: one line per stream chunk is a firehose under load (≈36 lines/request)
+			// that drowns scorer/extractor DEBUG logs and triggers kubelet log rotation. Use --v=5 to see it.
+			logger.V(logutil.TRACE).Info("Incoming response body chunk", "EoS", v.ResponseBody.EndOfStream)
 			if reqCtx.ResponseFirstChunkTimestamp.IsZero() {
 				reqCtx.ResponseFirstChunkTimestamp = time.Now()
 			}

@@ -15,7 +15,7 @@ limitations under the License.
 */
 
 // Package ttftpercentile tracks per-model TTFT distributions and publishes
-// P10Low, P50, and a capacity estimate for the median-ttft-scorer.
+// P10Low, P50, and inflightAtP50 for the median-ttft-scorer.
 package ttftpercentile
 
 import (
@@ -36,39 +36,33 @@ const (
 	PluginType   = "ttft-percentile-extractor"
 	AttributeKey = "ttft-percentile"
 
-	balancedZoneLow  = 1.5
-	balancedZoneHigh = 3.0
-
-	defaultWindowSize           = 1000
-	defaultWindowAge            = 5 * time.Minute
-	defaultMinObservations      = 3
-	defaultIntervalDuration     = 5 * time.Second
-	defaultInflightEMAAlpha     = 0.2
-	defaultLowInflightThreshold = 2
-	defaultLowLoadWindowAge     = 10 * time.Minute
+	defaultWindowSize        = 5000
+	defaultWindowAge         = 1 * time.Minute
+	defaultMinObservations   = 3
+	defaultIntervalDuration  = 5 * time.Second
+	defaultInflightEMAAlpha  = 0.2
+	defaultLowLoadWindowAge  = 1 * time.Hour
 )
 
 var _ dlsrc.Extractor = &TTFTPercentileExtractor{}
 
 type TTFTPercentileExtractorConfig struct {
-	IntervalDuration     string  `json:"intervalDuration,omitempty"`
-	WindowSize           int     `json:"windowSize,omitempty"`
-	WindowAge            string  `json:"windowAge,omitempty"`
-	MinObservations      int     `json:"minObservations,omitempty"`
-	InflightEMAAlpha     float64 `json:"inflightEmaAlpha,omitempty"`
-	LowInflightThreshold int     `json:"lowInflightThreshold,omitempty"`
-	LowLoadWindowAge     string  `json:"lowLoadWindowAge,omitempty"`
+	IntervalDuration string  `json:"intervalDuration,omitempty"`
+	WindowSize       int     `json:"windowSize,omitempty"`
+	WindowAge        string  `json:"windowAge,omitempty"`
+	MinObservations  int     `json:"minObservations,omitempty"`
+	InflightEMAAlpha float64 `json:"inflightEmaAlpha,omitempty"`
+	LowLoadWindowAge string  `json:"lowLoadWindowAge,omitempty"`
 }
 
 // TTFTPercentileMetrics is written to each model's attribute store every intervalDuration.
 type TTFTPercentileMetrics struct {
 	Requests       int64
 	AvgInflight    float64
-	InflightAtP50  float64 // inflight_at_dispatch of the P50 observation
-	P10LowTTFT     float64 // P10 from inflight≤lowInflightThreshold obs; queue-free floor
-	P10TTFT        float64 // P10 from all obs
-	P50TTFT        float64 // P50 from all obs
-	Capacity       float64 // InflightAtP50 × P10Low / (P50 − P10Low); frozen outside balanced zone
+	InflightAtP50  float64 // avg inflight_at_dispatch of observations in the P40-P60 band
+	P10LowTTFT     float64 // two-level P10: P10 of the bottom decile; hardware-floor estimate
+	P10TTFT        float64 // P10 from all obs (short window)
+	P50TTFT        float64 // P50 from all obs (short window)
 	LastObservedAt int64
 }
 
@@ -83,7 +77,6 @@ type modelPercentileState struct {
 	TTFTPercentileMetrics
 	intervalStart   time.Time
 	tracker         percentileTracker
-	lowLoadTracker  percentileTracker
 	pending         map[string]pendingEntry
 	avgInflightInit bool
 }
@@ -97,41 +90,29 @@ func (s *modelPercentileState) flush(now time.Time, windowAge, lowLoadWindowAge 
 	if ok10 {
 		s.P10TTFT = p10
 	}
-	if p10low, ok := s.lowLoadTracker.quantile(0.10, now, lowLoadWindowAge, 1); ok {
+	if p10low, ok := s.tracker.p10Low(now, lowLoadWindowAge, minObs); ok {
 		s.P10LowTTFT = p10low
-	}
-	p10forCap := s.P10LowTTFT
-	if p10forCap == 0 {
-		p10forCap = s.P10TTFT
-	}
-	if ok50 && p10forCap > 0 {
-		if ratio := p50 / p10forCap; ratio >= balancedZoneLow && ratio <= balancedZoneHigh {
-			if denom := p50 - p10forCap; denom > 0 {
-				s.Capacity = inflightAtP50 * p10forCap / denom
-			}
-		}
 	}
 	s.intervalStart = now
 }
 
 type TTFTPercentileExtractor struct {
-	typedName            plugin.TypedName
-	ds                   datalayer.Datastore
-	state                map[string]*modelPercentileState
-	windowSize           int
-	windowAge            time.Duration
-	minObservations      int
-	intervalDuration     time.Duration
-	inflightEMAAlpha     float64
-	lowInflightThreshold int
-	lowLoadWindowAge     time.Duration
+	typedName        plugin.TypedName
+	ds               datalayer.Datastore
+	state            map[string]*modelPercentileState
+	windowSize       int
+	windowAge        time.Duration
+	minObservations  int
+	intervalDuration time.Duration
+	inflightEMAAlpha float64
+	lowLoadWindowAge time.Duration
 }
 
 func ExtractorFactory(name string, parameters json.RawMessage, h plugin.Handle) (plugin.Plugin, error) {
 	cfg := TTFTPercentileExtractorConfig{
 		IntervalDuration: defaultIntervalDuration.String(), WindowSize: defaultWindowSize,
 		WindowAge: defaultWindowAge.String(), MinObservations: defaultMinObservations,
-		InflightEMAAlpha: defaultInflightEMAAlpha, LowInflightThreshold: defaultLowInflightThreshold,
+		InflightEMAAlpha: defaultInflightEMAAlpha,
 		LowLoadWindowAge: defaultLowLoadWindowAge.String(),
 	}
 	if len(parameters) > 0 {
@@ -147,9 +128,6 @@ func ExtractorFactory(name string, parameters json.RawMessage, h plugin.Handle) 
 	}
 	if cfg.InflightEMAAlpha <= 0 || cfg.InflightEMAAlpha > 1 {
 		return nil, fmt.Errorf("inflightEmaAlpha must be in (0,1] for plugin %q", name)
-	}
-	if cfg.LowInflightThreshold < 0 {
-		return nil, fmt.Errorf("lowInflightThreshold must be >= 0 for plugin %q", name)
 	}
 	interval, err := time.ParseDuration(cfg.IntervalDuration)
 	if err != nil {
@@ -167,7 +145,7 @@ func ExtractorFactory(name string, parameters json.RawMessage, h plugin.Handle) 
 		WithName(name).WithIntervalDuration(interval).
 		WithWindow(cfg.WindowSize, windowAge, cfg.MinObservations).
 		WithInflightEMAAlpha(cfg.InflightEMAAlpha).
-		WithLowLoad(cfg.LowInflightThreshold, lowLoadAge), nil
+		WithLowLoadWindowAge(lowLoadAge), nil
 }
 
 func NewTTFTPercentileExtractor(ds datalayer.Datastore) *TTFTPercentileExtractor {
@@ -176,8 +154,7 @@ func NewTTFTPercentileExtractor(ds datalayer.Datastore) *TTFTPercentileExtractor
 		ds: ds, state: make(map[string]*modelPercentileState),
 		windowSize: defaultWindowSize, windowAge: defaultWindowAge,
 		minObservations: defaultMinObservations, intervalDuration: defaultIntervalDuration,
-		inflightEMAAlpha: defaultInflightEMAAlpha, lowInflightThreshold: defaultLowInflightThreshold,
-		lowLoadWindowAge: defaultLowLoadWindowAge,
+		inflightEMAAlpha: defaultInflightEMAAlpha, lowLoadWindowAge: defaultLowLoadWindowAge,
 	}
 }
 
@@ -194,8 +171,8 @@ func (e *TTFTPercentileExtractor) WithWindow(size int, age time.Duration, minObs
 func (e *TTFTPercentileExtractor) WithInflightEMAAlpha(a float64) *TTFTPercentileExtractor {
 	e.inflightEMAAlpha = a; return e
 }
-func (e *TTFTPercentileExtractor) WithLowLoad(threshold int, age time.Duration) *TTFTPercentileExtractor {
-	e.lowInflightThreshold, e.lowLoadWindowAge = threshold, age; return e
+func (e *TTFTPercentileExtractor) WithLowLoadWindowAge(age time.Duration) *TTFTPercentileExtractor {
+	e.lowLoadWindowAge = age; return e
 }
 
 func (e *TTFTPercentileExtractor) Extract(ctx context.Context, events []dlsrc.Event) error {
@@ -218,7 +195,10 @@ func (e *TTFTPercentileExtractor) Extract(ctx context.Context, events []dlsrc.Ev
 			inflight := s.Requests
 			s.Requests++
 			if reqID := p.Request.Headers["x-request-id"]; reqID != "" {
-				s.pending[reqID] = pendingEntry{inflightAtDispatch: inflight, dispatchedAt: now}
+				s.pending[reqID] = pendingEntry{
+					inflightAtDispatch: inflight,
+					dispatchedAt:       now,
+				}
 			}
 			updated[model] = true
 
@@ -241,11 +221,11 @@ func (e *TTFTPercentileExtractor) Extract(ctx context.Context, events []dlsrc.Ev
 				var inflightAtDispatch int64
 				if entry, found := s.pending[reqID]; found && reqID != "" {
 					inflightAtDispatch = entry.inflightAtDispatch
-					if inflightAtDispatch <= int64(e.lowInflightThreshold) {
-						s.lowLoadTracker.add(ttft, inflightAtDispatch, now)
-					}
 				}
 				s.tracker.add(ttft, inflightAtDispatch, now)
+				debugLogger.Info("ttft-observation",
+					"model", model, "ttft_s", ttft, "inflightAtDispatch", inflightAtDispatch,
+				)
 			}
 			if reqID != "" {
 				delete(s.pending, reqID)
@@ -273,10 +253,21 @@ func (e *TTFTPercentileExtractor) Extract(ctx context.Context, events []dlsrc.Ev
 		}
 		m := s.TTFTPercentileMetrics
 		e.ds.GetOrCreateModel(model).GetAttributes().Put(AttributeKey, m)
+		p10eff := m.P10LowTTFT
+		if p10eff == 0 {
+			p10eff = m.P10TTFT
+		}
+		eff := p10eff
+		if p10eff > 0 && m.InflightAtP50 > 0 && m.P50TTFT > p10eff {
+			eff = p10eff + float64(m.Requests)*(m.P50TTFT-p10eff)/m.InflightAtP50
+			if eff < p10eff {
+				eff = p10eff
+			}
+		}
 		debugLogger.Info("ttft-percentile wrote attribute",
 			"model", model, "Requests", m.Requests, "AvgInflight", m.AvgInflight,
 			"InflightAtP50", m.InflightAtP50, "P10Low_s", m.P10LowTTFT,
-			"P10_s", m.P10TTFT, "P50_s", m.P50TTFT, "Capacity", m.Capacity,
+			"P10_s", m.P10TTFT, "P50_s", m.P50TTFT, "EffectiveTTFT_s", eff,
 		)
 	}
 	return nil
@@ -287,9 +278,8 @@ func (e *TTFTPercentileExtractor) getOrCreate(model string) *modelPercentileStat
 		return s
 	}
 	s := &modelPercentileState{
-		tracker:        newSlidingWindowTracker(e.windowSize),
-		lowLoadTracker: newSlidingWindowTracker(e.windowSize),
-		pending:        make(map[string]pendingEntry),
+		tracker: newSlidingWindowTracker(e.windowSize),
+		pending: make(map[string]pendingEntry),
 	}
 	e.state[model] = s
 	return s

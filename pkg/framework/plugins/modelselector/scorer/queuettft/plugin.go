@@ -15,14 +15,13 @@ limitations under the License.
 */
 
 // Package medianttft scores models by predicted TTFT under current load.
-// Model P10Low × (1 + inflight/capacity) is used to predict queue wait,
-// where capacity is estimated from paired (P50, inflightAtP50) observations.
+// effectiveTTFT = P10Low + inflight × (P50 − P10Low) / inflightAtP50:
+// a line through (0, P10Low) and (inflightAtP50, P50), extrapolated linearly.
 package medianttft
 
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"math"
 
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -35,55 +34,27 @@ import (
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/plugins/datalayer/ttftpercentile"
 )
 
-const (
-	PluginType                    = "median-ttft-scorer"
-	defaultInflightPenaltyWeight  = 1.0
-)
+const PluginType = "median-ttft-scorer"
 
 var _ modelselector.Scorer = &MedianTTFTScorer{}
 
-type MedianTTFTScorerConfig struct {
-	// InflightPenaltyWeight scales the overload penalty:
-	//   effectiveTTFT = P10Low × (1 + weight × (inflight/capacity − 1))
-	// 0 disables the penalty; 1.0 (default) equals the queue model prediction.
-	InflightPenaltyWeight *float64 `json:"inflightPenaltyWeight,omitempty"`
-}
-
 type MedianTTFTScorer struct {
-	typedName             plugin.TypedName
-	inflightPenaltyWeight float64
+	typedName plugin.TypedName
 }
 
-func ScorerFactory(name string, parameters json.RawMessage, _ plugin.Handle) (plugin.Plugin, error) {
-	cfg := MedianTTFTScorerConfig{}
-	if len(parameters) > 0 {
-		if err := json.Unmarshal(parameters, &cfg); err != nil {
-			return nil, fmt.Errorf("failed to parse parameters for plugin %q: %w", name, err)
-		}
-	}
-	w := defaultInflightPenaltyWeight
-	if cfg.InflightPenaltyWeight != nil {
-		if *cfg.InflightPenaltyWeight < 0 {
-			return nil, fmt.Errorf("inflightPenaltyWeight must be >= 0 for plugin %q", name)
-		}
-		w = *cfg.InflightPenaltyWeight
-	}
-	return NewMedianTTFTScorer().WithName(name).WithInflightPenaltyWeight(w), nil
+func ScorerFactory(name string, _ json.RawMessage, _ plugin.Handle) (plugin.Plugin, error) {
+	return NewMedianTTFTScorer().WithName(name), nil
 }
 
 func NewMedianTTFTScorer() *MedianTTFTScorer {
 	return &MedianTTFTScorer{
-		typedName:             plugin.TypedName{Type: PluginType, Name: PluginType},
-		inflightPenaltyWeight: defaultInflightPenaltyWeight,
+		typedName: plugin.TypedName{Type: PluginType, Name: PluginType},
 	}
 }
 
 func (s *MedianTTFTScorer) TypedName() plugin.TypedName { return s.typedName }
 func (s *MedianTTFTScorer) WithName(name string) *MedianTTFTScorer {
 	s.typedName.Name = name; return s
-}
-func (s *MedianTTFTScorer) WithInflightPenaltyWeight(w float64) *MedianTTFTScorer {
-	s.inflightPenaltyWeight = w; return s
 }
 
 // Score returns (maxTTFT − effectiveTTFT) / (maxTTFT − minTTFT) per model.
@@ -147,20 +118,18 @@ func (s *MedianTTFTScorer) effectiveTTFT(ctx context.Context, model datalayer.Mo
 		return 0
 	}
 
+	// effectiveTTFT = P10Low + inflight × (P50 − P10Low) / inflightAtP50
+	// Falls back to P10Low when P50 is not yet available or equals the floor.
 	eff := p10
-	var loadRatio float64
-	if m.Capacity >= 1 {
-		loadRatio = float64(m.Requests) / m.Capacity
-		if loadRatio > 1 {
-			eff = p10 * (1 + s.inflightPenaltyWeight*(loadRatio-1))
-		}
+	if m.InflightAtP50 > 0 && m.P50TTFT > p10 {
+		eff = p10 + float64(m.Requests)*(m.P50TTFT-p10)/m.InflightAtP50
 	}
 
 	if dl := log.FromContext(ctx).V(logutil.DEBUG); dl.Enabled() {
 		dl.Info("median-ttft effective",
-			"model", model.GetName(), "inflight", m.Requests, "capacity", m.Capacity,
-			"loadRatio", loadRatio, "P10Low_s", m.P10LowTTFT, "P10_s", m.P10TTFT,
-			"P50_s", m.P50TTFT, "effectiveTTFT", eff,
+			"model", model.GetName(), "inflight", m.Requests,
+			"inflightAtP50", m.InflightAtP50, "P10Low_s", m.P10LowTTFT,
+			"P10_s", m.P10TTFT, "P50_s", m.P50TTFT, "effectiveTTFT", eff,
 		)
 	}
 	return eff

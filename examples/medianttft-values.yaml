@@ -11,23 +11,17 @@ payloadProcessor:
     - type: base-model-to-header
     - type: model-selector
     - type: median-ttft-scorer
-      parameters:
-        # effectiveTTFT = P10Low × (1 + inflightPenaltyWeight × (inflight/capacity − 1))
-        # capacity  = inflightAtP50 × P10Low / (P50 − P10Low)
-        #             updated only when P50/P10Low ∈ [1.5, 3.0] (balanced zone)
-        # inflightAtP50 = inflight_at_dispatch of the observation whose TTFT is P50
-        #                 (exact pairing — same request, no independent medians)
-        inflightPenaltyWeight: 1.0
+      # effectiveTTFT = P10Low + inflight x (P50 - P10Low) / inflightAtP50
+      # line through (0, P10Low) and (inflightAtP50, P50), extrapolated linearly
     - type: max-score-picker
     - type: ttft-percentile-extractor
       parameters:
         intervalDuration: 1s
-        windowSize: 1000             # buffer ≥ expected req/s × windowAge to keep window meaningful
-        windowAge: 5m                # longer window → inflightAtP50 spans load transitions
-        minObservations: 2
+        windowSize: 5000             # ~200 KB per model; holds ~1h at 1 req/s or ~8 min at 10 req/s
+        windowAge: 1m                # window for P50 and P10 (short = fresh, responsive)
+        minObservations: 3
         inflightEmaAlpha: 0.2        # EMA of inflight count (observability only)
-        lowInflightThreshold: 2      # observations at inflight≤N feed the stable P10Low tracker
-        lowLoadWindowAge: 10m        # longer window: low-load obs become rare under heavy load
+        lowLoadWindowAge: 1h         # window for two-level P10Low (long = stable hardware floor)
     - type: model-config-datasource
       parameters:
         modelsPath: /config/models.json

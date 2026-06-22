@@ -6,63 +6,64 @@ Routes each request to the model with the lowest predicted TTFT under current lo
 
 Every TTFT decomposes as `TTFT = prefill_time + queue_wait`.
 
-**P10Low** — queue-free service floor (10th percentile, inflight_at_dispatch ≤ 2):
-```
-P10Low ≈ prefill_time
-```
-High-inflight observations are excluded, so P10Low is immune to burst flooding.
-A 10-min window keeps the estimate alive during sustained overload.
+**P10Low** — hardware-bound service floor:
 
-**Capacity** — updated only when `P50/P10Low ∈ [1.5, 3.0]` (balanced zone):
-```
-capacity = inflightAtP50 × P10Low / (P50 − P10Low)
-```
-Derived from `P50 - P10Low = P10Low * inflight/capacity`. where `P50 - P10Low` is estimating the waiting time.
-`inflightAtP50` is the `inflight_at_dispatch` of the observation whose TTFT landed at
-P50. Below 1.5 the denominator is too noisy; above 3.0, P50 is contaminated by flooding; capacity is frozen in both cases.
+Computed from a long window (default 1h) using all observations regardless of inflight level:
+1. Find the P10 TTFT threshold across all observations in the window
+2. Take the P10 of only the observations at or below that threshold (~P1 of all)
 
-**Scorer:**
+This isolates the fastest requests in the window — those with the least queue wait — without
+requiring the model to have idle periods. P10Low is hardware-bound and stable: prefill time
+does not change with queue depth, concurrency level, or scale events.
+
+**P50 and inflightAtP50** — current operating point (short window, default 1m):
 ```
-loadRatio     = inflight / capacity
-effectiveTTFT = P10Low × (1 + (loadRatio − 1))   when loadRatio > 1
-              = P10Low                           otherwise
-score         = (maxTTFT − effectiveTTFT) / (maxTTFT − minTTFT)
+P50           = 50th percentile TTFT
+inflightAtP50 = average inflight_at_dispatch of observations in the P40-P60 band
 ```
-Within capacity: `effectiveTTFT = P10Low`, the queue-free baseline.
-At 2× capacity: `effectiveTTFT = 2 × P10Low` — exactly what the queue model predicts.
+The short window keeps P50 responsive to current load. Averaging over a band rather than
+a single observation makes inflightAtP50 more stable.
+
+**effectiveTTFT** — predicted TTFT for a request arriving now:
+```
+effectiveTTFT = P10Low + inflight x (P50 - P10Low) / inflightAtP50
+```
+Falls back to P10Low when P50 is not yet available or equals the floor.
+
+**Score:**
+```
+score = (maxTTFT - effectiveTTFT) / (maxTTFT - minTTFT)
+```
 Unobserved models score 1.0 (cold start) or 0.5 (idle alongside observed peers).
 
-## Why it should work physically
+## Why it works physically
 
-Think of the model as C parallel slots, each finishing a request in P10Low seconds.
-With N requests in the system, the server clears them at a rate of C every P10Low, so
-draining the current backlog takes `(N / C) × P10Low`. That drain time is the queue
-wait a new request sees:
+Think of the model as having C parallel slots, each taking P10Low seconds per request.
+With N requests in flight, a new arrival waits for the backlog to drain:
 
 ```
-TTFT = P10Low + (N / C) × P10Low = P10Low × (1 + N / C)
+TTFT = P10Low + (N / C) x P10Low = P10Low x (1 + N / C)
 ```
 
-Rearranging for C at the observed operating point `(inflightAtP50, P50)`:
+This is a straight line through `(0, P10Low)` with slope `P10Low / C`. The scorer anchors
+this line at two observed points instead of estimating C explicitly:
 
-```
-capacity C = inflightAtP50 × P10Low / (P50 − P10Low)
-```
+- at `inflight = 0`: TTFT = P10Low (hardware floor, no queue)
+- at `inflight = inflightAtP50`: TTFT = P50 (observed median operating point)
 
-The same model gives the scorer's penalty directly: when `inflight > C`, the predicted
-drain time exceeds P10Low, so `effectiveTTFT = P10Low × (inflight / C)`.
+The formula extrapolates this line to the current inflight, giving the predicted TTFT for
+a new request. No capacity variable, no regression, no tunable parameters.
+
+## Parameters
+
+| Parameter | Default | Description |
+|---|---|---|
+| `windowAge` | 1m | Window for P50 (short -- keeps P50 fresh and responsive) |
+| `lowLoadWindowAge` | 1h | Window for two-level P10Low (long -- stable hardware floor) |
+| `windowSize` | 5000 | Ring buffer capacity (~200 KB per model) |
+| `minObservations` | 3 | Minimum observations required to compute any percentile |
 
 ## Possible Enhancements
-### prompt-length awareness
-
-Prefill time scales roughly linearly with token count, but the scorer currently treats
-all requests identically regardless of prompt size. The fix is to normalise TTFT by
-character count in the tracker (`rate = TTFT / chars`) and scale at score time:
-```
-effectiveTTFT = P10Low_rate × request_chars × max(1, inflight/capacity)
-```
-This makes the scorer aware of the current request's weight without requiring a
-model-specific tokeniser; character count (≈ tokens / 4) is a sufficient proxy.
 
 ### Score-proportional picker
 
@@ -71,6 +72,6 @@ score difference into a full traffic flip. This causes oscillation: the best mod
 overloads, all traffic switches to the other, the first model drains and wins again.
 `score-proportional-picker` eliminates this by routing probabilistically:
 ```
-P(model i) ∝ score_i^(1/T)    # T = temperature, default 1.0
+P(model i) proportional to score_i^(1/T)    # T = temperature, default 1.0
 ```
-At T = 1.0, a model scoring 0.8 vs 0.2 receives ≈ 80% vs 20% of requests.
+At T = 1.0, a model scoring 0.8 vs 0.2 receives ~80% vs 20% of requests.
