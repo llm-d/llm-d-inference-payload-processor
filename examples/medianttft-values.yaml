@@ -10,7 +10,7 @@ payloadProcessor:
         headerName: X-Gateway-Model-Name
     - type: base-model-to-header
     - type: model-selector
-    - type: median-ttft-scorer
+    - type: queue-ttft-scorer
       # effectiveTTFT = P10Low + inflight x (P50 - P10Low) / inflightAtP50
       # line through (0, P10Low) and (inflightAtP50, P50), extrapolated linearly
     - type: max-score-picker

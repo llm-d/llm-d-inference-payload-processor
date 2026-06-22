@@ -1,4 +1,4 @@
-# Median-TTFT Scorer
+# Queue-TTFT Scorer
 
 Routes each request to the model with the lowest predicted TTFT under current load.
 
@@ -10,7 +10,7 @@ Every TTFT decomposes as `TTFT = prefill_time + queue_wait`.
 
 Computed from a long window (default 1h) using all observations regardless of inflight level:
 1. Find the P10 TTFT threshold across all observations in the window
-2. Take the P10 of only the observations at or below that threshold (~P1 of all)
+2. Take the P10 of only the observations at or below that threshold
 
 This isolates the fastest requests in the window — those with the least queue wait — without
 requiring the model to have idle periods. P10Low is hardware-bound and stable: prefill time

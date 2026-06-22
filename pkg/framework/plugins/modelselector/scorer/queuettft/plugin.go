@@ -14,10 +14,10 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Package medianttft scores models by predicted TTFT under current load.
+// Package queuettft scores models by predicted TTFT under current load.
 // effectiveTTFT = P10Low + inflight × (P50 − P10Low) / inflightAtP50:
 // a line through (0, P10Low) and (inflightAtP50, P50), extrapolated linearly.
-package medianttft
+package queuettft
 
 import (
 	"context"
@@ -34,32 +34,32 @@ import (
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/plugins/datalayer/ttftpercentile"
 )
 
-const PluginType = "median-ttft-scorer"
+const PluginType = "queue-ttft-scorer"
 
-var _ modelselector.Scorer = &MedianTTFTScorer{}
+var _ modelselector.Scorer = &QueueTTFTScorer{}
 
-type MedianTTFTScorer struct {
+type QueueTTFTScorer struct {
 	typedName plugin.TypedName
 }
 
 func ScorerFactory(name string, _ json.RawMessage, _ plugin.Handle) (plugin.Plugin, error) {
-	return NewMedianTTFTScorer().WithName(name), nil
+	return NewQueueTTFTScorer().WithName(name), nil
 }
 
-func NewMedianTTFTScorer() *MedianTTFTScorer {
-	return &MedianTTFTScorer{
+func NewQueueTTFTScorer() *QueueTTFTScorer {
+	return &QueueTTFTScorer{
 		typedName: plugin.TypedName{Type: PluginType, Name: PluginType},
 	}
 }
 
-func (s *MedianTTFTScorer) TypedName() plugin.TypedName { return s.typedName }
-func (s *MedianTTFTScorer) WithName(name string) *MedianTTFTScorer {
+func (s *QueueTTFTScorer) TypedName() plugin.TypedName { return s.typedName }
+func (s *QueueTTFTScorer) WithName(name string) *QueueTTFTScorer {
 	s.typedName.Name = name; return s
 }
 
 // Score returns (maxTTFT − effectiveTTFT) / (maxTTFT − minTTFT) per model.
 // Unobserved models score 1.0 (all unobserved) or 0.5 (some peers observed).
-func (s *MedianTTFTScorer) Score(ctx context.Context, _ *plugin.CycleState, _ *requesthandling.InferenceRequest, models []datalayer.Model) map[datalayer.Model]float64 {
+func (s *QueueTTFTScorer) Score(ctx context.Context, _ *plugin.CycleState, _ *requesthandling.InferenceRequest, models []datalayer.Model) map[datalayer.Model]float64 {
 	ttfts := make(map[datalayer.Model]float64, len(models))
 	minTTFT, maxTTFT := math.MaxFloat64, 0.0
 	allUnobserved := true
@@ -95,13 +95,13 @@ func (s *MedianTTFTScorer) Score(ctx context.Context, _ *plugin.CycleState, _ *r
 
 	if dl := log.FromContext(ctx).V(logutil.DEBUG); dl.Enabled() {
 		for _, model := range models {
-			dl.Info("median-ttft score", "model", model.GetName(), "effectiveTTFT", ttfts[model], "score", scores[model])
+			dl.Info("queue-ttft score", "model", model.GetName(), "effectiveTTFT", ttfts[model], "score", scores[model])
 		}
 	}
 	return scores
 }
 
-func (s *MedianTTFTScorer) effectiveTTFT(ctx context.Context, model datalayer.Model) float64 {
+func (s *QueueTTFTScorer) effectiveTTFT(ctx context.Context, model datalayer.Model) float64 {
 	val, ok := model.GetAttributes().Get(ttftpercentile.AttributeKey)
 	if !ok {
 		return 0
@@ -126,7 +126,7 @@ func (s *MedianTTFTScorer) effectiveTTFT(ctx context.Context, model datalayer.Mo
 	}
 
 	if dl := log.FromContext(ctx).V(logutil.DEBUG); dl.Enabled() {
-		dl.Info("median-ttft effective",
+		dl.Info("queue-ttft effective",
 			"model", model.GetName(), "inflight", m.Requests,
 			"inflightAtP50", m.InflightAtP50, "P10Low_s", m.P10LowTTFT,
 			"P10_s", m.P10TTFT, "P50_s", m.P50TTFT, "effectiveTTFT", eff,
