@@ -114,9 +114,14 @@ type Profile struct {
 	// RequestPlugins are the request processing plugin instances executed by the request handler,
 	// in the same order provided in the configuration file.
 	RequestPlugins []RequestProcessor
-	// ResponsePlugins are the response processing plugin instances executed by the response handler,
-	// in the same order provided in the configuration file.
+	// ResponsePlugins process the complete buffered response body.
 	ResponsePlugins []ResponseProcessor
+	// ResponseChunkProcessors process individual response chunks without buffering.
+	ResponseChunkProcessors []ResponseChunkProcessor
+	// NeedsResponseBuffering is true when any ResponsePlugin is present.
+	// The framework uses this to decide whether to buffer the full response body
+	// or stream chunks through ResponseChunkProcessors.
+	NeedsResponseBuffering bool
 	// ModelSelectorPlugins are the Filter, Scorer (including WeightedScorer), and Picker plugin
 	// instances to be wired into any model-selector plugin present in RequestPlugins.
 	ModelSelectorPlugins []plugin.Plugin

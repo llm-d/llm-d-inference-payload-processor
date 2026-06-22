@@ -176,15 +176,39 @@ func (s *Server) Process(srv extProcPb.ExternalProcessor_ProcessServer) error {
 			if reqCtx.ResponseFirstChunkTimestamp.IsZero() {
 				reqCtx.ResponseFirstChunkTimestamp = time.Now()
 			}
-			responseBody = append(responseBody, v.ResponseBody.Body...)
-			if !v.ResponseBody.EndOfStream {
-				continue
+
+			hasChunkProcessors := reqCtx.Profile != nil && len(reqCtx.Profile.ResponseChunkProcessors) > 0
+			needsBuffering := !hasChunkProcessors
+			if reqCtx.Profile != nil && reqCtx.Profile.NeedsResponseBuffering {
+				needsBuffering = true
 			}
-			reqCtx.ResponseCompleteTimestamp = time.Now()
-			model, _ := reqCtx.Request.Body["model"].(string)
-			metrics.RecordRequestTTFT(model, reqCtx.ResponseFirstChunkTimestamp.Sub(reqCtx.RequestReceivedTimestamp))
-			responses, err = s.HandleResponseBody(ctx, reqCtx, responseBody)
-			loggerVerbose.Info("processing response body complete")
+			if needsBuffering {
+				responseBody = append(responseBody, v.ResponseBody.Body...)
+				if !v.ResponseBody.EndOfStream {
+					continue
+				}
+				reqCtx.ResponseCompleteTimestamp = time.Now()
+				model, _ := reqCtx.Request.Body["model"].(string)
+				metrics.RecordRequestTTFT(model, reqCtx.ResponseFirstChunkTimestamp.Sub(reqCtx.RequestReceivedTimestamp))
+				responses, err = s.HandleResponseBody(ctx, reqCtx, responseBody)
+				loggerVerbose.Info("processing response body complete")
+			} else {
+				chunk := v.ResponseBody.Body
+				isFinal := v.ResponseBody.EndOfStream
+				if reqCtx.Profile != nil {
+					for _, cp := range reqCtx.Profile.ResponseChunkProcessors {
+						chunk, err = cp.ProcessResponseChunk(ctx, reqCtx.CycleState, chunk, isFinal)
+						if err != nil {
+							break
+						}
+					}
+				}
+				if isFinal {
+					reqCtx.ResponseCompleteTimestamp = time.Now()
+				}
+				responses = s.buildChunkPassthroughResponse(chunk, isFinal)
+				loggerVerbose.Info("response body streaming pass-through complete")
+			}
 		case *extProcPb.ProcessingRequest_ResponseTrailers:
 			responses, err = s.HandleResponseTrailers(v.ResponseTrailers)
 		default:

@@ -131,6 +131,56 @@ func (s *Server) generateEmptyResponseBodyResponse(responseBodyBytes []byte) []*
 	return responses
 }
 
+// buildChunkPassthroughResponse wraps a single response body chunk in the
+// ext_proc streaming response format. Used when no ResponseProcessor (buffered)
+// plugins are present — chunks flow through ResponseChunkProcessors and are
+// forwarded immediately.
+func (s *Server) buildChunkPassthroughResponse(chunk []byte, isFinal bool) []*eppb.ProcessingResponse {
+	if isFinal {
+		return []*eppb.ProcessingResponse{
+			{
+				Response: &eppb.ProcessingResponse_ResponseHeaders{
+					ResponseHeaders: &eppb.HeadersResponse{},
+				},
+			},
+			{
+				Response: &eppb.ProcessingResponse_ResponseBody{
+					ResponseBody: &eppb.BodyResponse{
+						Response: &eppb.CommonResponse{
+							BodyMutation: &eppb.BodyMutation{
+								Mutation: &eppb.BodyMutation_StreamedResponse{
+									StreamedResponse: &eppb.StreamedBodyResponse{
+										Body:        chunk,
+										EndOfStream: true,
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+	}
+	return []*eppb.ProcessingResponse{
+		{
+			Response: &eppb.ProcessingResponse_ResponseBody{
+				ResponseBody: &eppb.BodyResponse{
+					Response: &eppb.CommonResponse{
+						BodyMutation: &eppb.BodyMutation{
+							Mutation: &eppb.BodyMutation_StreamedResponse{
+								StreamedResponse: &eppb.StreamedBodyResponse{
+									Body:        chunk,
+									EndOfStream: false,
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
 // HandleResponseTrailers handles response trailers.
 func (s *Server) HandleResponseTrailers(trailers *eppb.HttpTrailers) ([]*eppb.ProcessingResponse, error) {
 	return []*eppb.ProcessingResponse{
