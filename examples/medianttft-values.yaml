@@ -1,0 +1,48 @@
+payloadProcessor:
+  listModels:
+    - facebook/opt-125m
+    - facebook/opt-350m
+  customConfig:
+    plugins:
+    - type: body-field-to-header
+      parameters:
+        fieldName: model
+        headerName: X-Gateway-Model-Name
+    - type: base-model-to-header
+    - type: model-selector
+    - type: median-ttft-scorer
+      parameters:
+        # effectiveTTFT = P10Low × (1 + inflightPenaltyWeight × (inflight/capacity − 1))
+        # capacity  = inflightAtP50 × P10Low / (P50 − P10Low)
+        #             updated only when P50/P10Low ∈ [1.5, 3.0] (balanced zone)
+        # inflightAtP50 = inflight_at_dispatch of the observation whose TTFT is P50
+        #                 (exact pairing — same request, no independent medians)
+        inflightPenaltyWeight: 1.0
+    - type: max-score-picker
+    - type: ttft-percentile-extractor
+      parameters:
+        intervalDuration: 1s
+        windowSize: 1000             # buffer ≥ expected req/s × windowAge to keep window meaningful
+        windowAge: 5m                # longer window → inflightAtP50 spans load transitions
+        minObservations: 2
+        inflightEmaAlpha: 0.2        # EMA of inflight count (observability only)
+        lowInflightThreshold: 2      # observations at inflight≤N feed the stable P10Low tracker
+        lowLoadWindowAge: 10m        # longer window: low-load obs become rare under heavy load
+    - type: model-config-datasource
+      parameters:
+        modelsPath: /config/models.json
+    profiles:
+    - name: default
+      plugins:
+        request:
+        - pluginRef: model-selector
+        - pluginRef: median-ttft-scorer
+          weight: 1.0
+        - pluginRef: max-score-picker
+        - pluginRef: body-field-to-header
+        - pluginRef: base-model-to-header
+    datalayer:
+      extractors:
+      - pluginRef: ttft-percentile-extractor
+      datasources:
+      - pluginRef: model-config-datasource
