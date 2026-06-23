@@ -38,21 +38,17 @@ Unobserved models score 1.0 (cold start) or 0.5 (idle alongside observed peers).
 
 ## Why it works physically
 
-Think of the model as having C parallel slots, each taking P10Low seconds per request.
-With N requests in flight, a new arrival waits for the backlog to drain:
+When more requests are in flight, a new request has to wait longer in the queue before
+the model processes it. The longer the queue, the higher the TTFT. This wait grows
+roughly in proportion to the number of in-flight requests.
 
-```
-TTFT = P10Low + (N / C) x P10Low = P10Low x (1 + N / C)
-```
+The scorer draws a straight line through two points it has actually observed:
 
-This is a straight line through `(0, P10Low)` with slope `P10Low / C`. The scorer anchors
-this line at two observed points instead of estimating C explicitly:
+- when there is no queue (`inflight = 0`): TTFT = P10Low (just the raw prefill time)
+- at the recent median load (`inflight = inflightAtP50`): TTFT = P50
 
-- at `inflight = 0`: TTFT = P10Low (hardware floor, no queue)
-- at `inflight = inflightAtP50`: TTFT = P50 (observed median operating point)
-
-The formula extrapolates this line to the current inflight, giving the predicted TTFT for
-a new request. No capacity variable, no regression, no tunable parameters.
+It then reads off that line at the current inflight to predict what the next request
+will wait. No fitting, no tunable parameters — just two observed points.
 
 ## Parameters
 
