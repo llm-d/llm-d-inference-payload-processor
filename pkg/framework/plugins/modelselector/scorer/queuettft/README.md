@@ -6,13 +6,16 @@ Routes each request to the model with the lowest predicted TTFT under current lo
 
 Every TTFT decomposes as `TTFT = prefill_time + queue_wait`.
 
-**P10Low** — hardware-bound service floor:
+**P10Low** — load-invariant service floor:
 
 Computed from a long window (default 1h) using all observations regardless of inflight level:
 1. Find the P10 TTFT threshold across all observations in the window
 2. Take the P10 of only the observations at or below that threshold
 
-This isolates the fastest requests in the window — those with the least queue wait — without requiring the model to have idle periods. P10Low is hardware-bound and stable: prefill time does not change with queue depth, concurrency level, or scale events.
+This isolates the fastest requests in the window — those with the least queue wait — without requiring the model to have idle periods. P10Low is invariant to load: it does not change with queue depth, concurrency, or scale events, because prefill time itself doesn't.
+
+Short-prompt bias usually cancels: the scorer only ranks, so a shared bias is harmless.
+
 
 **P50 and inflightAtP50** — current operating point (short window, default 3m):
 ```
@@ -45,15 +48,14 @@ The scorer draws a straight line through two points it has actually observed:
 - when there is no queue (`inflight = 0`): TTFT = P10Low (just the raw prefill time)
 - at the recent median load (`inflight = inflightAtP50`): TTFT = P50
 
-It then reads off that line at the current inflight to predict what the next request
-will wait.
+It then reads off that line at the current inflight to predict the next request's TTFT.
 
 ## Parameters
 
 | Parameter | Default | Description |
 |---|---|---|
 | `windowAge` | 3m | Window for P50 (short -- keeps P50 fresh and responsive) |
-| `lowLoadWindowAge` | 1h | Window for two-level P10Low (long -- stable hardware floor) |
+| `lowLoadWindowAge` | 1h | Window for two-level P10Low |
 | `windowSize` | 5000 | Ring buffer capacity (~200 KB per model) |
 | `minObservations` | 3 | Minimum observations required to compute any percentile |
 
@@ -69,3 +71,16 @@ overloads, all traffic switches to the other, the first model drains and wins ag
 P(model i) proportional to score_i^(1/T)    # T = temperature, default 1.0
 ```
 At T = 1.0, a model scoring 0.8 vs 0.2 receives ~80% vs 20% of requests.
+
+
+### Prompt-length-aware floor
+
+P10Low is estimated from the fastest observed completions, which tend to be short-prompt
+requests. For a long-prompt request, the prefill time is intrinsically higher, so the scorer under-predicts TTFT even at zero queue depth.
+
+A more accurate floor would scale with the incoming prompt token count:
+```
+P10Low(tokens) = base_prefill + tokens × prefill_rate
+```
+where `base_prefill` and `prefill_rate` are fit from observations bucketed by prompt length.
+This matters most when the workload has high prompt-length variance.
