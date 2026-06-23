@@ -12,11 +12,9 @@ Computed from a long window (default 1h) using all observations regardless of in
 1. Find the P10 TTFT threshold across all observations in the window
 2. Take the P10 of only the observations at or below that threshold
 
-This isolates the fastest requests in the window — those with the least queue wait — without
-requiring the model to have idle periods. P10Low is hardware-bound and stable: prefill time
-does not change with queue depth, concurrency level, or scale events.
+This isolates the fastest requests in the window — those with the least queue wait — without requiring the model to have idle periods. P10Low is hardware-bound and stable: prefill time does not change with queue depth, concurrency level, or scale events.
 
-**P50 and inflightAtP50** — current operating point (short window, default 1m):
+**P50 and inflightAtP50** — current operating point (short window, default 3m):
 ```
 P50           = 50th percentile TTFT
 inflightAtP50 = average inflight_at_dispatch of observations in the P40-P60 band
@@ -48,13 +46,13 @@ The scorer draws a straight line through two points it has actually observed:
 - at the recent median load (`inflight = inflightAtP50`): TTFT = P50
 
 It then reads off that line at the current inflight to predict what the next request
-will wait. No fitting, no tunable parameters — just two observed points.
+will wait.
 
 ## Parameters
 
 | Parameter | Default | Description |
 |---|---|---|
-| `windowAge` | 1m | Window for P50 (short -- keeps P50 fresh and responsive) |
+| `windowAge` | 3m | Window for P50 (short -- keeps P50 fresh and responsive) |
 | `lowLoadWindowAge` | 1h | Window for two-level P10Low (long -- stable hardware floor) |
 | `windowSize` | 5000 | Ring buffer capacity (~200 KB per model) |
 | `minObservations` | 3 | Minimum observations required to compute any percentile |

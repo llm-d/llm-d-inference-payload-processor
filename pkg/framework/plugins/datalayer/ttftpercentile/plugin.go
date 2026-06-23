@@ -57,12 +57,13 @@ type TTFTPercentileExtractorConfig struct {
 
 // TTFTPercentileMetrics is written to each model's attribute store every intervalDuration.
 type TTFTPercentileMetrics struct {
-	Requests      int64
-	AvgInflight   float64
-	InflightAtP50 float64 // avg inflight_at_dispatch of observations in the P40-P60 band
-	P10LowTTFT    float64 // two-level P10: P10 of the bottom decile; hardware-floor estimate
-	P10TTFT       float64 // P10 from all obs (short window)
-	P50TTFT       float64 // P50 from all obs (short window)
+	Requests       int64
+	AvgInflight    float64
+	InflightAtP50  float64 // avg inflight_at_dispatch of observations in the P40-P60 band
+	P10LowTTFT     float64 // two-level P10: P10 of the bottom decile; hardware-floor estimate
+	P10TTFT        float64 // P10 from all obs (short window)
+	P50TTFT        float64 // P50 from all obs (short window)
+	LastObservedAt int64
 }
 
 func (m TTFTPercentileMetrics) Clone() datalayer.Cloneable { return m }
@@ -84,7 +85,7 @@ func (s *modelPercentileState) flush(now time.Time, windowAge, lowLoadWindowAge 
 	p50, inflightAtP50, ok50 := s.tracker.quantileWithInflight(0.50, now, windowAge, minObs)
 	p10, ok10 := s.tracker.quantile(0.10, now, windowAge, minObs)
 	if ok50 {
-		s.P50TTFT, s.InflightAtP50 = p50, inflightAtP50
+		s.P50TTFT, s.InflightAtP50, s.LastObservedAt = p50, inflightAtP50, now.UnixNano()
 	}
 	if ok10 {
 		s.P10TTFT = p10
@@ -252,10 +253,21 @@ func (e *TTFTPercentileExtractor) Extract(ctx context.Context, events []dlsrc.Ev
 		}
 		m := s.TTFTPercentileMetrics
 		e.ds.GetOrCreateModel(model).GetAttributes().Put(AttributeKey, m)
+		p10eff := m.P10LowTTFT
+		if p10eff == 0 {
+			p10eff = m.P10TTFT
+		}
+		eff := p10eff
+		if p10eff > 0 && m.InflightAtP50 > 0 && m.P50TTFT > p10eff {
+			eff = p10eff + float64(m.Requests)*(m.P50TTFT-p10eff)/m.InflightAtP50
+			if eff < p10eff {
+				eff = p10eff
+			}
+		}
 		debugLogger.Info("ttft-percentile wrote attribute",
 			"model", model, "Requests", m.Requests, "AvgInflight", m.AvgInflight,
 			"InflightAtP50", m.InflightAtP50, "P10Low_s", m.P10LowTTFT,
-			"P10_s", m.P10TTFT, "P50_s", m.P50TTFT,
+			"P10_s", m.P10TTFT, "P50_s", m.P50TTFT, "EffectiveTTFT_s", eff,
 		)
 	}
 	return nil
