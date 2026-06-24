@@ -71,7 +71,7 @@ func (s *Server) HandleResponseBody(ctx context.Context, reqCtx *RequestContext,
 	})
 
 	logger := log.FromContext(ctx)
-	// if a bodiless request was sent, profile could be left nil. check to avoid panic with nil exception
+	// if a bodiless request is sent, profile could be left nil. check to avoid panic with nil exception
 	if reqCtx.Profile == nil || len(reqCtx.Profile.ResponsePlugins) == 0 {
 		return s.generateEmptyResponseBodyResponse(responseBodyBytes), nil
 	}
