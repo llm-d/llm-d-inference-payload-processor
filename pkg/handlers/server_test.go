@@ -123,6 +123,7 @@ func TestHandleResponseBody_Streaming(t *testing.T) {
 	wantFullBody := []byte(`{"choices":[{"text":"Hello!"}]}`)
 
 	profiles := newTestProfiles()
+	profiles[testProfileName].NeedsResponseBuffering = true
 	ref := newServerForTest(profiles)
 	want, err := ref.HandleResponseBody(ctx, newTestRequestContext(profiles), wantFullBody)
 	if err != nil {
@@ -164,6 +165,7 @@ func TestHandleResponseBody_Streaming(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			streamCtx, cancel := context.WithCancel(logutil.NewTestLoggerIntoContext(context.Background()))
 			profiles := newTestProfiles()
+			profiles[testProfileName].NeedsResponseBuffering = true
 			srv := newServerForTest(profiles)
 			testListener, errChan := utils.SetupTestStreamingServer(t, streamCtx, srv)
 			process, conn := utils.GetStreamingServerClient(streamCtx, t)

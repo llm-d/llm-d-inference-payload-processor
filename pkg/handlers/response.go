@@ -131,37 +131,27 @@ func (s *Server) generateEmptyResponseBodyResponse(responseBodyBytes []byte) []*
 	return responses
 }
 
-// buildChunkPassthroughResponse wraps a single response body chunk in the
-// ext_proc streaming response format. Used when no ResponseProcessor (buffered)
-// plugins are present — chunks flow through ResponseChunkProcessors and are
-// forwarded immediately.
-func (s *Server) buildChunkPassthroughResponse(chunk []byte, isFinal bool) []*eppb.ProcessingResponse {
-	if isFinal {
-		return []*eppb.ProcessingResponse{
-			{
-				Response: &eppb.ProcessingResponse_ResponseHeaders{
-					ResponseHeaders: &eppb.HeadersResponse{},
-				},
-			},
-			{
-				Response: &eppb.ProcessingResponse_ResponseBody{
-					ResponseBody: &eppb.BodyResponse{
-						Response: &eppb.CommonResponse{
-							BodyMutation: &eppb.BodyMutation{
-								Mutation: &eppb.BodyMutation_StreamedResponse{
-									StreamedResponse: &eppb.StreamedBodyResponse{
-										Body:        chunk,
-										EndOfStream: true,
-									},
-								},
-							},
-						},
-					},
-				},
-			},
+// HandleResponseChunk runs ResponseChunkProcessors on a single response body chunk
+// and wraps the result in the ext_proc streaming response format.
+func (s *Server) HandleResponseChunk(ctx context.Context, reqCtx *RequestContext, chunk []byte, endOfStream bool) ([]*eppb.ProcessingResponse, error) {
+	logger := log.FromContext(ctx).V(logutil.DEFAULT)
+	verboseLogger := logger.V(logutil.VERBOSE)
+
+	for _, cp := range reqCtx.Profile.ResponseChunkProcessors {
+		if verboseLogger.Enabled() {
+			verboseLogger.Info("Executing response chunk plugin", "plugin", cp.TypedName())
+		}
+		var err error
+		before := time.Now()
+		chunk, err = cp.ProcessResponseChunk(ctx, reqCtx.CycleState, chunk, endOfStream)
+		metrics.RecordPluginProcessingLatency(responsePluginExtensionPoint, cp.TypedName().Type, cp.TypedName().Name, time.Since(before))
+		if err != nil {
+			logger.Error(err, "Failed to execute response chunk plugin", "plugin", cp.TypedName())
+			return nil, err
 		}
 	}
-	return []*eppb.ProcessingResponse{
+
+	responses := []*eppb.ProcessingResponse{
 		{
 			Response: &eppb.ProcessingResponse_ResponseBody{
 				ResponseBody: &eppb.BodyResponse{
@@ -170,7 +160,7 @@ func (s *Server) buildChunkPassthroughResponse(chunk []byte, isFinal bool) []*ep
 							Mutation: &eppb.BodyMutation_StreamedResponse{
 								StreamedResponse: &eppb.StreamedBodyResponse{
 									Body:        chunk,
-									EndOfStream: false,
+									EndOfStream: endOfStream,
 								},
 							},
 						},
@@ -179,6 +169,17 @@ func (s *Server) buildChunkPassthroughResponse(chunk []byte, isFinal bool) []*ep
 			},
 		},
 	}
+
+	if endOfStream {
+		headerResp := &eppb.ProcessingResponse{
+			Response: &eppb.ProcessingResponse_ResponseHeaders{
+				ResponseHeaders: &eppb.HeadersResponse{},
+			},
+		}
+		responses = append([]*eppb.ProcessingResponse{headerResp}, responses...)
+	}
+
+	return responses, nil
 }
 
 // HandleResponseTrailers handles response trailers.

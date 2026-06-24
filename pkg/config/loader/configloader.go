@@ -248,18 +248,18 @@ func buildProfiles(rawProfiles []configapi.Profile, handle plugin.Handle) (map[s
 			if rawPlugin == nil {
 				return nil, fmt.Errorf("there is no plugin named %s", pluginRef.PluginRef)
 			}
-			matched := false
 			if bodyPlugin, ok := rawPlugin.(requesthandling.ResponseProcessor); ok {
 				theProfile.ResponsePlugins = append(theProfile.ResponsePlugins, bodyPlugin)
-				matched = true
+				continue
 			}
 			if chunkPlugin, ok := rawPlugin.(requesthandling.ResponseChunkProcessor); ok {
 				theProfile.ResponseChunkProcessors = append(theProfile.ResponseChunkProcessors, chunkPlugin)
-				matched = true
+				continue
 			}
-			if !matched {
-				return nil, fmt.Errorf("the plugin named %s is not a ResponseProcessor or ResponseChunkProcessor", pluginRef.PluginRef)
-			}
+			return nil, fmt.Errorf("the plugin named %s is not a ResponseProcessor nor ResponseChunkProcessor", pluginRef.PluginRef)
+		}
+		if len(theProfile.ResponsePlugins) > 0 && len(theProfile.ResponseChunkProcessors) > 0 {
+			return nil, fmt.Errorf("profile %s mixes ResponseProcessor and ResponseChunkProcessor plugins — a profile must use one type exclusively", rawProfile.Name)
 		}
 		theProfile.NeedsResponseBuffering = len(theProfile.ResponsePlugins) > 0
 

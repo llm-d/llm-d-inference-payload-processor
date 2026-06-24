@@ -177,12 +177,7 @@ func (s *Server) Process(srv extProcPb.ExternalProcessor_ProcessServer) error {
 				reqCtx.ResponseFirstChunkTimestamp = time.Now()
 			}
 
-			hasChunkProcessors := reqCtx.Profile != nil && len(reqCtx.Profile.ResponseChunkProcessors) > 0
-			needsBuffering := !hasChunkProcessors
-			if reqCtx.Profile != nil && reqCtx.Profile.NeedsResponseBuffering {
-				needsBuffering = true
-			}
-			if needsBuffering {
+			if reqCtx.Profile.NeedsResponseBuffering {
 				responseBody = append(responseBody, v.ResponseBody.Body...)
 				if !v.ResponseBody.EndOfStream {
 					continue
@@ -193,21 +188,11 @@ func (s *Server) Process(srv extProcPb.ExternalProcessor_ProcessServer) error {
 				responses, err = s.HandleResponseBody(ctx, reqCtx, responseBody)
 				loggerVerbose.Info("processing response body complete")
 			} else {
-				chunk := v.ResponseBody.Body
-				isFinal := v.ResponseBody.EndOfStream
-				if reqCtx.Profile != nil {
-					for _, cp := range reqCtx.Profile.ResponseChunkProcessors {
-						chunk, err = cp.ProcessResponseChunk(ctx, reqCtx.CycleState, chunk, isFinal)
-						if err != nil {
-							break
-						}
-					}
-				}
-				if isFinal {
+				if v.ResponseBody.EndOfStream {
 					reqCtx.ResponseCompleteTimestamp = time.Now()
 				}
-				responses = s.buildChunkPassthroughResponse(chunk, isFinal)
-				loggerVerbose.Info("response body streaming pass-through complete")
+				responses, err = s.HandleResponseChunk(ctx, reqCtx, v.ResponseBody.Body, v.ResponseBody.EndOfStream)
+				loggerVerbose.Info("response chunk processing complete")
 			}
 		case *extProcPb.ProcessingRequest_ResponseTrailers:
 			responses, err = s.HandleResponseTrailers(v.ResponseTrailers)
