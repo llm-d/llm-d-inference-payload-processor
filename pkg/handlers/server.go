@@ -181,7 +181,8 @@ func (s *Server) Process(srv extProcPb.ExternalProcessor_ProcessServer) error {
 			if reqCtx.Profile.NeedsResponseBuffering {
 				responseBody = append(responseBody, v.ResponseBody.Body...)
 				if !v.ResponseBody.EndOfStream {
-					continue
+					// Keep accumulating — don't send responses or record metrics yet.
+					break
 				}
 				responses, err = s.HandleResponseBody(ctx, reqCtx, responseBody)
 				loggerVerbose.Info("processing response body complete")

@@ -142,13 +142,19 @@ func (s *Server) HandleResponseChunk(ctx context.Context, reqCtx *RequestContext
 	logger := log.FromContext(ctx).V(logutil.DEFAULT)
 
 	chunk := string(chunkBytes)
+	reqCtx.Response.ResetChunkState(chunk)
 
 	if err := s.runResponseChunkProcessors(ctx, reqCtx.CycleState, reqCtx.Response, chunk, endOfStream, reqCtx.Profile.ResponseChunkProcessors); err != nil {
 		logger.Error(err, "Failed to run response chunk processors")
 		return nil, err
 	}
 
-	return s.buildStreamedChunkResponse(reqCtx, chunkBytes, endOfStream), nil
+	outBytes := chunkBytes
+	if reqCtx.Response.ChunkMutated() {
+		outBytes = []byte(reqCtx.Response.CurrentChunk)
+	}
+
+	return s.buildStreamedChunkResponse(reqCtx, outBytes, endOfStream), nil
 }
 
 // runResponseChunkProcessors executes chunk processors in the order they were registered.
