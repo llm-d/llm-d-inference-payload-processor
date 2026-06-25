@@ -182,17 +182,17 @@ func (s *Server) Process(srv extProcPb.ExternalProcessor_ProcessServer) error {
 				if !v.ResponseBody.EndOfStream {
 					continue
 				}
-				reqCtx.ResponseCompleteTimestamp = time.Now()
-				model, _ := reqCtx.Request.Body["model"].(string)
-				metrics.RecordRequestTTFT(model, reqCtx.ResponseFirstChunkTimestamp.Sub(reqCtx.RequestReceivedTimestamp))
 				responses, err = s.HandleResponseBody(ctx, reqCtx, responseBody)
 				loggerVerbose.Info("processing response body complete")
 			} else {
-				if v.ResponseBody.EndOfStream {
-					reqCtx.ResponseCompleteTimestamp = time.Now()
-				}
 				responses, err = s.HandleResponseChunk(ctx, reqCtx, v.ResponseBody.Body, v.ResponseBody.EndOfStream)
 				loggerVerbose.Info("response chunk processing complete")
+			}
+
+			if v.ResponseBody.EndOfStream {
+				reqCtx.ResponseCompleteTimestamp = time.Now()
+				model, _ := reqCtx.Request.Body["model"].(string)
+				metrics.RecordRequestTTFT(model, reqCtx.ResponseFirstChunkTimestamp.Sub(reqCtx.RequestReceivedTimestamp))
 			}
 		case *extProcPb.ProcessingRequest_ResponseTrailers:
 			responses, err = s.HandleResponseTrailers(v.ResponseTrailers)

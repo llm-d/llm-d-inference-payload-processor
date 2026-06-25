@@ -133,24 +133,45 @@ func (s *Server) generateEmptyResponseBodyResponse(responseBodyBytes []byte) []*
 
 // HandleResponseChunk runs ResponseChunkProcessors on a single response body chunk
 // and wraps the result in the ext_proc streaming response format.
-func (s *Server) HandleResponseChunk(ctx context.Context, reqCtx *RequestContext, chunk []byte, endOfStream bool) ([]*eppb.ProcessingResponse, error) {
+func (s *Server) HandleResponseChunk(ctx context.Context, reqCtx *RequestContext, chunkBytes []byte, endOfStream bool) ([]*eppb.ProcessingResponse, error) {
+	// Bodiless requests (e.g., GET /v1/models) may not have a profile set.
+	if reqCtx.Profile == nil || len(reqCtx.Profile.ResponseChunkProcessors) == 0 {
+		return s.buildStreamedChunkResponse(chunkBytes, endOfStream), nil
+	}
+
+	logger := log.FromContext(ctx).V(logutil.DEFAULT)
+
+	chunk := string(chunkBytes)
+
+	if err := s.runResponseChunkProcessors(ctx, reqCtx.CycleState, reqCtx.Response, chunk, endOfStream, reqCtx.Profile.ResponseChunkProcessors); err != nil {
+		logger.Error(err, "Failed to run response chunk processors")
+		return nil, err
+	}
+
+	return s.buildStreamedChunkResponse(chunkBytes, endOfStream), nil
+}
+
+// runResponseChunkProcessors executes chunk processors in the order they were registered.
+func (s *Server) runResponseChunkProcessors(ctx context.Context, cycleState *plugin.CycleState, response *requesthandling.InferenceResponse, chunk string, isFinal bool, processors []requesthandling.ResponseChunkProcessor) error {
 	logger := log.FromContext(ctx).V(logutil.DEFAULT)
 	verboseLogger := logger.V(logutil.VERBOSE)
 
-	for _, cp := range reqCtx.Profile.ResponseChunkProcessors {
+	for _, cp := range processors {
 		if verboseLogger.Enabled() {
 			verboseLogger.Info("Executing response chunk plugin", "plugin", cp.TypedName())
 		}
-		var err error
 		before := time.Now()
-		chunk, err = cp.ProcessResponseChunk(ctx, reqCtx.CycleState, chunk, endOfStream)
+		err := cp.ProcessResponseChunk(ctx, cycleState, response, chunk, isFinal)
 		metrics.RecordPluginProcessingLatency(responsePluginExtensionPoint, cp.TypedName().Type, cp.TypedName().Name, time.Since(before))
 		if err != nil {
-			logger.Error(err, "Failed to execute response chunk plugin", "plugin", cp.TypedName())
-			return nil, err
+			return err
 		}
 	}
+	return nil
+}
 
+// buildStreamedChunkResponse wraps a chunk in the ext_proc streaming response format.
+func (s *Server) buildStreamedChunkResponse(chunk []byte, endOfStream bool) []*eppb.ProcessingResponse {
 	responses := []*eppb.ProcessingResponse{
 		{
 			Response: &eppb.ProcessingResponse_ResponseBody{
@@ -179,7 +200,7 @@ func (s *Server) HandleResponseChunk(ctx context.Context, reqCtx *RequestContext
 		responses = append([]*eppb.ProcessingResponse{headerResp}, responses...)
 	}
 
-	return responses, nil
+	return responses
 }
 
 // HandleResponseTrailers handles response trailers.
