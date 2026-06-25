@@ -136,7 +136,7 @@ func (s *Server) generateEmptyResponseBodyResponse(responseBodyBytes []byte) []*
 func (s *Server) HandleResponseChunk(ctx context.Context, reqCtx *RequestContext, chunkBytes []byte, endOfStream bool) ([]*eppb.ProcessingResponse, error) {
 	// Bodiless requests (e.g., GET /v1/models) may not have a profile set.
 	if reqCtx.Profile == nil || len(reqCtx.Profile.ResponseChunkProcessors) == 0 {
-		return s.buildStreamedChunkResponse(chunkBytes, endOfStream), nil
+		return s.buildStreamedChunkResponse(reqCtx, chunkBytes, endOfStream), nil
 	}
 
 	logger := log.FromContext(ctx).V(logutil.DEFAULT)
@@ -148,7 +148,7 @@ func (s *Server) HandleResponseChunk(ctx context.Context, reqCtx *RequestContext
 		return nil, err
 	}
 
-	return s.buildStreamedChunkResponse(chunkBytes, endOfStream), nil
+	return s.buildStreamedChunkResponse(reqCtx, chunkBytes, endOfStream), nil
 }
 
 // runResponseChunkProcessors executes chunk processors in the order they were registered.
@@ -171,7 +171,9 @@ func (s *Server) runResponseChunkProcessors(ctx context.Context, cycleState *plu
 }
 
 // buildStreamedChunkResponse wraps a chunk in the ext_proc streaming response format.
-func (s *Server) buildStreamedChunkResponse(chunk []byte, endOfStream bool) []*eppb.ProcessingResponse {
+// On the first call (responseHeadersSent=false), it prepends a HeadersResponse to answer
+// the deferred response headers — envoy requires this before it accepts body responses.
+func (s *Server) buildStreamedChunkResponse(reqCtx *RequestContext, chunk []byte, endOfStream bool) []*eppb.ProcessingResponse {
 	responses := []*eppb.ProcessingResponse{
 		{
 			Response: &eppb.ProcessingResponse_ResponseBody{
@@ -191,13 +193,14 @@ func (s *Server) buildStreamedChunkResponse(chunk []byte, endOfStream bool) []*e
 		},
 	}
 
-	if endOfStream {
+	if !reqCtx.ResponseHeadersSent {
 		headerResp := &eppb.ProcessingResponse{
 			Response: &eppb.ProcessingResponse_ResponseHeaders{
 				ResponseHeaders: &eppb.HeadersResponse{},
 			},
 		}
 		responses = append([]*eppb.ProcessingResponse{headerResp}, responses...)
+		reqCtx.ResponseHeadersSent = true
 	}
 
 	return responses

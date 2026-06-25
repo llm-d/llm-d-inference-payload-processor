@@ -76,6 +76,7 @@ type RequestContext struct {
 	RequestSentTimestamp        time.Time
 	ResponseFirstChunkTimestamp time.Time
 	ResponseCompleteTimestamp   time.Time
+	ResponseHeadersSent         bool
 	Profile                     *requesthandling.Profile
 	CycleState                  *plugin.CycleState
 	Request                     *requesthandling.InferenceRequest
