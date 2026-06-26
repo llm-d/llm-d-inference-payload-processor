@@ -6,14 +6,17 @@
 # llm-d Inference Payload Processor
 
 The **Inference Payload Processor (IPP)** is a pluggable framework for inspecting and mutating
-inference request and response payloads as they flow through the [llm-d Router]. It runs as an
-[External Processing (ext-proc)] service alongside the Proxy, contributing real-time signals and
-mutations to the data plane *before* a routing decision is made.
+inference request and response payloads in the llm-d data plane. It runs as an
+[External Processing (ext-proc)] service alongside the inference gateway's Proxy, which streams each
+request and response to IPP for real-time, payload-aware processing.
 
-Where the [Endpoint Picker (EPP)] answers **"which pod within a pool?"**, IPP answers **"which pool
-should serve this request?"** — enabling a single Gateway endpoint to front many models and LoRA
-adapters. The two components compose: IPP performs **pool-level** routing, the EPP performs
-**endpoint-level** routing.
+Because IPP sees the full payload, it can shape requests and responses in arbitrary ways — any logic
+that benefits from reading or rewriting the body, headers, or trailers can be expressed as a plugin.
+Its flagship use is **payload-aware routing**: extracting signals from the request (such as the model
+name) and injecting headers so a single Gateway endpoint can front many models and LoRA adapters. This
+composes with the [llm-d Router]'s [Endpoint Picker (EPP)] — IPP can decide **which pool** serves a
+request while the EPP decides **which pod** within that pool — but routing is one application of a
+general framework, not its limit.
 
 <p align="center">
   <img src="docs/images/ipp-request-flow.svg" width="800" alt="IPP Request Flow">
@@ -23,7 +26,7 @@ adapters. The two components compose: IPP performs **pool-level** routing, the E
 
 - **Request processing** — Inspect and mutate request headers, body, or trailers before routing.
 - **Response processing** — Inspect and mutate response headers, body, or trailers on the way back to the client.
-- **Model-aware routing** — Extract the model name from the request body and inject a routing header so the Proxy can select the correct [InferencePool]. This powers **multi-pool routing**: serving multiple base models and LoRA adapters behind one OpenAI-compatible endpoint.
+- **Payload-aware routing** — Extract signals from the request body (e.g. the model name) and inject routing headers so the Proxy can select the correct [InferencePool]. This powers **multi-pool routing**: serving multiple base models and LoRA adapters behind one OpenAI-compatible endpoint.
 - **Model selection** — A pluggable `Filter → Score → Pick` pipeline that chooses *which* model serves a request (e.g. for cost- or load-aware routing), adapting the upstream [Scheduler Architecture] pattern at the model level. See the [ModelSelector proposal].
 - **Extensibility** — All behavior is implemented as plugins configured via a YAML `PayloadProcessorConfig`. Add your own without forking the framework — see [Creating a Plugin].
 
@@ -52,7 +55,7 @@ For end-to-end deployment, see the [llm-d] project documentation and guides.
 
 ## Terminology
 
-- **IPP (Inference Payload Processor)** — This service. Processes request/response payloads via ext-proc and contributes pool-level routing signals.
+- **IPP (Inference Payload Processor)** — This service. Inspects and mutates request/response payloads via ext-proc; among other things, it can contribute pool-level routing signals.
 - **Plugin** — A user-configurable unit of behavior (request processor, response processor, model-selector Filter/Scorer/Picker, profile picker, or data-layer collector/extractor/datasource). Plugins are selected and ordered in the `PayloadProcessorConfig`.
 - **Profile** — A named set of request and response plugins. A request executes exactly one profile, chosen by the profile picker.
 - **ModelSelector** — The `Filter → Score → Pick` framework that selects a *model* (not an endpoint) for a request.

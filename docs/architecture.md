@@ -20,14 +20,15 @@
 ## Overview
 
 The **Inference Payload Processor (IPP)** is a pluggable service that inspects and mutates inference
-request and response payloads as they pass through the [llm-d Router]. It runs alongside the Proxy
+request and response payloads in the llm-d data plane. It runs alongside the inference gateway's Proxy
 (e.g. Envoy) and is invoked over Envoy's [External Processing (ext-proc)] protocol on each HTTP
 lifecycle event.
 
-IPP's primary role in llm-d is **model-aware, pool-level routing**: it reads the model name from the
-request body and injects a routing header, allowing a single Gateway endpoint to serve many base
-models and LoRA adapters. Beyond routing, IPP is a general framework — any request- or
-response-shaping logic can be expressed as a plugin and composed into the pipeline.
+IPP is a general, payload-aware framework: any request- or response-shaping logic can be expressed as
+a plugin and composed into the pipeline. Its flagship use is **payload-aware routing** — reading
+signals such as the model name from the request body and injecting headers so a single Gateway
+endpoint can serve many base models and LoRA adapters — but that is one application of the framework,
+not its boundary.
 
 A request flows through the system as follows:
 
@@ -191,7 +192,7 @@ The model-name-to-base-model mapping is supplied through labeled ConfigMaps; the
 
 ## Relationship to the Router (EPP)
 
-IPP and the EPP are complementary halves of llm-d routing:
+When IPP is used for routing, it and the EPP play complementary roles:
 
 | | IPP | EPP (llm-d Router) |
 |---|-----|--------------------|
