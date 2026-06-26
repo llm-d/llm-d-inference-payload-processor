@@ -90,6 +90,48 @@ func TestSetBody(t *testing.T) {
 	}
 }
 
+func TestChunkMutation(t *testing.T) {
+	resp := NewInferenceResponse()
+
+	if resp.ChunkMutated() {
+		t.Error("new InferenceResponse should not be marked as chunk-mutated")
+	}
+
+	resp.ResetChunkState("original chunk")
+	if resp.CurrentChunk != "original chunk" {
+		t.Errorf("CurrentChunk = %q; want %q", resp.CurrentChunk, "original chunk")
+	}
+	if resp.ChunkMutated() {
+		t.Error("ResetChunkState should not mark chunk as mutated")
+	}
+
+	resp.SetChunk("modified chunk")
+	if resp.CurrentChunk != "modified chunk" {
+		t.Errorf("CurrentChunk = %q; want %q", resp.CurrentChunk, "modified chunk")
+	}
+	if !resp.ChunkMutated() {
+		t.Error("expected ChunkMutated() to return true after SetChunk")
+	}
+}
+
+func TestChunkMutation_ResetClearsMutatedFlag(t *testing.T) {
+	resp := NewInferenceResponse()
+	resp.ResetChunkState("chunk 1")
+	resp.SetChunk("mutated chunk 1")
+
+	if !resp.ChunkMutated() {
+		t.Error("expected ChunkMutated() true after SetChunk")
+	}
+
+	resp.ResetChunkState("chunk 2")
+	if resp.ChunkMutated() {
+		t.Error("ResetChunkState should clear the mutated flag")
+	}
+	if resp.CurrentChunk != "chunk 2" {
+		t.Errorf("CurrentChunk = %q; want %q", resp.CurrentChunk, "chunk 2")
+	}
+}
+
 func TestBodyMutated_FalseByDefault(t *testing.T) {
 	req := NewInferenceRequest()
 	if req.BodyMutated() {

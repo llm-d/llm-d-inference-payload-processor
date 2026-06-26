@@ -158,6 +158,8 @@ func (s *Server) HandleResponseChunk(ctx context.Context, reqCtx *RequestContext
 }
 
 // runResponseChunkProcessors executes chunk processors in the order they were registered.
+// Each plugin receives response.CurrentChunk so mutations from earlier plugins are visible
+// to later ones in the chain.
 func (s *Server) runResponseChunkProcessors(ctx context.Context, cycleState *plugin.CycleState, response *requesthandling.InferenceResponse, chunk string, isFinal bool, processors []requesthandling.ResponseChunkProcessor) error {
 	logger := log.FromContext(ctx).V(logutil.DEFAULT)
 	verboseLogger := logger.V(logutil.VERBOSE)
@@ -167,7 +169,7 @@ func (s *Server) runResponseChunkProcessors(ctx context.Context, cycleState *plu
 			verboseLogger.Info("Executing response chunk plugin", "plugin", cp.TypedName())
 		}
 		before := time.Now()
-		err := cp.ProcessResponseChunk(ctx, cycleState, response, chunk, isFinal)
+		err := cp.ProcessResponseChunk(ctx, cycleState, response, response.CurrentChunk, isFinal)
 		metrics.RecordPluginProcessingLatency(responsePluginExtensionPoint, cp.TypedName().Type, cp.TypedName().Name, time.Since(before))
 		if err != nil {
 			return err
