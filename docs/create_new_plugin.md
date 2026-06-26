@@ -34,7 +34,7 @@ satisfies and routes it to the matching pipeline stage:
 
 | Interface | Package | Role |
 |-----------|---------|------|
-| `PreProcessor` / `PostProcessor` | [`requesthandling`][requesthandling-src] | Run for every request before profile selection / after the profile's response plugins. |
+| `PreProcessor` / `PostProcessor` | [`requesthandling`][requesthandling-src] | Reserved global stages (before profile selection / after the response plugins). Defined in the API but not yet invoked by the request path. |
 | `RequestProcessor` | [`requesthandling`][requesthandling-src] | Inspect and mutate the request before routing. |
 | `ResponseProcessor` | [`requesthandling`][requesthandling-src] | Inspect and mutate the response on its way back. |
 | `ProfilePicker` | [`requesthandling`][requesthandling-src] | Choose which profile runs for a request. |
@@ -173,9 +173,10 @@ A model-selector plugin has the same shape but implements one of the
 [`modelselector`][modelselector-src] interfaces (`Filter`, `Scorer`, or `Picker`) instead of
 `RequestProcessor`. For example, a `Scorer` implements `Score(...) map[datalayer.Model]float64`,
 returning a score per candidate. The [`cost-scorer`][costaware-src] is a concrete reference; its
-factory, `WithName`, and `plugin.Register` wiring mirror this tutorial exactly. In configuration, a
-Scorer is referenced from a profile's `request` list alongside the `model-selector` entry and may
-carry a `weight`. See [Plugins][Plugins] for the full Filter/Scorer/Picker set.
+factory and `WithName` follow this tutorial (it ships in-tree but, like `model-config-datasource`, is
+not registered in the default runner — add its factory to `registerInTreePlugins` to use it). In
+configuration, a Scorer is referenced from a profile's `request` list alongside the `model-selector`
+entry and **requires** a `weight`. See [Plugins][Plugins] for the full Filter/Scorer/Picker set.
 
 ## Testing
 

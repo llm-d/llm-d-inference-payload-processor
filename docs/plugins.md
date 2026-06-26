@@ -56,8 +56,8 @@ config loader routes each plugin to the right extension point based on that inte
 | **Model Selector — Filter** | Remove candidate models that cannot serve the request. | First phase of the ModelSelector pipeline (inside `model-selector`). |
 | **Model Selector — Scorer** | Score the remaining candidate models, conventionally in `[0, 1]`. | Second phase of the ModelSelector pipeline; scores combine via per-reference `weight`. |
 | **Model Selector — Picker** | Select exactly one final model from the scored candidates. | Third phase of the ModelSelector pipeline; exactly one picker runs. |
-| **Profile Picker** | Choose which profile runs for a request. | Globally, after pre-processing and before the profile's request plugins. |
-| **Data Layer** | Maintain cross-request state (collectors, extractors, datasources) consumed by Filters and Scorers. | Event-driven and continuous, decoupled from any single request. |
+| **Profile Picker** | Choose which profile runs for a request. | Globally, before the profile's request plugins. |
+| **Data Layer** | Maintain cross-request state (collectors, extractors, datasources) consumed by Scorers (and Filters). | Continuously in the background, decoupled from any single request. |
 
 ---
 
@@ -66,8 +66,11 @@ config loader routes each plugin to the right extension point based on that inte
 IPP executes plugins in a fixed sequence of stages:
 
 ```
-PreProcessing → ProfilePicker → Profile Request Plugins → [Model Server] → Profile Response Plugins → PostProcessing
+ProfilePicker → Profile Request Plugins → [Model Server] → Profile Response Plugins
 ```
+
+(The config API also defines global `preProcessing` / `postProcessing` stages; these are reserved
+extension points and are not yet invoked by the request path — see [Architecture][Architecture].)
 
 Plugins are **declared once** under the top-level `plugins` list of the `PayloadProcessorConfig`
 (each with a `type`, an optional `name`, and optional `parameters`) and then **referenced by name**
@@ -252,8 +255,9 @@ falls back to `random-picker` for uniform selection.
 
 ## Data Layer Plugins
 
-Data-layer plugins maintain cross-request state consumed by Filters and Scorers. They are event-driven
-and run continuously, decoupled from any single request, and are referenced under the top-level
+Data-layer plugins maintain cross-request state consumed by Scorers (and Filters). They run
+continuously in the background (extractors on request/response events, collectors on a timer,
+datasources as watchers), decoupled from any single request, and are referenced under the top-level
 `datalayer` section as `collectors`, `extractors`, or `datasources` — **never** in a profile's
 request list. See [Data Layer][Architecture] for the conceptual model.
 
@@ -304,9 +308,9 @@ extension point. To add one, implement `ResponseProcessor` and register it (see
 
 ## Pre- and Post-Processors
 
-**PreProcessors** run before profile selection (logic common to all requests); **PostProcessors** run
-after the selected profile's response plugins. **There are no in-tree pre- or post-processors** —
-both are framework extension points for custom plugins.
+**PreProcessing** and **PostProcessing** are reserved global extension points in the config API
+(before profile selection and after the response plugins). They are **not yet invoked by the request
+path**, and there are no in-tree pre- or post-processors.
 
 ---
 

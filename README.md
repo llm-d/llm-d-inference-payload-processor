@@ -34,7 +34,7 @@ Helm chart provisions the provider-specific integration automatically:
 
 - **Istio** — Installs an `EnvoyFilter` that inserts the ext-proc filter into the Gateway's filter chain.
 - **GKE** — Installs a `GCPRoutingExtension` that registers IPP as a routing extension.
-- **None** — Deploys only the IPP Deployment and Service; you wire the proxy integration yourself.
+- **None** — Deploys the core IPP resources (Deployment, Service, config, RBAC) but no proxy integration; you wire that up yourself.
 
 ## Documentation
 
@@ -48,8 +48,7 @@ Helm chart provisions the provider-specific integration automatically:
 | [Helm Chart](config/charts/payload-processor/README.md) | Chart install reference and values table. |
 | [ModelSelector Proposal](docs/proposals/043-model-selection-framework/README.md) | Design of the model-selection framework. |
 
-For the end-to-end deployment walkthrough, see the **Multi-Model Routing guide** in the
-[llm-d] documentation.
+For end-to-end deployment, see the [llm-d] project documentation and guides.
 
 ## Terminology
 

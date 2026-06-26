@@ -83,20 +83,23 @@ automatically for the selected provider (Istio `EnvoyFilter`, GKE `GCPRoutingExt
 IPP executes plugins in a fixed sequence of stages:
 
 ```
-PreProcessing → ProfilePicker → Profile Request Plugins → [Model Server] → Profile Response Plugins → PostProcessing
+ProfilePicker → Profile Request Plugins → [Model Server] → Profile Response Plugins
 ```
 
 | Stage | Scope | Purpose |
 |-------|-------|---------|
-| **PreProcessing** | Global | Runs for every request before a profile is selected. |
 | **ProfilePicker** | Global | Selects which profile to execute for the request. |
 | **Profile Request Plugins** | Per-profile | Process the request before it is routed. |
 | **Profile Response Plugins** | Per-profile | Process the response after the model server replies. |
-| **PostProcessing** | Global | Runs for every request after the profile's response plugins. |
 
 The pipeline is declared in a `PayloadProcessorConfig`: all plugins are instantiated under a top-level
-`plugins` list and then referenced by name within profiles and the pre/post stages. See [Plugins] for
-the full configuration model and [Configuration] for the API schema.
+`plugins` list and then referenced by name within profiles. See [Plugins] for the full configuration
+model and [Configuration] for the API schema.
+
+> [!NOTE]
+> The config API also defines global **PreProcessing** and **PostProcessing** stages — intended to run
+> for every request before profile selection and after the response plugins. These are reserved
+> extension points: they are accepted in the configuration but are not yet invoked by the request path.
 
 ### Profiles
 
@@ -117,9 +120,9 @@ configured, the built-in [`single-profile-picker`] is enabled automatically.
 
 ### Pre- and Post-Processing
 
-**PreProcessors** run before profile selection, for logic common to all requests. **PostProcessors**
-run after the selected profile's response plugins. There are no in-tree pre/post processors;
-both are extension points for custom plugins.
+**PreProcessing** and **PostProcessing** are reserved global extension points in the config API —
+intended for logic common to all requests, before profile selection and after the response plugins.
+They are not yet wired into the request path, and there are no in-tree pre/post processors.
 
 ---
 
@@ -147,16 +150,17 @@ and its phases are specified in the [ModelSelector proposal]; the available plug
 
 ## Data Layer
 
-The **data layer** maintains cross-request state that Filters and Scorers consume to make data-driven
-decisions. It is an event-driven subsystem populated by three kinds of plugins:
+The **data layer** maintains cross-request state that Scorers (and Filters) consume to make data-driven
+decisions. It is populated by three kinds of plugins that run continuously, decoupled from any single
+request:
 
-- **Collectors** — Aggregate signals over time.
-- **Extractors** — Pull metadata out of request/response events.
-- **Datasources** — Import external configuration (e.g. model metadata) into the store.
+- **Collectors** — Aggregate signals over time, on a timer.
+- **Extractors** — Pull metadata out of request/response events as they arrive.
+- **Datasources** — Import external configuration (e.g. model metadata) into the store, watching for changes.
 
-Data-layer plugins are registered under the `datalayer` section of the config and run continuously as
-events arrive, decoupled from any single request. This is how runtime signals such as in-flight request
-counts become available to scoring decisions.
+Data-layer plugins are registered under the `datalayer` section of the config and run in the background,
+decoupled from any single request. This is how runtime signals such as in-flight request counts become
+available to scoring decisions.
 
 ---
 

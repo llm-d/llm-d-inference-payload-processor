@@ -65,10 +65,10 @@ model — the same plugin type can be instantiated multiple times under differen
 | Field | Required | Type | Description |
 |-------|----------|------|-------------|
 | `plugins` | **Yes** | `[]PluginSpec` | The plugin instances to create. Every reference elsewhere resolves to a `name` declared here. |
-| `preProcessing` | No | `PluginRefList` | Ordered plugin references run for **every** request, before a profile is selected. |
+| `preProcessing` | No | `PluginRefList` | Ordered references intended to run for **every** request before a profile is selected. _Reserved: accepted by the config but not yet invoked by the request path._ |
 | `profilePicker` | No | `PluginRef` | The plugin that chooses which profile to run. When exactly one profile is defined and no picker is set, the built-in [`single-profile-picker`] is enabled automatically. |
 | `profiles` | **Yes** (min 1) | `[]Profile` | The named profiles. Exactly one runs per request. |
-| `postProcessing` | No | `PluginRefList` | Ordered plugin references run for **every** request, after the selected profile's response plugins. |
+| `postProcessing` | No | `PluginRefList` | Ordered references intended to run for **every** request after the selected profile's response plugins. _Reserved: accepted by the config but not yet invoked by the request path._ |
 | `datalayer` | No | `DatalayerConfig` | Data-layer plugin references: `collectors`, `extractors`, and `datasources`. |
 
 ### PluginSpec
@@ -88,7 +88,7 @@ A `PluginRef` points at an instance declared in `plugins`:
 | Field | Required | Type | Description |
 |-------|----------|------|-------------|
 | `pluginRef` | **Yes** | string | The `name` of a plugin instance in the top-level `plugins` list. |
-| `weight` | No | float | Weight applied if the referenced plugin is a Scorer. Defaults to `1.0` when omitted. Ignored for non-scorer references. |
+| `weight` | For scorers | float | Weight applied to a Scorer's contribution. **Required** when the referenced plugin is a Scorer (the loader rejects a scorer reference with no weight); ignored for non-scorer references. |
 
 A `PluginRefList` (used by `preProcessing` and `postProcessing`) is simply an object with a `plugins`
 list of `PluginRef` entries.
@@ -326,15 +326,15 @@ inferenceGateway:
 
 ### Supplying a Custom Config
 
-By default the chart mounts a built-in `PayloadProcessorConfig`. To supply your own pipeline, set
-`payloadProcessor.customConfig` to a full `PayloadProcessorConfig` document; the chart renders it into
-the mounted ConfigMap and points `--config-file` at it.
+By default the chart mounts a built-in `PayloadProcessorConfig` (the shipped default lives in
+[`deploy/config/ipp-config.yaml`](../deploy/config/ipp-config.yaml)). To supply your own pipeline, set
+`payloadProcessor.customConfig` to a `PayloadProcessorConfig` body; the chart renders it into the
+mounted ConfigMap and points `--config-file` at it.
 
 ```yaml
 payloadProcessor:
   customConfig:
-    apiVersion: llm-d.ai/v1alpha1
-    kind: PayloadProcessorConfig
+    # The chart adds the apiVersion/kind header automatically — start at `plugins`.
     plugins:
     - type: body-field-to-header
       parameters:
@@ -370,16 +370,19 @@ logging options). In Helm, set them via `payloadProcessor.flags` (which renders 
 | `--grpc-health-port` | `9005` | Port for gRPC liveness and readiness probes. |
 | `--metrics-port` | `9090` | Port exposing the Prometheus `/metrics` endpoint. |
 | `--metrics-endpoint-auth` | `true` | Enable authentication and authorization on the metrics endpoint. |
-| `--secure-serving` | `true` | Enable secure serving. |
+| `--secure-serving` | `true` | Serve the ext-proc gRPC endpoint over TLS (a self-signed certificate is generated at startup). Set to `false` for plaintext. |
 | `--tracing` | `true` | Enable emitting OpenTelemetry traces. |
 | `--enable-pprof` | `true` | Enable pprof handlers. Set to `false` to disable. |
-| `-v`, `--v` | `0` | Log verbosity level. |
+| `-v`, `--v` | `2` | Log verbosity level. |
 | `--zap-log-level` | _(derived from `-v`)_ | Zap log level. When unset, it is derived as `-1 × v`. |
 
+The logger also accepts the standard controller-runtime `--zap-*` flags (`--zap-devel`,
+`--zap-encoder`, `--zap-stacktrace-level`, `--zap-time-encoding`) for additional tuning.
+
 > [!NOTE]
-> `--config-file` and `--config-text` are mutually exclusive ways to supply the config; if both are
-> set, `--config-text` takes precedence. The three server ports (`--grpc-port`,
-> `--grpc-health-port`, `--metrics-port`) are validated to be in `1–65535` and must all differ.
+> `--config-file` and `--config-text` are two ways to supply the config; if both are set,
+> `--config-text` takes precedence. The three server ports (`--grpc-port`, `--grpc-health-port`,
+> `--metrics-port`) are validated to be in `1–65535` and must all differ.
 
 ---
 
@@ -406,8 +409,9 @@ logging options). In Helm, set them via `payloadProcessor.flags` (which renders 
 
 IPP runs as an ext-proc service that the proxy invokes over Envoy's [External Processing (ext-proc)]
 protocol. The Helm chart provisions the provider-specific integration based on `provider.name`:
-`istio` generates an `EnvoyFilter`, `gke` generates a `GCPRoutingExtension`, and `none` deploys only
-the IPP Deployment and Service (you wire the proxy integration yourself). In all cases the request
+`istio` generates an `EnvoyFilter`, `gke` generates a `GCPRoutingExtension`, and `none` provisions the
+core IPP resources (Deployment, Service, config, RBAC) but no proxy-integration resources — you wire
+the proxy integration yourself. In all cases the request
 body is streamed using ext-proc's `FULL_DUPLEX_STREAMED` body mode, which IPP requires to observe and
 mutate full bodies.
 
