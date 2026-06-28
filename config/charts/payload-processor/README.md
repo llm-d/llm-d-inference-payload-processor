@@ -86,17 +86,6 @@ provider:
 
 > **Tip:** Only enable events your plugins need. Each extra event adds a network hop between the proxy and the payload processor.
 
-### Configure Model List (model-config-datasource)
-
-`payloadProcessor.listModels` is a list of model names that the IPP should be aware of. When set, the chart renders a `models.json` file into the ConfigMap, which is mounted at `/config/models.json` inside the pod. The `model-config-datasource` plugin reads this file to populate the IPP datastore and watches it for live updates on ConfigMap remounts.
-
-```yaml
-payloadProcessor:
-  listModels:
-    - meta-llama/Llama-3.1-8B-Instruct
-    - meta-llama/Llama-3.1-70B-Instruct
-```
-
 ### Uninstall
 
 Run the following command to uninstall the chart:
@@ -122,7 +111,6 @@ The following table list the configurable parameters of the chart.
 | `payloadProcessor.image.pullPolicy`       | Image pull policy for the container. Possible values: `Always`, `IfNotPresent`, or `Never`. Defaults to `Always`.                                                                                                                                                                                |
 | `payloadProcessor.flags`                  | map of flags which are passed through to the payload processor. Refer to [runner.go](https://github.com/llm-d/llm-d-inference-payload-processor/blob/main/cmd/payload-processor/runner/runner.go) for complete list.                                                                                                     |
 | `payloadProcessor.plugins`   | Custom ordered plugins array to set for the payload processor. Each plugin has fields: type, name and optionally json (which represents parameters of the plugin). If not specified, the payload processor will use by default the `body-field-to-header` to extract the `model` field, and `base-model-to-header` (in that order). |
-| `payloadProcessor.listModels`             | Optional list of model names. When set, a `models.json` file is rendered into the ConfigMap and mounted at `/config/models.json` in the pod. Used by the `model-config-datasource` plugin to seed the IPP datastore with known models. |
 | `provider.name`              | Name of the Inference Gateway implementation being used. Possible values: `istio`, `gke`. Defaults to `none`.                                                                                                                                                                                    |
 | `provider.supportedEvents.requestHeaders` | Enable Request Headers event. Defaults to `true`. |
 | `provider.supportedEvents.requestBody` | Enable Request Body event. Defaults to `true`. |
