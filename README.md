@@ -26,8 +26,8 @@ general framework, not its limit.
 
 - **Request processing** — Inspect and mutate request headers, body, or trailers before routing.
 - **Response processing** — Inspect and mutate response headers, body, or trailers on the way back to the client.
-- **Payload-aware routing** — Extract signals from the request body (e.g. the model name) and inject routing headers so the Proxy can select the correct [InferencePool]. This powers **multi-pool routing**: serving multiple base models and LoRA adapters behind one OpenAI-compatible endpoint.
-- **Model selection** — A pluggable `Filter → Score → Pick` pipeline that chooses *which* model serves a request (e.g. for cost- or load-aware routing), adapting the upstream [Scheduler Architecture] pattern at the model level. See the [ModelSelector proposal].
+- **Payload-aware routing** — Extract signals from the request body (e.g. the model name) and inject routing headers so the Proxy can select the correct destination (e.g., [InferencePool]). This powers **multi-pool routing**: serving multiple base models and LoRA adapters behind one OpenAI-compatible endpoint.
+- **Model selection** — A pluggable `Filter → Score → Pick` pipeline that chooses *which* model serves a request (e.g. for cost or load-aware routing), adapting the upstream [Scheduler Architecture] pattern at the model level. See the [ModelSelector proposal].
 - **Extensibility** — All behavior is implemented as plugins configured via a YAML `PayloadProcessorConfig`. Add your own without forking the framework — see [Creating a Plugin].
 
 ## Modes of Operation

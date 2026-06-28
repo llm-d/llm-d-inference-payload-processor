@@ -39,9 +39,9 @@ A request flows through the system as follows:
 1. A **client** sends an inference request to the Proxy.
 2. The **Proxy** invokes IPP over ext-proc.
 3. **IPP** runs the request through its configured plugin pipeline and returns any mutations (headers, body edits).
-4. The **Proxy** applies the mutations and routes to the selected [InferencePool].
-5. The **EPP** picks the optimal pod within that pool.
-6. The **model server** processes the request; the response travels back through the Proxy, where IPP may process it again before it reaches the client.
+4. The **Proxy** applies the mutations and routes to the selected destination.
+5. If the selected destination is [InferencePool], the **EPP** picks the optimal pod within that pool.
+6. The **model server** processes the request; the response travels back through the Proxy, where IPP may process it again (including response headers/body mutations) before it reaches the client.
 
 ---
 
@@ -84,17 +84,19 @@ automatically for the selected provider (Istio `EnvoyFilter`, GKE `GCPRoutingExt
 IPP executes plugins in a fixed sequence of stages:
 
 ```
-ProfilePicker → Profile Request Plugins → [Model Server] → Profile Response Plugins
+PreProcessor Plugins → ProfilePicker → Profile Request Plugins → [Model Server] → Profile Response Plugins → PostProcessor Plugins
 ```
 
 | Stage | Scope | Purpose |
 |-------|-------|---------|
+| **PreProcessor Plugins** | Global | Process the request before ProfilePicker. This may include a subset of request plugins that should always run, no matter which profile is selected. |
 | **ProfilePicker** | Global | Selects which profile to execute for the request. |
 | **Profile Request Plugins** | Per-profile | Process the request before it is routed. |
 | **Profile Response Plugins** | Per-profile | Process the response after the model server replies. |
+| **PostProcessor Plugins** | Global | Process the response after the model server replies. This may include a subset of response plugins that should always run, no matter which profile is selected. |
 
 The pipeline is declared in a `PayloadProcessorConfig`: all plugins are instantiated under a top-level
-`plugins` list and then referenced by name within profiles. See [Plugins] for the full configuration
+`plugins` list and then referenced by name within other sections. See [Plugins] for the full configuration
 model and [Configuration] for the API schema.
 
 > [!NOTE]
@@ -115,8 +117,8 @@ on the interface the plugin implements.
 
 ### Profile Picker
 
-When more than one profile is configured, a **profile picker** plugin inspects the request (headers,
-body) and chooses which profile to run. When exactly one profile is defined and no picker is
+When more than one profile is configured, a **profile picker** plugin may inspect the request (headers,
+body), system state (e.g., datastore) or any other parameter, and chooses which profile to run. When exactly one profile is defined and no picker is
 configured, the built-in [`single-profile-picker`] is enabled automatically.
 
 ### Pre- and Post-Processing
@@ -138,12 +140,12 @@ Filter → Score → Pick
 ```
 
 - **Filter** — Removes candidate models that cannot serve the request (e.g. unavailable or rate-limited). If filtering leaves zero candidates, the framework returns an error to the client.
-- **Score** — Each remaining candidate is scored, conventionally in `[0, 1]`. Multiple scorers combine via per-reference weights configured in the profile.
+- **Score** — Each remaining candidate is scored, conventionally in `[0, 1]`. Multiple scorers combine via per-scorer weights configured in the profile.
 - **Pick** — Exactly one picker selects the final model from the scored candidates.
 
 The selected model is written into the request body, after which the request continues through the
 normal pipeline exactly as if the client had requested that model directly. A typical use is sending
-`{"model": "auto"}` and letting cost- or load-aware scorers choose the concrete model. The framework
+`{"model": "auto"}` and letting cost, load or latency aware scorers (or any combination of them) choose the concrete model. The framework
 and its phases are specified in the [ModelSelector proposal]; the available plugins are listed in
 [Plugins].
 
@@ -151,7 +153,7 @@ and its phases are specified in the [ModelSelector proposal]; the available plug
 
 ## Data Layer
 
-The **data layer** maintains cross-request state that Scorers (and Filters) consume to make data-driven
+The **data layer** maintains cross-request state that other plugins (e.g., Scorer, Filter, ProfilerPicker) consume to make data-driven
 decisions. It is populated by three kinds of plugins that run continuously, decoupled from any single
 request:
 
