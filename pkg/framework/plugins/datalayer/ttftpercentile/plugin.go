@@ -15,7 +15,7 @@ limitations under the License.
 */
 
 // Package ttftpercentile tracks per-model TTFT distributions and publishes
-// P10Low, P50, and inflightAtP50 for the median-ttft-scorer.
+// P10Low, P50, and inflightAtP50 for the queue-ttft-scorer.
 package ttftpercentile
 
 import (
@@ -37,11 +37,12 @@ const (
 	AttributeKey = "ttft-percentile"
 
 	defaultWindowSize        = 5000
-	defaultWindowAge         = 1 * time.Minute
-	defaultMinObservations   = 3
+	defaultMaxObservationAge = 3 * time.Minute // observations older than this are never used
 	defaultIntervalDuration  = 5 * time.Second
 	defaultInflightEMAAlpha  = 0.2
 	defaultLowLoadWindowAge  = 1 * time.Hour
+	defaultMaxRequests       = 100 // cap the short window to the most recent N observations
+	defaultMinRequests       = 10  // below this count the scorer falls back to the optimistic seed
 )
 
 var _ dlsrc.Extractor = &TTFTPercentileExtractor{}
@@ -49,21 +50,29 @@ var _ dlsrc.Extractor = &TTFTPercentileExtractor{}
 type TTFTPercentileExtractorConfig struct {
 	IntervalDuration string  `json:"intervalDuration,omitempty"`
 	WindowSize       int     `json:"windowSize,omitempty"`
-	WindowAge        string  `json:"windowAge,omitempty"`
-	MinObservations  int     `json:"minObservations,omitempty"`
-	InflightEMAAlpha float64 `json:"inflightEmaAlpha,omitempty"`
-	LowLoadWindowAge string  `json:"lowLoadWindowAge,omitempty"`
+	// MaxObservationAge caps how far back the short window looks.
+	// Observations older than this are never used for P50 or short-window P10.
+	MaxObservationAge string  `json:"maxObservationAge,omitempty"`
+	InflightEMAAlpha  float64 `json:"inflightEmaAlpha,omitempty"`
+	LowLoadWindowAge  string  `json:"lowLoadWindowAge,omitempty"`
+	// MaxRequests caps the short window to the most recent N observations regardless of age.
+	MaxRequests int `json:"maxRequests,omitempty"`
+	// MinRequests is the minimum capped-window count for the scorer to use the trusted
+	// operating point. Below this the scorer falls back to the optimistic seed (floor only).
+	MinRequests int `json:"minRequests,omitempty"`
 }
 
 // TTFTPercentileMetrics is written to each model's attribute store every intervalDuration.
 type TTFTPercentileMetrics struct {
-	Requests       int64
-	AvgInflight    float64
-	InflightAtP50  float64 // avg inflight_at_dispatch of observations in the P40-P60 band
-	P10LowTTFT     float64 // two-level P10: P10 of the bottom decile; hardware-floor estimate
-	P10TTFT        float64 // P10 from all obs (short window)
-	P50TTFT        float64 // P50 from all obs (short window)
+	Requests      int64
+	AvgInflight   float64
+	InflightAtP50 float64 // avg inflight_at_dispatch of observations in the P40-P60 band
+	P10LowTTFT    float64 // two-level P10: P10 of the bottom decile; hardware-floor estimate
+	P10TTFT       float64 // P10 from capped short window
+	P50TTFT       float64 // P50 from capped short window
 	LastObservedAt int64
+	RecentN       int // count of observations in the capped short window
+	MinRequests   int // scorer threshold — copied from config so the scorer needs no separate param
 }
 
 func (m TTFTPercentileMetrics) Clone() datalayer.Cloneable { return m }
@@ -81,39 +90,44 @@ type modelPercentileState struct {
 	avgInflightInit bool
 }
 
-func (s *modelPercentileState) flush(now time.Time, windowAge, lowLoadWindowAge time.Duration, minObs int) {
-	p50, inflightAtP50, ok50 := s.tracker.quantileWithInflight(0.50, now, windowAge, minObs)
-	p10, ok10 := s.tracker.quantile(0.10, now, windowAge, minObs)
+func (s *modelPercentileState) flush(now time.Time, maxObservationAge, lowLoadWindowAge time.Duration, maxRequests int) {
+	p50, inflightAtP50, ok50 := s.tracker.quantileWithInflight(0.50, now, maxObservationAge, maxRequests)
+	p10, ok10 := s.tracker.quantile(0.10, now, maxObservationAge, maxRequests)
 	if ok50 {
 		s.P50TTFT, s.InflightAtP50, s.LastObservedAt = p50, inflightAtP50, now.UnixNano()
 	}
 	if ok10 {
 		s.P10TTFT = p10
 	}
-	if p10low, ok := s.tracker.p10Low(now, lowLoadWindowAge, minObs); ok {
+	if p10low, ok := s.tracker.p10Low(now, lowLoadWindowAge); ok {
 		s.P10LowTTFT = p10low
 	}
+	s.RecentN = s.tracker.countCapped(now, maxObservationAge, maxRequests)
 	s.intervalStart = now
 }
 
 type TTFTPercentileExtractor struct {
-	typedName        plugin.TypedName
-	ds               datalayer.Datastore
-	state            map[string]*modelPercentileState
-	windowSize       int
-	windowAge        time.Duration
-	minObservations  int
-	intervalDuration time.Duration
-	inflightEMAAlpha float64
-	lowLoadWindowAge time.Duration
+	typedName         plugin.TypedName
+	ds                datalayer.Datastore
+	state             map[string]*modelPercentileState
+	windowSize        int
+	maxObservationAge time.Duration
+	intervalDuration  time.Duration
+	inflightEMAAlpha  float64
+	lowLoadWindowAge  time.Duration
+	maxRequests       int
+	minRequests       int
 }
 
 func ExtractorFactory(name string, parameters json.RawMessage, h plugin.Handle) (plugin.Plugin, error) {
 	cfg := TTFTPercentileExtractorConfig{
-		IntervalDuration: defaultIntervalDuration.String(), WindowSize: defaultWindowSize,
-		WindowAge: defaultWindowAge.String(), MinObservations: defaultMinObservations,
-		InflightEMAAlpha: defaultInflightEMAAlpha,
-		LowLoadWindowAge: defaultLowLoadWindowAge.String(),
+		IntervalDuration:  defaultIntervalDuration.String(),
+		WindowSize:        defaultWindowSize,
+		MaxObservationAge: defaultMaxObservationAge.String(),
+		InflightEMAAlpha:  defaultInflightEMAAlpha,
+		LowLoadWindowAge:  defaultLowLoadWindowAge.String(),
+		MaxRequests:       defaultMaxRequests,
+		MinRequests:       defaultMinRequests,
 	}
 	if len(parameters) > 0 {
 		if err := json.Unmarshal(parameters, &cfg); err != nil {
@@ -123,8 +137,11 @@ func ExtractorFactory(name string, parameters json.RawMessage, h plugin.Handle) 
 	if cfg.WindowSize <= 0 {
 		return nil, fmt.Errorf("windowSize must be > 0 for plugin %q", name)
 	}
-	if cfg.MinObservations <= 0 {
-		return nil, fmt.Errorf("minObservations must be > 0 for plugin %q", name)
+	if cfg.MaxRequests <= 0 {
+		return nil, fmt.Errorf("maxRequests must be > 0 for plugin %q", name)
+	}
+	if cfg.MinRequests <= 0 {
+		return nil, fmt.Errorf("minRequests must be > 0 for plugin %q", name)
 	}
 	if cfg.InflightEMAAlpha <= 0 || cfg.InflightEMAAlpha > 1 {
 		return nil, fmt.Errorf("inflightEmaAlpha must be in (0,1] for plugin %q", name)
@@ -133,28 +150,35 @@ func ExtractorFactory(name string, parameters json.RawMessage, h plugin.Handle) 
 	if err != nil {
 		return nil, fmt.Errorf("invalid intervalDuration %q for plugin %q: %w", cfg.IntervalDuration, name, err)
 	}
-	windowAge, err := time.ParseDuration(cfg.WindowAge)
+	maxObsAge, err := time.ParseDuration(cfg.MaxObservationAge)
 	if err != nil {
-		return nil, fmt.Errorf("invalid windowAge %q for plugin %q: %w", cfg.WindowAge, name, err)
+		return nil, fmt.Errorf("invalid maxObservationAge %q for plugin %q: %w", cfg.MaxObservationAge, name, err)
 	}
 	lowLoadAge, err := time.ParseDuration(cfg.LowLoadWindowAge)
 	if err != nil {
 		return nil, fmt.Errorf("invalid lowLoadWindowAge %q for plugin %q: %w", cfg.LowLoadWindowAge, name, err)
 	}
 	return NewTTFTPercentileExtractor(h.Datastore()).
-		WithName(name).WithIntervalDuration(interval).
-		WithWindow(cfg.WindowSize, windowAge, cfg.MinObservations).
+		WithName(name).
+		WithIntervalDuration(interval).
+		WithWindow(cfg.WindowSize, maxObsAge).
 		WithInflightEMAAlpha(cfg.InflightEMAAlpha).
-		WithLowLoadWindowAge(lowLoadAge), nil
+		WithLowLoadWindowAge(lowLoadAge).
+		WithRequestBounds(cfg.MaxRequests, cfg.MinRequests), nil
 }
 
 func NewTTFTPercentileExtractor(ds datalayer.Datastore) *TTFTPercentileExtractor {
 	return &TTFTPercentileExtractor{
-		typedName: plugin.TypedName{Type: PluginType, Name: PluginType},
-		ds: ds, state: make(map[string]*modelPercentileState),
-		windowSize: defaultWindowSize, windowAge: defaultWindowAge,
-		minObservations: defaultMinObservations, intervalDuration: defaultIntervalDuration,
-		inflightEMAAlpha: defaultInflightEMAAlpha, lowLoadWindowAge: defaultLowLoadWindowAge,
+		typedName:         plugin.TypedName{Type: PluginType, Name: PluginType},
+		ds:                ds,
+		state:             make(map[string]*modelPercentileState),
+		windowSize:        defaultWindowSize,
+		maxObservationAge: defaultMaxObservationAge,
+		intervalDuration:  defaultIntervalDuration,
+		inflightEMAAlpha:  defaultInflightEMAAlpha,
+		lowLoadWindowAge:  defaultLowLoadWindowAge,
+		maxRequests:       defaultMaxRequests,
+		minRequests:       defaultMinRequests,
 	}
 }
 
@@ -165,14 +189,17 @@ func (e *TTFTPercentileExtractor) WithName(n string) *TTFTPercentileExtractor {
 func (e *TTFTPercentileExtractor) WithIntervalDuration(d time.Duration) *TTFTPercentileExtractor {
 	e.intervalDuration = d; return e
 }
-func (e *TTFTPercentileExtractor) WithWindow(size int, age time.Duration, minObs int) *TTFTPercentileExtractor {
-	e.windowSize, e.windowAge, e.minObservations = size, age, minObs; return e
+func (e *TTFTPercentileExtractor) WithWindow(size int, maxObsAge time.Duration) *TTFTPercentileExtractor {
+	e.windowSize, e.maxObservationAge = size, maxObsAge; return e
 }
 func (e *TTFTPercentileExtractor) WithInflightEMAAlpha(a float64) *TTFTPercentileExtractor {
 	e.inflightEMAAlpha = a; return e
 }
 func (e *TTFTPercentileExtractor) WithLowLoadWindowAge(age time.Duration) *TTFTPercentileExtractor {
 	e.lowLoadWindowAge = age; return e
+}
+func (e *TTFTPercentileExtractor) WithRequestBounds(maxN, minN int) *TTFTPercentileExtractor {
+	e.maxRequests, e.minRequests = maxN, minN; return e
 }
 
 func (e *TTFTPercentileExtractor) Extract(ctx context.Context, events []dlsrc.Event) error {
@@ -237,7 +264,7 @@ func (e *TTFTPercentileExtractor) Extract(ctx context.Context, events []dlsrc.Ev
 				} else {
 					s.AvgInflight = e.inflightEMAAlpha*sample + (1-e.inflightEMAAlpha)*s.AvgInflight
 				}
-				s.flush(now, e.windowAge, e.lowLoadWindowAge, e.minObservations)
+				s.flush(now, e.maxObservationAge, e.lowLoadWindowAge, e.maxRequests)
 			}
 			updated[model] = true
 		}
@@ -245,29 +272,35 @@ func (e *TTFTPercentileExtractor) Extract(ctx context.Context, events []dlsrc.Ev
 
 	for model := range updated {
 		s := e.state[model]
-		cutoff := now.Add(-e.windowAge)
+		cutoff := now.Add(-e.maxObservationAge)
 		for id, entry := range s.pending {
 			if entry.dispatchedAt.Before(cutoff) {
 				delete(s.pending, id)
 			}
 		}
 		m := s.TTFTPercentileMetrics
+		m.MinRequests = e.minRequests
 		e.ds.GetOrCreateModel(model).GetAttributes().Put(AttributeKey, m)
-		p10eff := m.P10LowTTFT
-		if p10eff == 0 {
-			p10eff = m.P10TTFT
+
+		// Compute effectiveTTFT for the debug log (mirrors scorer logic).
+		floor := m.P10LowTTFT
+		if floor == 0 {
+			floor = m.P10TTFT
 		}
-		eff := p10eff
-		if p10eff > 0 && m.InflightAtP50 > 0 && m.P50TTFT > p10eff {
-			eff = p10eff + float64(m.Requests)*(m.P50TTFT-p10eff)/m.InflightAtP50
-			if eff < p10eff {
-				eff = p10eff
+		var eff float64
+		if floor > 0 && m.RecentN >= m.MinRequests && m.InflightAtP50 > 0 && m.P50TTFT > floor {
+			eff = floor + float64(m.Requests)*(m.P50TTFT-floor)/m.InflightAtP50
+			if eff < floor {
+				eff = floor
 			}
+		} else {
+			eff = floor // optimistic seed or unobserved
 		}
 		debugLogger.Info("ttft-percentile wrote attribute",
 			"model", model, "Requests", m.Requests, "AvgInflight", m.AvgInflight,
 			"InflightAtP50", m.InflightAtP50, "P10Low_s", m.P10LowTTFT,
 			"P10_s", m.P10TTFT, "P50_s", m.P50TTFT, "EffectiveTTFT_s", eff,
+			"RecentN", m.RecentN, "MinRequests", m.MinRequests,
 		)
 	}
 	return nil

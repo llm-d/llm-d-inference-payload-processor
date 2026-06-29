@@ -11,15 +11,20 @@ payloadProcessor:
     - type: base-model-to-header
     - type: model-selector
     - type: queue-ttft-scorer
+      # effectiveTTFT = P10Low + inflight x (P50 - P10Low) / inflightAtP50
+      # line through (0, P10Low) and (inflightAtP50, P50), extrapolated linearly
+      parameters:
+        explorationRate: 0.1          # 10% of requests probe under-observed models; 0 = disabled
     - type: max-score-picker
     - type: ttft-percentile-extractor
       parameters:
         intervalDuration: 1s
         windowSize: 5000
-        windowAge: 1m
-        minObservations: 3
+        maxObservationAge: 3m
         inflightEmaAlpha: 0.2
-        lowLoadWindowAge: 1h         # window for two-level P10Low (long = stable hardware floor)
+        lowLoadWindowAge: 1h
+        maxRequests: 100
+        minRequests: 20
     - type: model-config-datasource
       parameters:
         modelsPath: /config/models.json
@@ -28,7 +33,7 @@ payloadProcessor:
       plugins:
         request:
         - pluginRef: model-selector
-        - pluginRef: median-ttft-scorer
+        - pluginRef: queue-ttft-scorer
           weight: 1.0
         - pluginRef: max-score-picker
         - pluginRef: body-field-to-header

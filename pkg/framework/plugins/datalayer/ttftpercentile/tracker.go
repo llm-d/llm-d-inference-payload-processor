@@ -23,15 +23,19 @@ import (
 
 type percentileTracker interface {
 	add(value float64, inflight int64, ts time.Time)
-	quantile(p float64, now time.Time, maxAge time.Duration, minCount int) (float64, bool)
+	// quantile returns the p-th percentile of the most recent min(maxN, available)
+	// observations within maxAge. Returns false if there are no observations.
+	quantile(p float64, now time.Time, maxAge time.Duration, maxN int) (float64, bool)
 	// quantileWithInflight returns the p-th percentile TTFT and the average inflight
-	// of observations in the [p-0.1, p+0.1] band — more stable than a single-point inflight.
-	quantileWithInflight(p float64, now time.Time, maxAge time.Duration, minCount int) (float64, float64, bool)
-	// p10Low computes a two-level P10: first finds the P10 TTFT threshold from all
-	// observations, then returns the P10 of observations at or below that threshold.
-	// This isolates low-queue-wait observations without requiring a fixed inflight cut-off,
-	// so P10Low updates continuously regardless of sustained load level.
-	p10Low(now time.Time, maxAge time.Duration, minCount int) (float64, bool)
+	// of observations in the [p-0.1, p+0.1] band of the capped short window.
+	// Returns false if there are no observations.
+	quantileWithInflight(p float64, now time.Time, maxAge time.Duration, maxN int) (float64, float64, bool)
+	// p10Low computes the two-level P10 over the full lowLoadWindowAge window (no cap).
+	// It isolates low-queue-wait observations without requiring a fixed inflight cut-off.
+	// Returns false if there are no observations.
+	p10Low(now time.Time, maxAge time.Duration) (float64, bool)
+	// countCapped returns the number of observations in the capped short window.
+	countCapped(now time.Time, maxAge time.Duration, maxN int) int
 }
 
 type observation struct {
@@ -58,6 +62,7 @@ func (t *slidingWindowTracker) add(value float64, inflight int64, ts time.Time) 
 	}
 }
 
+// recentObs returns observations within maxAge, newest first.
 func (t *slidingWindowTracker) recentObs(now time.Time, maxAge time.Duration) []observation {
 	cutoff := now.Add(-maxAge)
 	cap := len(t.buf)
@@ -71,9 +76,23 @@ func (t *slidingWindowTracker) recentObs(now time.Time, maxAge time.Duration) []
 	return out
 }
 
-func (t *slidingWindowTracker) quantile(p float64, now time.Time, maxAge time.Duration, minCount int) (float64, bool) {
+// recentObsCapped returns the most recent min(maxN, available) observations within maxAge.
+// recentObs is already newest-first so a prefix slice gives the most recent maxN.
+func (t *slidingWindowTracker) recentObsCapped(now time.Time, maxAge time.Duration, maxN int) []observation {
 	obs := t.recentObs(now, maxAge)
-	if len(obs) < minCount {
+	if maxN > 0 && len(obs) > maxN {
+		obs = obs[:maxN]
+	}
+	return obs
+}
+
+func (t *slidingWindowTracker) countCapped(now time.Time, maxAge time.Duration, maxN int) int {
+	return len(t.recentObsCapped(now, maxAge, maxN))
+}
+
+func (t *slidingWindowTracker) quantile(p float64, now time.Time, maxAge time.Duration, maxN int) (float64, bool) {
+	obs := t.recentObsCapped(now, maxAge, maxN)
+	if len(obs) == 0 {
 		return 0, false
 	}
 	vals := make([]float64, len(obs))
@@ -89,9 +108,10 @@ func (t *slidingWindowTracker) quantile(p float64, now time.Time, maxAge time.Du
 	return vals[lo] + (idx-float64(lo))*(vals[lo+1]-vals[lo]), true
 }
 
-func (t *slidingWindowTracker) p10Low(now time.Time, maxAge time.Duration, minCount int) (float64, bool) {
+func (t *slidingWindowTracker) p10Low(now time.Time, maxAge time.Duration) (float64, bool) {
+	// Uses the full lowLoadWindowAge window with no cap — stable hardware floor.
 	obs := t.recentObs(now, maxAge)
-	if len(obs) < minCount {
+	if len(obs) == 0 {
 		return 0, false
 	}
 	vals := make([]float64, len(obs))
@@ -115,9 +135,9 @@ func (t *slidingWindowTracker) p10Low(now time.Time, maxAge time.Duration, minCo
 	return low[lo2] + (idx2-float64(lo2))*(low[lo2+1]-low[lo2]), true
 }
 
-func (t *slidingWindowTracker) quantileWithInflight(p float64, now time.Time, maxAge time.Duration, minCount int) (float64, float64, bool) {
-	obs := t.recentObs(now, maxAge)
-	if len(obs) < minCount {
+func (t *slidingWindowTracker) quantileWithInflight(p float64, now time.Time, maxAge time.Duration, maxN int) (float64, float64, bool) {
+	obs := t.recentObsCapped(now, maxAge, maxN)
+	if len(obs) == 0 {
 		return 0, 0, false
 	}
 	sort.Slice(obs, func(i, j int) bool { return obs[i].value < obs[j].value })
