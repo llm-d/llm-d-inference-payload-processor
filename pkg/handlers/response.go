@@ -137,7 +137,7 @@ func (s *Server) generateEmptyResponseBodyResponse(responseBodyBytes []byte) []*
 func (s *Server) HandleResponseChunk(ctx context.Context, reqCtx *RequestContext, chunkBytes []byte, endOfStream bool) ([]*eppb.ProcessingResponse, error) {
 	// Bodiless requests (e.g., GET /v1/models) may not have a profile set.
 	if reqCtx.Profile == nil || len(reqCtx.Profile.ResponseChunkProcessors) == 0 {
-		return s.buildStreamedChunkResponse(reqCtx, chunkBytes, endOfStream), nil
+		return s.buildStreamedChunkResponse(reqCtx, chunkBytes, endOfStream, false), nil
 	}
 
 	logger := log.FromContext(ctx).V(logutil.DEFAULT)
@@ -150,12 +150,13 @@ func (s *Server) HandleResponseChunk(ctx context.Context, reqCtx *RequestContext
 		return nil, err
 	}
 
+	mutated := reqCtx.Response.ChunkMutated()
 	outBytes := chunkBytes
-	if reqCtx.Response.ChunkMutated() {
+	if mutated {
 		outBytes = []byte(reqCtx.Response.CurrentChunk)
 	}
 
-	return s.buildStreamedChunkResponse(reqCtx, outBytes, endOfStream), nil
+	return s.buildStreamedChunkResponse(reqCtx, outBytes, endOfStream, mutated), nil
 }
 
 // runResponseChunkProcessors executes chunk processors in the order they were registered.
@@ -170,7 +171,7 @@ func (s *Server) runResponseChunkProcessors(ctx context.Context, cycleState *plu
 			verboseLogger.Info("Executing response chunk plugin", "plugin", cp.TypedName())
 		}
 		before := time.Now()
-		err := cp.ProcessResponseChunk(ctx, cycleState, response, response.CurrentChunk, isFinal)
+		err := cp.ProcessResponseChunk(ctx, cycleState, response, isFinal)
 		metrics.RecordPluginProcessingLatency(responsePluginExtensionPoint, cp.TypedName().Type, cp.TypedName().Name, time.Since(before))
 		if err != nil {
 			return err
@@ -180,9 +181,10 @@ func (s *Server) runResponseChunkProcessors(ctx context.Context, cycleState *plu
 }
 
 // buildStreamedChunkResponse wraps a chunk in the ext_proc streaming response format.
-// On the first call (responseHeadersSent=false), it prepends a HeadersResponse to answer
-// the deferred response headers — envoy requires this before it accepts body responses.
-func (s *Server) buildStreamedChunkResponse(reqCtx *RequestContext, chunk []byte, endOfStream bool) []*eppb.ProcessingResponse {
+// The mutated flag is reserved for future optimization — when false, envoy could
+// skip body re-processing. Currently both paths use StreamedBodyResponse since the
+// ext_proc protocol requires a response for each body chunk.
+func (s *Server) buildStreamedChunkResponse(reqCtx *RequestContext, chunk []byte, endOfStream bool, _ bool) []*eppb.ProcessingResponse {
 	responses := []*eppb.ProcessingResponse{
 		{
 			Response: &eppb.ProcessingResponse_ResponseBody{

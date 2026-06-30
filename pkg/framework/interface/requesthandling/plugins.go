@@ -52,12 +52,12 @@ type ResponseProcessor interface {
 }
 
 // ResponseChunkProcessor processes individual response body chunks as they
-// stream through without buffering. The framework converts the raw chunk bytes
-// to a string once and passes it to all chunk processors. Plugins receive the
-// InferenceResponse to allow header mutation.
+// stream through without buffering. The framework sets response.CurrentChunk
+// before calling plugins. Plugins read the chunk via response.CurrentChunk
+// and mutate it via response.SetChunk().
 type ResponseChunkProcessor interface {
 	plugin.Plugin
-	ProcessResponseChunk(ctx context.Context, cycleState *plugin.CycleState, response *InferenceResponse, chunk string, isFinal bool) error
+	ProcessResponseChunk(ctx context.Context, cycleState *plugin.CycleState, response *InferenceResponse, isFinal bool) error
 }
 
 type PostProcessor interface {
