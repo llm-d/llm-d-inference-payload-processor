@@ -71,8 +71,11 @@ func (s *Server) HandleResponseBody(ctx context.Context, reqCtx *RequestContext,
 	})
 
 	logger := log.FromContext(ctx)
-	// if a bodiless request is sent, profile could be left nil. check to avoid panic with nil exception
-	if reqCtx.Profile == nil || len(reqCtx.Profile.ResponsePlugins) == 0 {
+
+	hasProfilePlugins := reqCtx.Profile != nil && len(reqCtx.Profile.ResponsePlugins) > 0
+	hasPostProcessors := len(s.postProcessors) > 0
+
+	if !hasProfilePlugins && !hasPostProcessors {
 		return s.generateEmptyResponseBodyResponse(responseBodyBytes), nil
 	}
 
@@ -81,7 +84,13 @@ func (s *Server) HandleResponseBody(ctx context.Context, reqCtx *RequestContext,
 		return s.generateEmptyResponseBodyResponse(responseBodyBytes), nil
 	}
 
-	if err := s.runResponsePlugins(ctx, reqCtx.CycleState, reqCtx.Response, reqCtx.Profile.ResponsePlugins); err != nil {
+	if hasProfilePlugins {
+		if err := s.runResponsePlugins(ctx, reqCtx.CycleState, reqCtx.Response, reqCtx.Profile.ResponsePlugins); err != nil {
+			return nil, err
+		}
+	}
+
+	if err := s.runResponsePlugins(ctx, reqCtx.CycleState, reqCtx.Response, s.postProcessors); err != nil {
 		return nil, err
 	}
 

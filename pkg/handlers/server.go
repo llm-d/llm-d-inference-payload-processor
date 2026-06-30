@@ -49,10 +49,13 @@ const (
 	responsePluginExtensionPoint = "response"
 )
 
-func NewServer(profilePicker requesthandling.ProfilePicker, profiles map[string]*requesthandling.Profile) *Server {
+func NewServer(preProcessors []requesthandling.RequestProcessor, profilePicker requesthandling.ProfilePicker,
+	profiles map[string]*requesthandling.Profile, postProcessors []requesthandling.ResponseProcessor) *Server {
 	return &Server{
-		profilePicker: profilePicker,
-		profiles:      profiles,
+		preProcessors:  preProcessors,
+		profilePicker:  profilePicker,
+		profiles:       profiles,
+		postProcessors: postProcessors,
 	}
 }
 
@@ -65,9 +68,11 @@ func (s *Server) WithEventNotifier(n datasource.EventNotifier) *Server {
 // Server implements the Envoy external processing server.
 // https://www.envoyproxy.io/docs/envoy/latest/api-v3/service/ext_proc/v3/external_processor.proto
 type Server struct {
-	profilePicker requesthandling.ProfilePicker
-	profiles      map[string]*requesthandling.Profile
-	eventNotifier datasource.EventNotifier
+	preProcessors  []requesthandling.RequestProcessor
+	profilePicker  requesthandling.ProfilePicker
+	profiles       map[string]*requesthandling.Profile
+	postProcessors []requesthandling.ResponseProcessor
+	eventNotifier  datasource.EventNotifier
 }
 
 // RequestContext stores context information during the lifetime of an HTTP request.

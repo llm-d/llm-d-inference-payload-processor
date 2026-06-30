@@ -110,17 +110,17 @@ const successConfigPreAndPostProcessorsText = `
 apiVersion: llm-d.ai/v1alpha1
 kind: PayloadProcessorConfig
 plugins:
-- type: test-pre-processor
+- type: test-request-processor
 - name: pre-processor-2
-  type: test-pre-processor
-- type: test-post-processor
+  type: test-request-processor
+- type: test-response-processor
 preProcessing:
   plugins:
   - pluginRef: pre-processor-2
-  - pluginRef: test-pre-processor
+  - pluginRef: test-request-processor
 postProcessing:
   plugins:
-  - pluginRef: test-post-processor
+  - pluginRef: test-response-processor
 `
 
 // successConfigPreProcessorsOnlyText represents only pre-processors.
@@ -128,31 +128,31 @@ const successConfigPreProcessorsOnlyText = `
 apiVersion: llm-d.ai/v1alpha1
 kind: PayloadProcessorConfig
 plugins:
-- type: test-pre-processor
+- type: test-request-processor
 - name: pre-processor-2
-  type: test-pre-processor
-- type: test-post-processor
+  type: test-request-processor
+- type: test-response-processor
 preProcessing:
   plugins:
   - pluginRef: pre-processor-2
-  - pluginRef: test-pre-processor
+  - pluginRef: test-request-processor
 postProcessing:
   plugins:
 `
 
-// successConfigPreAndPostProcessorsText represents only post-processors.
+// successConfigPostProcessorsOnlyText represents only post-processors.
 const successConfigPostProcessorsOnlyText = `
 apiVersion: llm-d.ai/v1alpha1
 kind: PayloadProcessorConfig
 plugins:
-- type: test-pre-processor
+- type: test-request-processor
 - name: pre-processor-2
-  type: test-pre-processor
-- type: test-post-processor
+  type: test-request-processor
+- type: test-response-processor
 preProcessing:
 postProcessing:
   plugins:
-  - pluginRef: test-post-processor
+  - pluginRef: test-response-processor
 `
 
 // datalayerSuccessConfigText has valid datalayer references across all three categories.
@@ -316,26 +316,26 @@ profiles:
     - pluginRef: bare-plugin
 `
 
-// errorBadPreProcessorsText represents a reference to a plugin that is not a pre-processor
+// errorBadPreProcessorsText represents a reference to a plugin that is not a RequestProcessor
 const errorBadPreProcessorsText = `
 apiVersion: llm-d.ai/v1alpha1
 kind: PayloadProcessorConfig
 plugins:
-- type: test-request-processor
+- type: test-plugin
 preProcessing:
   plugins:
-  - pluginRef: test-request-processor
+  - pluginRef: test-plugin
 `
 
-// errorBadPostProcessorsText represents a reference to a plugin that is not a post-processor
+// errorBadPostProcessorsText represents a reference to a plugin that is not a ResponseProcessor
 const errorBadPostProcessorsText = `
 apiVersion: llm-d.ai/v1alpha1
 kind: PayloadProcessorConfig
 plugins:
-- type: test-response-processor
+- type: test-plugin
 postProcessing:
   plugins:
-  - pluginRef: test-response-processor
+  - pluginRef: test-plugin
 `
 
 // errorMissingPreProcessorsText represents a reference to an unknown pre-processor

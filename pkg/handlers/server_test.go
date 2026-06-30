@@ -340,7 +340,8 @@ type noopNotifier struct{}
 func (noopNotifier) Notify(datasource.Event) {}
 
 func newServerForTest(profiles map[string]*requesthandling.Profile) *Server {
-	return NewServer(single.NewSingleProfilePicker(), profiles).WithEventNotifier(noopNotifier{})
+	return NewServer([]requesthandling.RequestProcessor{}, single.NewSingleProfilePicker(), profiles,
+		[]requesthandling.ResponseProcessor{}).WithEventNotifier(noopNotifier{})
 }
 
 func newTestProfiles() map[string]*requesthandling.Profile {
