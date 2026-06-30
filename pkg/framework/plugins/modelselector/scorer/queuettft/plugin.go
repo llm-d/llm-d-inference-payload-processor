@@ -41,11 +41,24 @@ import (
 const (
 	PluginType = "queue-ttft-scorer"
 	// unobserved is a sentinel returned by effectiveTTFT when no floor exists yet.
-	// It is negative so it cannot be confused with a valid (non-negative) TTFT estimate.
 	unobserved = -1.0
 
 	defaultExplorationRate = 0.0 // off by default; set e.g. 0.1 for 10% exploration
+
+	// DecisionsCycleStateKey holds the per-model scoring decisions for response plugins.
+	DecisionsCycleStateKey = "queue-ttft/decisions"
 )
+
+// ScoringDecision captures the scorer's decision for one model, written to CycleState.
+type ScoringDecision struct {
+	EffectiveTTFT         float64
+	Floor                 float64 // P10Low
+	P50                   float64
+	RecentN               int
+	Inflight              int64
+	State                 string // "trusted" | "seed" | "unobserved"
+	ExplorationSuppressed bool
+}
 
 var _ modelselector.Scorer = &QueueTTFTScorer{}
 
@@ -104,9 +117,10 @@ func (s *QueueTTFTScorer) WithExplorationRate(r float64) *QueueTTFTScorer {
 // If explorationRate > 0, models in state 1 or 3 are suppressed to score 0 with probability
 // (1 - explorationRate). This throttles probing traffic to ~explorationRate of requests,
 // preventing a burst of traffic to under-observed models before their first responses return.
-func (s *QueueTTFTScorer) Score(ctx context.Context, _ *plugin.CycleState, _ *requesthandling.InferenceRequest, models []datalayer.Model) map[datalayer.Model]float64 {
+func (s *QueueTTFTScorer) Score(ctx context.Context, cycleState *plugin.CycleState, _ *requesthandling.InferenceRequest, models []datalayer.Model) map[datalayer.Model]float64 {
 	effs := make(map[datalayer.Model]float64, len(models))
 	needsProbe := make(map[datalayer.Model]bool, len(models))
+	wasUnobserved := make(map[datalayer.Model]bool, len(models))
 	minEff, maxEff := math.MaxFloat64, 0.0
 	allUnobserved := true
 
@@ -114,7 +128,9 @@ func (s *QueueTTFTScorer) Score(ctx context.Context, _ *plugin.CycleState, _ *re
 		v, probe := s.effectiveTTFT(ctx, model)
 		effs[model] = v
 		needsProbe[model] = probe
-		if v != unobserved {
+		if v == unobserved {
+			wasUnobserved[model] = true
+		} else {
 			allUnobserved = false
 			if v > maxEff {
 				maxEff = v
@@ -131,6 +147,7 @@ func (s *QueueTTFTScorer) Score(ctx context.Context, _ *plugin.CycleState, _ *re
 		for _, model := range models {
 			scores[model] = 1.0
 		}
+		s.writeDecisions(cycleState, models, effs, wasUnobserved, needsProbe, nil)
 		return scores
 	}
 
@@ -165,13 +182,12 @@ func (s *QueueTTFTScorer) Score(ctx context.Context, _ *plugin.CycleState, _ *re
 		}
 	}
 
-	// Exploration gate: under-observed models win only explorationRate fraction of requests.
-	// On the other (1-explorationRate) fraction, suppress their score to 0 so the best
-	// calibrated model wins and the under-observed model does not receive a traffic burst.
+	explorationSuppressed := make(map[datalayer.Model]bool, len(models))
 	if s.explorationRate > 0 {
 		for _, model := range models {
 			if needsProbe[model] && rand.Float64() >= s.explorationRate {
 				scores[model] = 0
+				explorationSuppressed[model] = true
 				log.FromContext(ctx).V(logutil.DEBUG).Info("queue-ttft exploration suppressed",
 					"model", model.GetName(), "explorationRate", s.explorationRate,
 				)
@@ -189,7 +205,55 @@ func (s *QueueTTFTScorer) Score(ctx context.Context, _ *plugin.CycleState, _ *re
 			)
 		}
 	}
+
+	s.writeDecisions(cycleState, models, effs, wasUnobserved, needsProbe, explorationSuppressed)
 	return scores
+}
+
+// writeDecisions stores per-model scoring decisions in CycleState for response plugins.
+func (s *QueueTTFTScorer) writeDecisions(cycleState *plugin.CycleState, models []datalayer.Model,
+	effs map[datalayer.Model]float64, wasUnobserved, needsProbe, explorationSuppressed map[datalayer.Model]bool) {
+	if cycleState == nil {
+		return
+	}
+	decisions := make(map[string]ScoringDecision, len(models))
+	for _, model := range models {
+		var state string
+		switch {
+		case wasUnobserved[model]:
+			state = "unobserved"
+		case needsProbe[model]:
+			state = "seed"
+		default:
+			state = "trusted"
+		}
+
+		var floor, p50 float64
+		var recentN int
+		var inflight int64
+		if val, ok := model.GetAttributes().Get(ttftpercentile.AttributeKey); ok {
+			if m, ok := val.(ttftpercentile.TTFTPercentileMetrics); ok {
+				floor = m.P10LowTTFT
+				if floor == 0 {
+					floor = m.P10TTFT
+				}
+				p50 = m.P50TTFT
+				recentN = m.RecentN
+				inflight = m.Requests
+			}
+		}
+
+		decisions[model.GetName()] = ScoringDecision{
+			EffectiveTTFT:         effs[model],
+			Floor:                 floor,
+			P50:                   p50,
+			RecentN:               recentN,
+			Inflight:              inflight,
+			State:                 state,
+			ExplorationSuppressed: explorationSuppressed[model],
+		}
+	}
+	cycleState.Write(DecisionsCycleStateKey, decisions)
 }
 
 // effectiveTTFT returns the predicted TTFT for the model's next request and whether

@@ -1,7 +1,7 @@
 payloadProcessor:
   listModels:
-    - facebook/opt-125m
-    - facebook/opt-350m
+    - Qwen/Qwen3-8B
+    - Qwen/Qwen3-32B
   customConfig:
     plugins:
     - type: body-field-to-header
@@ -25,6 +25,7 @@ payloadProcessor:
         lowLoadWindowAge: 1h
         maxRequests: 100
         minRequests: 20
+    - type: scoring-debug-headers
     - type: model-config-datasource
       parameters:
         modelsPath: /config/models.json
@@ -38,6 +39,8 @@ payloadProcessor:
         - pluginRef: max-score-picker
         - pluginRef: body-field-to-header
         - pluginRef: base-model-to-header
+        response:
+        - pluginRef: scoring-debug-headers
     datalayer:
       extractors:
       - pluginRef: ttft-percentile-extractor

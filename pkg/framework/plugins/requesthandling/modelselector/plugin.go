@@ -33,6 +33,9 @@ import (
 
 const (
 	ModelSelectorPluginType = "model-selector"
+
+	// SelectedModelCycleStateKey holds the selected model name for response plugins.
+	SelectedModelCycleStateKey = "model-selector/selected-model"
 )
 
 var _ requesthandling.RequestProcessor = &ModelSelectorPlugin{}
@@ -91,6 +94,7 @@ func (p *ModelSelectorPlugin) ProcessRequest(ctx context.Context, cycleState *pl
 	selectedName := result.TargetModel.GetName()
 	logger.V(logutil.VERBOSE).Info("Model selected", "model", selectedName)
 
+	cycleState.Write(SelectedModelCycleStateKey, selectedName)
 	request.SetBodyField("model", selectedName)
 
 	return nil
