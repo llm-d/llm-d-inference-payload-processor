@@ -97,10 +97,12 @@ func NewQueueTTFTScorer() *QueueTTFTScorer {
 
 func (s *QueueTTFTScorer) TypedName() plugin.TypedName { return s.typedName }
 func (s *QueueTTFTScorer) WithName(name string) *QueueTTFTScorer {
-	s.typedName.Name = name; return s
+	s.typedName.Name = name
+	return s
 }
 func (s *QueueTTFTScorer) WithExplorationRate(r float64) *QueueTTFTScorer {
-	s.explorationRate = r; return s
+	s.explorationRate = r
+	return s
 }
 
 // modelEval is the scorer's per-model working state for one Score call.

@@ -21,37 +21,21 @@ import (
 	"time"
 )
 
-type percentileTracker interface {
-	add(value float64, inflight int64, ts time.Time)
-	// quantile returns the p-th percentile of the most recent min(maxN, available)
-	// observations within maxAge. Returns false if there are no observations.
-	quantile(p float64, now time.Time, maxAge time.Duration, maxN int) (float64, bool)
-	// quantileWithInflight returns the p-th percentile TTFT and the average inflight
-	// of observations in the [p-0.1, p+0.1] band of the capped short window.
-	// Returns false if there are no observations.
-	quantileWithInflight(p float64, now time.Time, maxAge time.Duration, maxN int) (float64, float64, bool)
-	// p10Low computes the two-level P10 over the full lowLoadWindowAge window (no cap).
-	// It isolates low-queue-wait observations without requiring a fixed inflight cut-off.
-	// Returns false if there are no observations.
-	p10Low(now time.Time, maxAge time.Duration) (float64, bool)
-	// countCapped returns the number of observations in the capped short window.
-	countCapped(now time.Time, maxAge time.Duration, maxN int) int
-}
-
 type observation struct {
 	value    float64
 	inflight int64 // inflight_at_dispatch
 	ts       time.Time
 }
 
+// slidingWindowTracker is a fixed-capacity ring buffer of TTFT observations.
 type slidingWindowTracker struct {
 	buf  []observation
 	head int
 	n    int
 }
 
-func newSlidingWindowTracker(cap int) *slidingWindowTracker {
-	return &slidingWindowTracker{buf: make([]observation, cap)}
+func newSlidingWindowTracker(capacity int) *slidingWindowTracker {
+	return &slidingWindowTracker{buf: make([]observation, capacity)}
 }
 
 func (t *slidingWindowTracker) add(value float64, inflight int64, ts time.Time) {
@@ -62,106 +46,63 @@ func (t *slidingWindowTracker) add(value float64, inflight int64, ts time.Time) 
 	}
 }
 
-// recentObs returns observations within maxAge, newest first.
-func (t *slidingWindowTracker) recentObs(now time.Time, maxAge time.Duration) []observation {
+// window returns the observations within maxAge, capped to the most recent maxN
+// (0 = no cap), sorted ascending by value. Observations are stored in time order,
+// so the newest-first scan stops at the first one older than the cutoff.
+func (t *slidingWindowTracker) window(now time.Time, maxAge time.Duration, maxN int) []observation {
 	cutoff := now.Add(-maxAge)
-	cap := len(t.buf)
-	out := make([]observation, 0, t.n)
+	size := len(t.buf)
+	capHint := t.n
+	if maxN > 0 && maxN < capHint {
+		capHint = maxN
+	}
+	out := make([]observation, 0, capHint)
 	for i := 0; i < t.n; i++ {
-		obs := t.buf[(t.head-1-i+cap)%cap]
-		if !obs.ts.Before(cutoff) {
-			out = append(out, obs)
+		o := t.buf[(t.head-1-i+size)%size]
+		if o.ts.Before(cutoff) {
+			break
+		}
+		out = append(out, o)
+		if maxN > 0 && len(out) == maxN {
+			break
 		}
 	}
+	sort.Slice(out, func(i, j int) bool { return out[i].value < out[j].value })
 	return out
 }
 
-// recentObsCapped returns the most recent min(maxN, available) observations within maxAge.
-// recentObs is already newest-first so a prefix slice gives the most recent maxN.
-func (t *slidingWindowTracker) recentObsCapped(now time.Time, maxAge time.Duration, maxN int) []observation {
-	obs := t.recentObs(now, maxAge)
-	if maxN > 0 && len(obs) > maxN {
-		obs = obs[:maxN]
-	}
-	return obs
-}
-
-func (t *slidingWindowTracker) countCapped(now time.Time, maxAge time.Duration, maxN int) int {
-	return len(t.recentObsCapped(now, maxAge, maxN))
-}
-
-// percentileOf returns the p-th percentile of sorted (ascending) by linear interpolation.
-func percentileOf(sorted []float64, p float64) float64 {
+// percentileOf returns the p-th percentile value of a value-sorted slice by linear interpolation.
+func percentileOf(sorted []observation, p float64) float64 {
 	idx := p * float64(len(sorted)-1)
 	lo := int(idx)
 	if lo+1 >= len(sorted) {
-		return sorted[lo]
+		return sorted[lo].value
 	}
-	return sorted[lo] + (idx-float64(lo))*(sorted[lo+1]-sorted[lo])
+	return sorted[lo].value + (idx-float64(lo))*(sorted[lo+1].value-sorted[lo].value)
 }
 
-// sortedValues extracts and sorts (ascending) the observation values.
-func sortedValues(obs []observation) []float64 {
-	vals := make([]float64, len(obs))
-	for i, o := range obs {
-		vals[i] = o.value
-	}
-	sort.Float64s(vals)
-	return vals
+// twoLevelP10 estimates the hardware floor: the P10 of the bottom-decile slice (~P1 of all),
+// isolating the fastest requests in the window regardless of their inflight count.
+func twoLevelP10(sorted []observation) float64 {
+	lo := int(0.10 * float64(len(sorted)-1))
+	return percentileOf(sorted[:lo+1], 0.10)
 }
 
-func (t *slidingWindowTracker) quantile(p float64, now time.Time, maxAge time.Duration, maxN int) (float64, bool) {
-	obs := t.recentObsCapped(now, maxAge, maxN)
-	if len(obs) == 0 {
-		return 0, false
+// bandInflight returns the average inflight of observations in the [p-0.1, p+0.1] band of
+// a value-sorted slice. Averaging a band rather than a single point stabilises the estimate.
+func bandInflight(sorted []observation, p float64) float64 {
+	n := len(sorted)
+	lo := int((p - 0.10) * float64(n-1))
+	if lo < 0 {
+		lo = 0
 	}
-	return percentileOf(sortedValues(obs), p), true
-}
-
-func (t *slidingWindowTracker) p10Low(now time.Time, maxAge time.Duration) (float64, bool) {
-	// Uses the full lowLoadWindowAge window with no cap — stable hardware floor.
-	obs := t.recentObs(now, maxAge)
-	if len(obs) == 0 {
-		return 0, false
-	}
-	vals := sortedValues(obs)
-
-	// Level 1: P10 threshold — index of the 10th-percentile observation.
-	lo := int(0.10 * float64(len(vals)-1))
-
-	// Level 2: P10 of the bottom-decile slice (~P1 of all observations): the fastest
-	// requests in the window regardless of inflight, approximating the hardware floor.
-	return percentileOf(vals[:lo+1], 0.10), true
-}
-
-func (t *slidingWindowTracker) quantileWithInflight(p float64, now time.Time, maxAge time.Duration, maxN int) (float64, float64, bool) {
-	obs := t.recentObsCapped(now, maxAge, maxN)
-	if len(obs) == 0 {
-		return 0, 0, false
-	}
-	sort.Slice(obs, func(i, j int) bool { return obs[i].value < obs[j].value })
-	n := len(obs)
-	vals := make([]float64, n)
-	for i, o := range obs {
-		vals[i] = o.value
-	}
-	value := percentileOf(vals, p)
-
-	// Average inflight of observations in the [p-0.1, p+0.1] band.
-	// Using a band rather than a single point makes inflightAtP50 more stable.
-	bandLo := int((p - 0.10) * float64(n-1))
-	if bandLo < 0 {
-		bandLo = 0
-	}
-	bandHi := int((p + 0.10) * float64(n-1))
-	if bandHi >= n {
-		bandHi = n - 1
+	hi := int((p + 0.10) * float64(n-1))
+	if hi >= n {
+		hi = n - 1
 	}
 	var sum float64
-	for i := bandLo; i <= bandHi; i++ {
-		sum += float64(obs[i].inflight)
+	for i := lo; i <= hi; i++ {
+		sum += float64(sorted[i].inflight)
 	}
-	avgInflight := sum / float64(bandHi-bandLo+1)
-
-	return value, avgInflight, true
+	return sum / float64(hi-lo+1)
 }

@@ -47,8 +47,8 @@ const (
 var _ dlsrc.Extractor = &TTFTPercentileExtractor{}
 
 type TTFTPercentileExtractorConfig struct {
-	IntervalDuration string  `json:"intervalDuration,omitempty"`
-	WindowSize       int     `json:"windowSize,omitempty"`
+	IntervalDuration string `json:"intervalDuration,omitempty"`
+	WindowSize       int    `json:"windowSize,omitempty"`
 	// MaxObservationAge caps how far back the short window looks.
 	// Observations older than this are never used for P50 or short-window P10.
 	MaxObservationAge string `json:"maxObservationAge,omitempty"`
@@ -108,23 +108,24 @@ type pendingEntry struct {
 type modelPercentileState struct {
 	TTFTPercentileMetrics
 	intervalStart time.Time
-	tracker       percentileTracker
+	tracker       *slidingWindowTracker
 	pending       map[string]pendingEntry
 }
 
 func (s *modelPercentileState) flush(now time.Time, maxObservationAge, lowLoadWindowAge time.Duration, maxRequests int) {
-	p50, inflightAtP50, ok50 := s.tracker.quantileWithInflight(0.50, now, maxObservationAge, maxRequests)
-	p10, ok10 := s.tracker.quantile(0.10, now, maxObservationAge, maxRequests)
-	if ok50 {
-		s.P50TTFT, s.InflightAtP50, s.LastObservedAt = p50, inflightAtP50, now.UnixNano()
+	// Short window (value-sorted, capped): one snapshot feeds P10, P50 and inflightAtP50.
+	short := s.tracker.window(now, maxObservationAge, maxRequests)
+	s.RecentN = len(short)
+	if len(short) > 0 {
+		s.P10TTFT = percentileOf(short, 0.10)
+		s.P50TTFT = percentileOf(short, 0.50)
+		s.InflightAtP50 = bandInflight(short, 0.50)
+		s.LastObservedAt = now.UnixNano()
 	}
-	if ok10 {
-		s.P10TTFT = p10
+	// Long window (uncapped): stable hardware floor.
+	if long := s.tracker.window(now, lowLoadWindowAge, 0); len(long) > 0 {
+		s.P10LowTTFT = twoLevelP10(long)
 	}
-	if p10low, ok := s.tracker.p10Low(now, lowLoadWindowAge); ok {
-		s.P10LowTTFT = p10low
-	}
-	s.RecentN = s.tracker.countCapped(now, maxObservationAge, maxRequests)
 	s.intervalStart = now
 }
 
@@ -199,19 +200,24 @@ func NewTTFTPercentileExtractor(ds datalayer.Datastore) *TTFTPercentileExtractor
 
 func (e *TTFTPercentileExtractor) TypedName() plugin.TypedName { return e.typedName }
 func (e *TTFTPercentileExtractor) WithName(n string) *TTFTPercentileExtractor {
-	e.typedName.Name = n; return e
+	e.typedName.Name = n
+	return e
 }
 func (e *TTFTPercentileExtractor) WithIntervalDuration(d time.Duration) *TTFTPercentileExtractor {
-	e.intervalDuration = d; return e
+	e.intervalDuration = d
+	return e
 }
 func (e *TTFTPercentileExtractor) WithWindow(size int, maxObsAge time.Duration) *TTFTPercentileExtractor {
-	e.windowSize, e.maxObservationAge = size, maxObsAge; return e
+	e.windowSize, e.maxObservationAge = size, maxObsAge
+	return e
 }
 func (e *TTFTPercentileExtractor) WithLowLoadWindowAge(age time.Duration) *TTFTPercentileExtractor {
-	e.lowLoadWindowAge = age; return e
+	e.lowLoadWindowAge = age
+	return e
 }
 func (e *TTFTPercentileExtractor) WithRequestBounds(maxN, minN int) *TTFTPercentileExtractor {
-	e.maxRequests, e.minRequests = maxN, minN; return e
+	e.maxRequests, e.minRequests = maxN, minN
+	return e
 }
 
 func (e *TTFTPercentileExtractor) Extract(ctx context.Context, events []dlsrc.Event) error {
@@ -262,9 +268,11 @@ func (e *TTFTPercentileExtractor) Extract(ctx context.Context, events []dlsrc.Ev
 					inflightAtDispatch = entry.inflightAtDispatch
 				}
 				s.tracker.add(ttft, inflightAtDispatch, now)
-				debugLogger.Info("ttft-observation",
-					"model", model, "ttft_s", ttft, "inflightAtDispatch", inflightAtDispatch,
-				)
+				if debugLogger.Enabled() {
+					debugLogger.Info("ttft-observation",
+						"model", model, "ttft_s", ttft, "inflightAtDispatch", inflightAtDispatch,
+					)
+				}
 			}
 			if reqID != "" {
 				delete(s.pending, reqID)
@@ -288,13 +296,15 @@ func (e *TTFTPercentileExtractor) Extract(ctx context.Context, events []dlsrc.Ev
 		m.MinRequests = e.minRequests
 		e.ds.GetOrCreateModel(model).GetAttributes().Put(AttributeKey, m)
 
-		eff, _ := m.Predict()
-		debugLogger.Info("ttft-percentile wrote attribute",
-			"model", model, "Requests", m.Requests,
-			"InflightAtP50", m.InflightAtP50, "P10Low_s", m.P10LowTTFT,
-			"P10_s", m.P10TTFT, "P50_s", m.P50TTFT, "EffectiveTTFT_s", eff,
-			"RecentN", m.RecentN, "MinRequests", m.MinRequests,
-		)
+		if debugLogger.Enabled() {
+			eff, _ := m.Predict()
+			debugLogger.Info("ttft-percentile wrote attribute",
+				"model", model, "Requests", m.Requests,
+				"InflightAtP50", m.InflightAtP50, "P10Low_s", m.P10LowTTFT,
+				"P10_s", m.P10TTFT, "P50_s", m.P50TTFT, "EffectiveTTFT_s", eff,
+				"RecentN", m.RecentN, "MinRequests", m.MinRequests,
+			)
+		}
 	}
 	return nil
 }
