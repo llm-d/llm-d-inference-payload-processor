@@ -40,8 +40,6 @@ import (
 
 const (
 	PluginType = "queue-ttft-scorer"
-	// unobserved is a sentinel returned by effectiveTTFT when no floor exists yet.
-	unobserved = -1.0
 
 	defaultExplorationRate = 0.0 // off by default; set e.g. 0.1 for 10% exploration
 
@@ -105,204 +103,121 @@ func (s *QueueTTFTScorer) WithExplorationRate(r float64) *QueueTTFTScorer {
 	s.explorationRate = r; return s
 }
 
-// Score returns (maxTTFT − effectiveTTFT) / (maxTTFT − minTTFT) per model.
+// modelEval is the scorer's per-model working state for one Score call.
+type modelEval struct {
+	metrics    ttftpercentile.TTFTPercentileMetrics
+	eff        float64
+	trusted    bool // calibrated operating point
+	observed   bool // has a service floor (not truly cold)
+	suppressed bool // exploration-suppressed this cycle
+}
+
+// Score ranks models by predicted TTFT: score = (maxTTFT − effectiveTTFT) / (maxTTFT − minTTFT).
 //
-// Three cases per model:
-//  1. Truly cold (no floor): unobserved sentinel → seeded to min(observed) after all are computed.
-//  2. Trusted: RecentN ≥ MinRequests with a calibrated P50 → formula score.
-//  3. Gone-quiet / under-observed: floor only (optimistic, assumes no queue).
-//
-// If all models are cold → all score 1.0.
-//
-// If explorationRate > 0, models in state 1 or 3 are suppressed to score 0 with probability
-// (1 - explorationRate). This throttles probing traffic to ~explorationRate of requests,
-// preventing a burst of traffic to under-observed models before their first responses return.
+// Cold models (no floor) are seeded at the best observed TTFT; if every model is cold, all
+// score 1.0. With explorationRate > 0, under-observed models (not yet calibrated) are
+// suppressed to 0 with probability (1 - explorationRate) to throttle probing traffic.
 func (s *QueueTTFTScorer) Score(ctx context.Context, cycleState *plugin.CycleState, _ *requesthandling.InferenceRequest, models []datalayer.Model) map[datalayer.Model]float64 {
-	effs := make(map[datalayer.Model]float64, len(models))
-	needsProbe := make(map[datalayer.Model]bool, len(models))
-	wasUnobserved := make(map[datalayer.Model]bool, len(models))
-	minEff, maxEff := math.MaxFloat64, 0.0
-	allUnobserved := true
+	evals := make(map[datalayer.Model]*modelEval, len(models))
+	minEff := math.MaxFloat64
+	anyObserved := false
 
 	for _, model := range models {
-		v, probe := s.effectiveTTFT(ctx, model)
-		effs[model] = v
-		needsProbe[model] = probe
-		if v == unobserved {
-			wasUnobserved[model] = true
-		} else {
-			allUnobserved = false
-			if v > maxEff {
-				maxEff = v
+		m := metricsFor(model)
+		eff, trusted := m.Predict()
+		e := &modelEval{metrics: m, eff: eff, trusted: trusted, observed: m.Floor() > 0}
+		evals[model] = e
+		if e.observed {
+			anyObserved = true
+			if eff < minEff {
+				minEff = eff
 			}
-			if v < minEff {
-				minEff = v
-			}
-		}
-	}
-
-	// All models cold → explore equally (no suppression).
-	if allUnobserved {
-		scores := make(map[datalayer.Model]float64, len(models))
-		for _, model := range models {
-			scores[model] = 1.0
-		}
-		s.writeDecisions(cycleState, models, effs, wasUnobserved, needsProbe, nil)
-		return scores
-	}
-
-	// Seed truly cold models at the best observed TTFT (optimistic: assume as-good-as-best).
-	seed := minEff
-	for _, model := range models {
-		if effs[model] == unobserved {
-			effs[model] = seed
-			log.FromContext(ctx).V(logutil.DEBUG).Info("queue-ttft cold-seed",
-				"model", model.GetName(), "seed_s", seed,
-			)
-		}
-	}
-
-	// Recompute range after seeding (seed == minEff so max is unchanged, but be explicit).
-	minEff, maxEff = math.MaxFloat64, 0.0
-	for _, v := range effs {
-		if v > maxEff {
-			maxEff = v
-		}
-		if v < minEff {
-			minEff = v
 		}
 	}
 
 	scores := make(map[datalayer.Model]float64, len(models))
-	for _, model := range models {
-		if maxEff == minEff {
+
+	// No model has a floor yet → nothing to rank; explore all equally.
+	if !anyObserved {
+		for _, model := range models {
 			scores[model] = 1.0
-		} else {
-			scores[model] = (maxEff - effs[model]) / (maxEff - minEff)
+		}
+		s.writeDecisions(cycleState, models, evals)
+		return scores
+	}
+
+	// Seed cold models at the best observed TTFT (optimistic). Seeds equal minEff, so the
+	// range spans the observed models and maxEff is their slowest.
+	maxEff := 0.0
+	for _, e := range evals {
+		if !e.observed {
+			e.eff = minEff
+		}
+		if e.eff > maxEff {
+			maxEff = e.eff
 		}
 	}
 
-	explorationSuppressed := make(map[datalayer.Model]bool, len(models))
-	if s.explorationRate > 0 {
-		for _, model := range models {
-			if needsProbe[model] && rand.Float64() >= s.explorationRate {
-				scores[model] = 0
-				explorationSuppressed[model] = true
-				log.FromContext(ctx).V(logutil.DEBUG).Info("queue-ttft exploration suppressed",
-					"model", model.GetName(), "explorationRate", s.explorationRate,
-				)
-			}
+	for _, model := range models {
+		e := evals[model]
+		if maxEff == minEff {
+			scores[model] = 1.0
+		} else {
+			scores[model] = (maxEff - e.eff) / (maxEff - minEff)
+		}
+		if s.explorationRate > 0 && !e.trusted && rand.Float64() >= s.explorationRate {
+			scores[model] = 0
+			e.suppressed = true
 		}
 	}
 
 	if dl := log.FromContext(ctx).V(logutil.DEBUG); dl.Enabled() {
 		for _, model := range models {
-			dl.Info("queue-ttft score",
-				"model", model.GetName(),
-				"effectiveTTFT", effs[model],
-				"score", scores[model],
-				"needsProbe", needsProbe[model],
-			)
+			e := evals[model]
+			dl.Info("queue-ttft score", "model", model.GetName(),
+				"effectiveTTFT", e.eff, "score", scores[model], "trusted", e.trusted)
 		}
 	}
 
-	s.writeDecisions(cycleState, models, effs, wasUnobserved, needsProbe, explorationSuppressed)
+	s.writeDecisions(cycleState, models, evals)
 	return scores
 }
 
+// metricsFor reads the TTFT percentile metrics an extractor published for the model.
+// A missing or malformed attribute yields the zero value, which reads as truly cold.
+func metricsFor(model datalayer.Model) ttftpercentile.TTFTPercentileMetrics {
+	if val, ok := model.GetAttributes().Get(ttftpercentile.AttributeKey); ok {
+		if m, ok := val.(ttftpercentile.TTFTPercentileMetrics); ok {
+			return m
+		}
+	}
+	return ttftpercentile.TTFTPercentileMetrics{}
+}
+
 // writeDecisions stores per-model scoring decisions in CycleState for response plugins.
-func (s *QueueTTFTScorer) writeDecisions(cycleState *plugin.CycleState, models []datalayer.Model,
-	effs map[datalayer.Model]float64, wasUnobserved, needsProbe, explorationSuppressed map[datalayer.Model]bool) {
+func (s *QueueTTFTScorer) writeDecisions(cycleState *plugin.CycleState, models []datalayer.Model, evals map[datalayer.Model]*modelEval) {
 	if cycleState == nil {
 		return
 	}
 	decisions := make(map[string]ScoringDecision, len(models))
 	for _, model := range models {
-		var state string
+		e := evals[model]
+		state := "trusted"
 		switch {
-		case wasUnobserved[model]:
+		case !e.observed:
 			state = "unobserved"
-		case needsProbe[model]:
+		case !e.trusted:
 			state = "seed"
-		default:
-			state = "trusted"
 		}
-
-		var floor, p50 float64
-		var recentN int
-		var inflight int64
-		if val, ok := model.GetAttributes().Get(ttftpercentile.AttributeKey); ok {
-			if m, ok := val.(ttftpercentile.TTFTPercentileMetrics); ok {
-				floor = m.P10LowTTFT
-				if floor == 0 {
-					floor = m.P10TTFT
-				}
-				p50 = m.P50TTFT
-				recentN = m.RecentN
-				inflight = m.Requests
-			}
-		}
-
 		decisions[model.GetName()] = ScoringDecision{
-			EffectiveTTFT:         effs[model],
-			Floor:                 floor,
-			P50:                   p50,
-			RecentN:               recentN,
-			Inflight:              inflight,
+			EffectiveTTFT:         e.eff,
+			Floor:                 e.metrics.Floor(),
+			P50:                   e.metrics.P50TTFT,
+			RecentN:               e.metrics.RecentN,
+			Inflight:              e.metrics.Requests,
 			State:                 state,
-			ExplorationSuppressed: explorationSuppressed[model],
+			ExplorationSuppressed: e.suppressed,
 		}
 	}
 	cycleState.Write(DecisionsCycleStateKey, decisions)
-}
-
-// effectiveTTFT returns the predicted TTFT for the model's next request and whether
-// the model needs exploration (UNOBSERVED or SEED state — not yet calibrated).
-//
-//   - (unobserved, true): no floor yet — truly cold model.
-//   - (floor, true): under-observed or gone-quiet — optimistic seed, assume no queue.
-//   - (floor + inflight×slope, false): trusted operating point with recent calibration.
-func (s *QueueTTFTScorer) effectiveTTFT(ctx context.Context, model datalayer.Model) (float64, bool) {
-	val, ok := model.GetAttributes().Get(ttftpercentile.AttributeKey)
-	if !ok {
-		return unobserved, true
-	}
-	m, ok := val.(ttftpercentile.TTFTPercentileMetrics)
-	if !ok {
-		return unobserved, true
-	}
-
-	floor := m.P10LowTTFT
-	if floor == 0 {
-		floor = m.P10TTFT
-	}
-	if floor == 0 {
-		return unobserved, true // truly cold: no hardware floor established yet
-	}
-
-	// Trusted: enough recent observations and a calibrated operating point.
-	if m.RecentN >= m.MinRequests && m.InflightAtP50 > 0 && m.P50TTFT > floor {
-		eff := floor + float64(m.Requests)*(m.P50TTFT-floor)/m.InflightAtP50
-		if eff < floor {
-			eff = floor
-		}
-		if dl := log.FromContext(ctx).V(logutil.DEBUG); dl.Enabled() {
-			dl.Info("queue-ttft effective trusted",
-				"model", model.GetName(), "inflight", m.Requests,
-				"inflightAtP50", m.InflightAtP50, "P10Low_s", m.P10LowTTFT,
-				"P50_s", m.P50TTFT, "recentN", m.RecentN, "effectiveTTFT", eff,
-			)
-		}
-		return eff, false
-	}
-
-	// Optimistic seed: model is under-observed or gone-quiet.
-	// Assume no queue — predict only the hardware floor.
-	if dl := log.FromContext(ctx).V(logutil.DEBUG); dl.Enabled() {
-		dl.Info("queue-ttft effective seed",
-			"model", model.GetName(), "floor_s", floor,
-			"recentN", m.RecentN, "minRequests", m.MinRequests,
-		)
-	}
-	return floor, true
 }

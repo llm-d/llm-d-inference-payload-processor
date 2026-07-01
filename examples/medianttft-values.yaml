@@ -21,7 +21,6 @@ payloadProcessor:
         intervalDuration: 1s
         windowSize: 5000
         maxObservationAge: 3m
-        inflightEmaAlpha: 0.2
         lowLoadWindowAge: 1h
         maxRequests: 100
         minRequests: 20
