@@ -64,10 +64,11 @@ func (s *Server) HandleResponseBody(ctx context.Context, reqCtx *RequestContext,
 	s.eventNotifier.Notify(datasource.Event{
 		Type: datasource.ResponseEventType,
 		Payload: datasource.ResponsePayload{
-			Request:  reqCtx.Request,
-			Response: reqCtx.Response,
-			Duration: reqCtx.ResponseCompleteTimestamp.Sub(reqCtx.RequestReceivedTimestamp),
-			TTFT:     ttft,
+			Request:    reqCtx.Request,
+			Response:   reqCtx.Response,
+			CycleState: reqCtx.CycleState,
+			Duration:   reqCtx.ResponseCompleteTimestamp.Sub(reqCtx.RequestReceivedTimestamp),
+			TTFT:       ttft,
 		},
 	})
 	if ttft > 0 {

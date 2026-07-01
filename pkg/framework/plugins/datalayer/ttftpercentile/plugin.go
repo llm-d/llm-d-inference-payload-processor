@@ -36,6 +36,10 @@ const (
 	PluginType   = "ttft-percentile-extractor"
 	AttributeKey = "ttft-percentile"
 
+	// inflightAtDispatchKey carries a request's inflight-at-dispatch through CycleState
+	// from the request event to the matching response event.
+	inflightAtDispatchKey = "ttft-percentile/inflight-at-dispatch"
+
 	defaultWindowSize        = 5000
 	defaultMaxObservationAge = 3 * time.Minute // observations older than this are never used
 	defaultIntervalDuration  = 5 * time.Second
@@ -100,16 +104,10 @@ func (m TTFTPercentileMetrics) Predict() (effectiveTTFT float64, trusted bool) {
 	return floor, false
 }
 
-type pendingEntry struct {
-	inflightAtDispatch int64
-	dispatchedAt       time.Time
-}
-
 type modelPercentileState struct {
 	TTFTPercentileMetrics
 	intervalStart time.Time
 	tracker       *slidingWindowTracker
-	pending       map[string]pendingEntry
 }
 
 func (s *modelPercentileState) flush(now time.Time, maxObservationAge, lowLoadWindowAge time.Duration, maxRequests int) {
@@ -239,11 +237,9 @@ func (e *TTFTPercentileExtractor) Extract(ctx context.Context, events []dlsrc.Ev
 			s := e.getOrCreate(model)
 			inflight := s.Requests
 			s.Requests++
-			if reqID := p.Request.Headers["x-request-id"]; reqID != "" {
-				s.pending[reqID] = pendingEntry{
-					inflightAtDispatch: inflight,
-					dispatchedAt:       now,
-				}
+			// Stash inflight-at-dispatch in CycleState; the matching response event reads it back.
+			if p.CycleState != nil {
+				p.CycleState.Write(inflightAtDispatchKey, inflight)
 			}
 			updated[model] = true
 
@@ -260,12 +256,11 @@ func (e *TTFTPercentileExtractor) Extract(ctx context.Context, events []dlsrc.Ev
 			if s.Requests--; s.Requests < 0 {
 				s.Requests = 0
 			}
-			reqID := p.Request.Headers["x-request-id"]
 			if p.TTFT > 0 {
 				ttft := p.TTFT.Seconds()
 				var inflightAtDispatch int64
-				if entry, found := s.pending[reqID]; found && reqID != "" {
-					inflightAtDispatch = entry.inflightAtDispatch
+				if p.CycleState != nil {
+					inflightAtDispatch, _ = plugin.ReadCycleStateKey[int64](p.CycleState, inflightAtDispatchKey)
 				}
 				s.tracker.add(ttft, inflightAtDispatch, now)
 				if debugLogger.Enabled() {
@@ -273,9 +268,6 @@ func (e *TTFTPercentileExtractor) Extract(ctx context.Context, events []dlsrc.Ev
 						"model", model, "ttft_s", ttft, "inflightAtDispatch", inflightAtDispatch,
 					)
 				}
-			}
-			if reqID != "" {
-				delete(s.pending, reqID)
 			}
 			if now.Sub(s.intervalStart) >= e.intervalDuration {
 				s.flush(now, e.maxObservationAge, e.lowLoadWindowAge, e.maxRequests)
@@ -286,12 +278,6 @@ func (e *TTFTPercentileExtractor) Extract(ctx context.Context, events []dlsrc.Ev
 
 	for model := range updated {
 		s := e.state[model]
-		cutoff := now.Add(-e.maxObservationAge)
-		for id, entry := range s.pending {
-			if entry.dispatchedAt.Before(cutoff) {
-				delete(s.pending, id)
-			}
-		}
 		m := s.TTFTPercentileMetrics
 		m.MinRequests = e.minRequests
 		e.ds.GetOrCreateModel(model).GetAttributes().Put(AttributeKey, m)
@@ -315,7 +301,6 @@ func (e *TTFTPercentileExtractor) getOrCreate(model string) *modelPercentileStat
 	}
 	s := &modelPercentileState{
 		tracker: newSlidingWindowTracker(e.windowSize),
-		pending: make(map[string]pendingEntry),
 	}
 	e.state[model] = s
 	return s
