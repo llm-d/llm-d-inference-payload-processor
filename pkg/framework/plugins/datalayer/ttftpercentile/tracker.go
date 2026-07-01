@@ -90,22 +90,32 @@ func (t *slidingWindowTracker) countCapped(now time.Time, maxAge time.Duration, 
 	return len(t.recentObsCapped(now, maxAge, maxN))
 }
 
-func (t *slidingWindowTracker) quantile(p float64, now time.Time, maxAge time.Duration, maxN int) (float64, bool) {
-	obs := t.recentObsCapped(now, maxAge, maxN)
-	if len(obs) == 0 {
-		return 0, false
+// percentileOf returns the p-th percentile of sorted (ascending) by linear interpolation.
+func percentileOf(sorted []float64, p float64) float64 {
+	idx := p * float64(len(sorted)-1)
+	lo := int(idx)
+	if lo+1 >= len(sorted) {
+		return sorted[lo]
 	}
+	return sorted[lo] + (idx-float64(lo))*(sorted[lo+1]-sorted[lo])
+}
+
+// sortedValues extracts and sorts (ascending) the observation values.
+func sortedValues(obs []observation) []float64 {
 	vals := make([]float64, len(obs))
 	for i, o := range obs {
 		vals[i] = o.value
 	}
 	sort.Float64s(vals)
-	idx := p * float64(len(vals)-1)
-	lo := int(idx)
-	if lo+1 >= len(vals) {
-		return vals[lo], true
+	return vals
+}
+
+func (t *slidingWindowTracker) quantile(p float64, now time.Time, maxAge time.Duration, maxN int) (float64, bool) {
+	obs := t.recentObsCapped(now, maxAge, maxN)
+	if len(obs) == 0 {
+		return 0, false
 	}
-	return vals[lo] + (idx-float64(lo))*(vals[lo+1]-vals[lo]), true
+	return percentileOf(sortedValues(obs), p), true
 }
 
 func (t *slidingWindowTracker) p10Low(now time.Time, maxAge time.Duration) (float64, bool) {
@@ -114,25 +124,14 @@ func (t *slidingWindowTracker) p10Low(now time.Time, maxAge time.Duration) (floa
 	if len(obs) == 0 {
 		return 0, false
 	}
-	vals := make([]float64, len(obs))
-	for i, o := range obs {
-		vals[i] = o.value
-	}
-	sort.Float64s(vals)
+	vals := sortedValues(obs)
 
 	// Level 1: P10 threshold — index of the 10th-percentile observation.
 	lo := int(0.10 * float64(len(vals)-1))
 
-	// Level 2: P10 of the bottom-decile slice (vals[:lo+1], already sorted).
-	// This is ~P1 of all observations: the fastest requests in the window
-	// regardless of their inflight count, approximating the hardware floor.
-	low := vals[:lo+1]
-	idx2 := 0.10 * float64(len(low)-1)
-	lo2 := int(idx2)
-	if lo2+1 >= len(low) {
-		return low[lo2], true
-	}
-	return low[lo2] + (idx2-float64(lo2))*(low[lo2+1]-low[lo2]), true
+	// Level 2: P10 of the bottom-decile slice (~P1 of all observations): the fastest
+	// requests in the window regardless of inflight, approximating the hardware floor.
+	return percentileOf(vals[:lo+1], 0.10), true
 }
 
 func (t *slidingWindowTracker) quantileWithInflight(p float64, now time.Time, maxAge time.Duration, maxN int) (float64, float64, bool) {
@@ -142,15 +141,11 @@ func (t *slidingWindowTracker) quantileWithInflight(p float64, now time.Time, ma
 	}
 	sort.Slice(obs, func(i, j int) bool { return obs[i].value < obs[j].value })
 	n := len(obs)
-
-	idx := p * float64(n-1)
-	lo := int(idx)
-	var value float64
-	if lo+1 >= n {
-		value = obs[lo].value
-	} else {
-		value = obs[lo].value + (idx-float64(lo))*(obs[lo+1].value-obs[lo].value)
+	vals := make([]float64, n)
+	for i, o := range obs {
+		vals[i] = o.value
 	}
+	value := percentileOf(vals, p)
 
 	// Average inflight of observations in the [p-0.1, p+0.1] band.
 	// Using a band rather than a single point makes inflightAtP50 more stable.
