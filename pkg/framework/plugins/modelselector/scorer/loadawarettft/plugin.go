@@ -14,12 +14,12 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Package queuettft scores models by predicted TTFT under current load.
+// Package loadawarettft scores models by predicted TTFT under current load.
 // effectiveTTFT = P10Low + inflight × (P50 − P10Low) / inflightAtP50:
 // a line through (0, P10Low) and (inflightAtP50, P50), extrapolated linearly.
 // Under-observed models receive an optimistic seed (their own floor) so they
 // keep competing for traffic instead of stalling at a fixed 0.5 score.
-package queuettft
+package loadawarettft
 
 import (
 	"context"
@@ -39,15 +39,15 @@ import (
 )
 
 const (
-	PluginType = "queue-ttft-scorer"
+	PluginType = "load-aware-ttft-scorer"
 
 	defaultExplorationRate = 0.0 // off by default; set e.g. 0.1 for 10% exploration
 )
 
-var _ modelselector.Scorer = &QueueTTFTScorer{}
+var _ modelselector.Scorer = &LoadAwareTTFTScorer{}
 
-// QueueTTFTScorerConfig holds optional parameters for the scorer plugin.
-type QueueTTFTScorerConfig struct {
+// LoadAwareTTFTScorerConfig holds optional parameters for the scorer plugin.
+type LoadAwareTTFTScorerConfig struct {
 	// ExplorationRate controls the probability of routing a request to an under-observed
 	// model (UNOBSERVED or SEED state) instead of the trusted best model. A value of 0.1
 	// means ~10% of requests probe the under-observed model, preventing a burst of traffic
@@ -56,13 +56,13 @@ type QueueTTFTScorerConfig struct {
 	ExplorationRate float64 `json:"explorationRate,omitempty"`
 }
 
-type QueueTTFTScorer struct {
+type LoadAwareTTFTScorer struct {
 	typedName       plugin.TypedName
 	explorationRate float64
 }
 
 func ScorerFactory(name string, parameters json.RawMessage, _ plugin.Handle) (plugin.Plugin, error) {
-	cfg := QueueTTFTScorerConfig{ExplorationRate: defaultExplorationRate}
+	cfg := LoadAwareTTFTScorerConfig{ExplorationRate: defaultExplorationRate}
 	if len(parameters) > 0 {
 		if err := json.Unmarshal(parameters, &cfg); err != nil {
 			return nil, fmt.Errorf("failed to parse parameters for plugin %q: %w", name, err)
@@ -71,22 +71,22 @@ func ScorerFactory(name string, parameters json.RawMessage, _ plugin.Handle) (pl
 	if cfg.ExplorationRate < 0 || cfg.ExplorationRate > 1 {
 		return nil, fmt.Errorf("explorationRate must be in [0, 1] for plugin %q", name)
 	}
-	return NewQueueTTFTScorer().WithName(name).WithExplorationRate(cfg.ExplorationRate), nil
+	return NewLoadAwareTTFTScorer().WithName(name).WithExplorationRate(cfg.ExplorationRate), nil
 }
 
-func NewQueueTTFTScorer() *QueueTTFTScorer {
-	return &QueueTTFTScorer{
+func NewLoadAwareTTFTScorer() *LoadAwareTTFTScorer {
+	return &LoadAwareTTFTScorer{
 		typedName:       plugin.TypedName{Type: PluginType, Name: PluginType},
 		explorationRate: defaultExplorationRate,
 	}
 }
 
-func (s *QueueTTFTScorer) TypedName() plugin.TypedName { return s.typedName }
-func (s *QueueTTFTScorer) WithName(name string) *QueueTTFTScorer {
+func (s *LoadAwareTTFTScorer) TypedName() plugin.TypedName { return s.typedName }
+func (s *LoadAwareTTFTScorer) WithName(name string) *LoadAwareTTFTScorer {
 	s.typedName.Name = name
 	return s
 }
-func (s *QueueTTFTScorer) WithExplorationRate(r float64) *QueueTTFTScorer {
+func (s *LoadAwareTTFTScorer) WithExplorationRate(r float64) *LoadAwareTTFTScorer {
 	s.explorationRate = r
 	return s
 }
@@ -104,7 +104,7 @@ type modelEval struct {
 // Cold models (no floor) are seeded at the best observed TTFT; if every model is cold, all
 // score 1.0. With explorationRate > 0, under-observed models (not yet calibrated) are
 // suppressed to 0 with probability (1 - explorationRate) to throttle probing traffic.
-func (s *QueueTTFTScorer) Score(ctx context.Context, cycleState *plugin.CycleState, _ *requesthandling.InferenceRequest, models []datalayer.Model) map[datalayer.Model]float64 {
+func (s *LoadAwareTTFTScorer) Score(ctx context.Context, cycleState *plugin.CycleState, _ *requesthandling.InferenceRequest, models []datalayer.Model) map[datalayer.Model]float64 {
 	evals := make(map[datalayer.Model]*modelEval, len(models))
 	minEff := math.MaxFloat64
 	anyObserved := false
@@ -159,7 +159,7 @@ func (s *QueueTTFTScorer) Score(ctx context.Context, cycleState *plugin.CycleSta
 	if dl := log.FromContext(ctx).V(logutil.DEBUG); dl.Enabled() {
 		for _, model := range models {
 			e := evals[model]
-			dl.Info("queue-ttft score", "model", model.GetName(),
+			dl.Info("load-aware-ttft score", "model", model.GetName(),
 				"effectiveTTFT", e.eff, "score", scores[model], "trusted", e.trusted)
 		}
 	}

@@ -10,7 +10,7 @@ payloadProcessor:
         headerName: X-Gateway-Model-Name
     - type: base-model-to-header
     - type: model-selector
-    - type: queue-ttft-scorer
+    - type: load-aware-ttft-scorer
       # effectiveTTFT = P10Low + inflight x (P50 - P10Low) / inflightAtP50
       # line through (0, P10Low) and (inflightAtP50, P50), extrapolated linearly
       parameters:
@@ -32,7 +32,7 @@ payloadProcessor:
       plugins:
         request:
         - pluginRef: model-selector
-        - pluginRef: queue-ttft-scorer
+        - pluginRef: load-aware-ttft-scorer
           weight: 1.0
         - pluginRef: max-score-picker
         - pluginRef: body-field-to-header

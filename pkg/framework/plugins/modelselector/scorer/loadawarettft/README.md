@@ -1,4 +1,4 @@
-# Queue-TTFT Scorer
+# Load-Aware TTFT Scorer
 
 Routes each request to the model with the lowest predicted TTFT under current load.
 
@@ -55,7 +55,7 @@ will wait. No fitting, no tunable parameters — just two observed points.
 
 ## Parameters
 
-### Scorer (`queue-ttft-scorer`)
+### Scorer (`load-aware-ttft-scorer`)
 
 | Parameter | Default | Description |
 |---|---|---|
