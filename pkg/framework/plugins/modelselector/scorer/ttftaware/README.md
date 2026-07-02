@@ -1,4 +1,4 @@
-# Load-Aware TTFT Scorer
+# TTFT-Aware Scorer
 
 Routes each request to the model with the lowest predicted TTFT under current load.
 
@@ -55,7 +55,7 @@ will wait. No fitting, no tunable parameters — just two observed points.
 
 ## Parameters
 
-### Scorer (`load-aware-ttft-scorer`)
+### Scorer (`ttft-aware-scorer`)
 
 | Parameter | Default | Description |
 |---|---|---|
@@ -87,7 +87,7 @@ payloadProcessor:
         headerName: X-Gateway-Model-Name
     - type: base-model-to-header
     - type: model-selector
-    - type: load-aware-ttft-scorer
+    - type: ttft-aware-scorer
       # effectiveTTFT = P10Low + inflight x (P50 - P10Low) / inflightAtP50
       # line through (0, P10Low) and (inflightAtP50, P50), extrapolated linearly
       parameters:
@@ -109,7 +109,7 @@ payloadProcessor:
       plugins:
         request:
         - pluginRef: model-selector
-        - pluginRef: load-aware-ttft-scorer
+        - pluginRef: ttft-aware-scorer
           weight: 1.0
         - pluginRef: max-score-picker
         - pluginRef: body-field-to-header
