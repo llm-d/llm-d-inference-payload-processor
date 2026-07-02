@@ -71,9 +71,6 @@ func (s *Server) HandleResponseBody(ctx context.Context, reqCtx *RequestContext,
 			TTFT:       ttft,
 		},
 	})
-	if ttft > 0 {
-		reqCtx.CycleState.Write(requesthandling.TTFTCycleStateKey, ttft.Seconds())
-	}
 
 	logger := log.FromContext(ctx)
 	if len(reqCtx.Profile.ResponsePlugins) == 0 {

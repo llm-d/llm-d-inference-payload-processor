@@ -33,9 +33,6 @@ import (
 
 const (
 	ModelSelectorPluginType = "model-selector"
-
-	// SelectedModelCycleStateKey holds the selected model name for response plugins.
-	SelectedModelCycleStateKey = "model-selector/selected-model"
 )
 
 var _ requesthandling.RequestProcessor = &ModelSelectorPlugin{}
@@ -77,7 +74,7 @@ func (p *ModelSelectorPlugin) WithName(name string) *ModelSelectorPlugin {
 }
 
 // ProcessRequest reads candidate models from the Datastore, runs model
-// selection, and writes the selected model into the request body and CycleState.
+// selection, and writes the selected model into the request body.
 func (p *ModelSelectorPlugin) ProcessRequest(ctx context.Context, cycleState *plugin.CycleState, request *requesthandling.InferenceRequest) error {
 	logger := log.FromContext(ctx)
 
@@ -94,7 +91,6 @@ func (p *ModelSelectorPlugin) ProcessRequest(ctx context.Context, cycleState *pl
 	selectedName := result.TargetModel.GetName()
 	logger.V(logutil.VERBOSE).Info("Model selected", "model", selectedName)
 
-	cycleState.Write(SelectedModelCycleStateKey, selectedName)
 	request.SetBodyField("model", selectedName)
 
 	return nil

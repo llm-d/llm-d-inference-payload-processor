@@ -22,9 +22,6 @@ import (
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/plugin"
 )
 
-// TTFTCycleStateKey holds the real TTFT (seconds, float64) measured by the handler.
-const TTFTCycleStateKey = "ipp/ttft-seconds"
-
 func newInferenceMessage() InferenceMessage {
 	return InferenceMessage{
 		Headers:        map[string]string{},

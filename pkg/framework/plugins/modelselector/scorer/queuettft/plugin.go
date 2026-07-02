@@ -42,21 +42,7 @@ const (
 	PluginType = "queue-ttft-scorer"
 
 	defaultExplorationRate = 0.0 // off by default; set e.g. 0.1 for 10% exploration
-
-	// DecisionsCycleStateKey holds the per-model scoring decisions for response plugins.
-	DecisionsCycleStateKey = "queue-ttft/decisions"
 )
-
-// ScoringDecision captures the scorer's decision for one model, written to CycleState.
-type ScoringDecision struct {
-	EffectiveTTFT         float64
-	Floor                 float64 // P10Low
-	P50                   float64
-	RecentN               int
-	Inflight              int64
-	State                 string // "trusted" | "seed" | "unobserved"
-	ExplorationSuppressed bool
-}
 
 var _ modelselector.Scorer = &QueueTTFTScorer{}
 
@@ -107,11 +93,10 @@ func (s *QueueTTFTScorer) WithExplorationRate(r float64) *QueueTTFTScorer {
 
 // modelEval is the scorer's per-model working state for one Score call.
 type modelEval struct {
-	metrics    ttftpercentile.TTFTPercentileMetrics
-	eff        float64
-	trusted    bool // calibrated operating point
-	observed   bool // has a service floor (not truly cold)
-	suppressed bool // exploration-suppressed this cycle
+	metrics  ttftpercentile.TTFTPercentileMetrics
+	eff      float64
+	trusted  bool // calibrated operating point
+	observed bool // has a service floor (not truly cold)
 }
 
 // Score ranks models by predicted TTFT: score = (maxTTFT − effectiveTTFT) / (maxTTFT − minTTFT).
@@ -144,7 +129,6 @@ func (s *QueueTTFTScorer) Score(ctx context.Context, cycleState *plugin.CycleSta
 		for _, model := range models {
 			scores[model] = 1.0
 		}
-		s.writeDecisions(cycleState, models, evals)
 		return scores
 	}
 
@@ -169,7 +153,6 @@ func (s *QueueTTFTScorer) Score(ctx context.Context, cycleState *plugin.CycleSta
 		}
 		if s.explorationRate > 0 && !e.trusted && rand.Float64() >= s.explorationRate {
 			scores[model] = 0
-			e.suppressed = true
 		}
 	}
 
@@ -181,7 +164,6 @@ func (s *QueueTTFTScorer) Score(ctx context.Context, cycleState *plugin.CycleSta
 		}
 	}
 
-	s.writeDecisions(cycleState, models, evals)
 	return scores
 }
 
@@ -194,32 +176,4 @@ func metricsFor(model datalayer.Model) ttftpercentile.TTFTPercentileMetrics {
 		}
 	}
 	return ttftpercentile.TTFTPercentileMetrics{}
-}
-
-// writeDecisions stores per-model scoring decisions in CycleState for response plugins.
-func (s *QueueTTFTScorer) writeDecisions(cycleState *plugin.CycleState, models []datalayer.Model, evals map[datalayer.Model]*modelEval) {
-	if cycleState == nil {
-		return
-	}
-	decisions := make(map[string]ScoringDecision, len(models))
-	for _, model := range models {
-		e := evals[model]
-		state := "trusted"
-		switch {
-		case !e.observed:
-			state = "unobserved"
-		case !e.trusted:
-			state = "seed"
-		}
-		decisions[model.GetName()] = ScoringDecision{
-			EffectiveTTFT:         e.eff,
-			Floor:                 e.metrics.Floor(),
-			P50:                   e.metrics.P50TTFT,
-			RecentN:               e.metrics.RecentN,
-			Inflight:              e.metrics.Requests,
-			State:                 state,
-			ExplorationSuppressed: e.suppressed,
-		}
-	}
-	cycleState.Write(DecisionsCycleStateKey, decisions)
 }

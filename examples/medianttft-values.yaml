@@ -24,7 +24,6 @@ payloadProcessor:
         lowLoadWindowAge: 1h
         maxRequests: 100
         minRequests: 20
-    - type: scoring-debug-headers
     - type: model-config-datasource
       parameters:
         modelsPath: /config/models.json
@@ -38,8 +37,6 @@ payloadProcessor:
         - pluginRef: max-score-picker
         - pluginRef: body-field-to-header
         - pluginRef: base-model-to-header
-        response:
-        - pluginRef: scoring-debug-headers
     datalayer:
       extractors:
       - pluginRef: ttft-percentile-extractor
