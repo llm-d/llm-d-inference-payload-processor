@@ -19,6 +19,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strconv"
 	"strings"
 	"testing"
@@ -974,4 +975,75 @@ func TestHandleRequestBody_BodyMutation(t *testing.T) {
 	if diff := cmp.Diff(want, resp, protocmp.Transform()); diff != "" {
 		t.Errorf("HandleRequestBody returned unexpected response, diff(-want, +got): %v", diff)
 	}
+}
+
+func TestTryDecodeChunked(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   []byte
+		wantOK  bool
+		wantStr string
+	}{
+		{
+			name:   "clean JSON — no decoding needed",
+			input:  []byte(`{"model":"gpt-5.5","input":"hi"}`),
+			wantOK: false,
+		},
+		{
+			name:   "clean JSON array — no decoding needed",
+			input:  []byte(`[{"role":"user"}]`),
+			wantOK: false,
+		},
+		{
+			name:    "single chunk",
+			input:   buildChunkedBody(t, `{"model":"gpt-5.5","input":"hi"}`),
+			wantOK:  true,
+			wantStr: `{"model":"gpt-5.5","input":"hi"}`,
+		},
+		{
+			name: "two chunks",
+			input: func() []byte {
+				part1 := `{"model":"gpt-5.5"`
+				part2 := `,"input":"hi"}`
+				return []byte(fmt.Sprintf("%x\r\n%s\r\n%x\r\n%s\r\n0\r\n\r\n",
+					len(part1), part1, len(part2), part2))
+			}(),
+			wantOK:  true,
+			wantStr: `{"model":"gpt-5.5","input":"hi"}`,
+		},
+		{
+			name:   "empty input",
+			input:  []byte{},
+			wantOK: false,
+		},
+		{
+			name:   "not hex prefix",
+			input:  []byte("not chunked data"),
+			wantOK: false,
+		},
+		{
+			name:    "realistic large chunk",
+			input:   buildChunkedBody(t, `{"model":"test","input":"hello world"}`),
+			wantOK:  true,
+			wantStr: `{"model":"test","input":"hello world"}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			decoded, ok := tryDecodeChunked(tt.input)
+			if ok != tt.wantOK {
+				t.Errorf("tryDecodeChunked() ok = %v, want %v", ok, tt.wantOK)
+				return
+			}
+			if ok && string(decoded) != tt.wantStr {
+				t.Errorf("tryDecodeChunked() = %q, want %q", string(decoded), tt.wantStr)
+			}
+		})
+	}
+}
+
+func buildChunkedBody(t *testing.T, body string) []byte {
+	t.Helper()
+	return []byte(fmt.Sprintf("%x\r\n%s\r\n0\r\n\r\n", len(body), body))
 }

@@ -17,6 +17,7 @@ limitations under the License.
 package handlers
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -65,7 +66,16 @@ func (s *Server) HandleRequestBody(ctx context.Context, reqCtx *RequestContext, 
 	var ret []*eppb.ProcessingResponse
 
 	if err := json.Unmarshal(requestBodyBytes, &reqCtx.Request.Body); err != nil {
-		return nil, errcommon.Error{Code: errcommon.BadRequest, Msg: fmt.Sprintf("failed to parse request body: %v", err)}
+		if decoded, ok := tryDecodeChunked(requestBodyBytes); ok {
+			if err2 := json.Unmarshal(decoded, &reqCtx.Request.Body); err2 == nil {
+				log.FromContext(ctx).Info("decoded chunked transfer-encoding framing from request body")
+				requestBodyBytes = decoded
+			} else {
+				return nil, errcommon.Error{Code: errcommon.BadRequest, Msg: fmt.Sprintf("failed to parse request body: %v", err)}
+			}
+		} else {
+			return nil, errcommon.Error{Code: errcommon.BadRequest, Msg: fmt.Sprintf("failed to parse request body: %v", err)}
+		}
 	}
 
 	if err := s.runRequestPlugins(ctx, reqCtx.CycleState, reqCtx.Request, s.preProcessors); err != nil {
@@ -163,6 +173,50 @@ func addStreamedBodyResponse(responses []*eppb.ProcessingResponse, requestBodyBy
 		})
 	}
 	return responses
+}
+
+// tryDecodeChunked detects and decodes HTTP/1.1 chunked transfer-encoding
+// framing from body bytes. Envoy's FULL_DUPLEX_STREAMED ext_proc mode can
+// pass raw chunked framing without stripping it, contaminating the
+// accumulated body with hex chunk sizes and CRLF delimiters.
+func tryDecodeChunked(data []byte) ([]byte, bool) {
+	if len(data) == 0 || data[0] == '{' || data[0] == '[' {
+		return nil, false
+	}
+
+	var decoded []byte
+	remaining := data
+	for len(remaining) > 0 {
+		idx := bytes.Index(remaining, []byte("\r\n"))
+		if idx < 0 {
+			return nil, false
+		}
+		sizeStr := string(bytes.TrimSpace(remaining[:idx]))
+		if len(sizeStr) == 0 {
+			remaining = remaining[idx+2:]
+			continue
+		}
+		chunkSize, err := strconv.ParseInt(sizeStr, 16, 64)
+		if err != nil {
+			return nil, false
+		}
+		if chunkSize == 0 {
+			break
+		}
+		remaining = remaining[idx+2:]
+		if int64(len(remaining)) < chunkSize {
+			return nil, false
+		}
+		decoded = append(decoded, remaining[:chunkSize]...)
+		remaining = remaining[chunkSize:]
+		if len(remaining) >= 2 && remaining[0] == '\r' && remaining[1] == '\n' {
+			remaining = remaining[2:]
+		}
+	}
+	if len(decoded) == 0 {
+		return nil, false
+	}
+	return decoded, true
 }
 
 // HandleRequestTrailers handles request trailers.
