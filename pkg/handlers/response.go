@@ -60,15 +60,13 @@ func (s *Server) HandleResponseHeaders(ctx context.Context, reqCtx *RequestConte
 // HandleResponseBody handles response bodies by executing response plugins in order.
 func (s *Server) HandleResponseBody(ctx context.Context, reqCtx *RequestContext, responseBodyBytes []byte) ([]*eppb.ProcessingResponse, error) {
 	// Notify the data layer of the completed response.
-	ttft := reqCtx.ResponseFirstChunkTimestamp.Sub(reqCtx.RequestSentTimestamp)
 	s.eventNotifier.Notify(datasource.Event{
 		Type: datasource.ResponseEventType,
 		Payload: datasource.ResponsePayload{
-			Request:    reqCtx.Request,
-			Response:   reqCtx.Response,
-			CycleState: reqCtx.CycleState,
-			Duration:   reqCtx.ResponseCompleteTimestamp.Sub(reqCtx.RequestReceivedTimestamp),
-			TTFT:       ttft,
+			Request:  reqCtx.Request,
+			Response: reqCtx.Response,
+			Duration: reqCtx.ResponseCompleteTimestamp.Sub(reqCtx.RequestReceivedTimestamp),
+			TTFT:     reqCtx.ResponseFirstChunkTimestamp.Sub(reqCtx.RequestSentTimestamp),
 		},
 	})
 
