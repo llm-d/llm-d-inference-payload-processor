@@ -72,6 +72,58 @@ will wait. No fitting, no tunable parameters — just two observed points.
 | `floorInterval` | 1m | How often P10Low is recomputed (slow-moving floor; cheaper than every interval) |
 | `windowSize` | 5000 | Ring buffer capacity (~200 KB per model) |
 
+## Example configuration
+
+An end-to-end Helm values override wiring the scorer together with the TTFT extractor,
+the model-config datasource, and a picker:
+
+```yaml
+payloadProcessor:
+  customConfig:
+    plugins:
+    - type: body-field-to-header
+      parameters:
+        fieldName: model
+        headerName: X-Gateway-Model-Name
+    - type: base-model-to-header
+    - type: model-selector
+    - type: load-aware-ttft-scorer
+      # effectiveTTFT = P10Low + inflight x (P50 - P10Low) / inflightAtP50
+      # line through (0, P10Low) and (inflightAtP50, P50), extrapolated linearly
+      parameters:
+        explorationRate: 0.1          # 10% of requests probe under-observed models; 0 = disabled
+    - type: max-score-picker
+    - type: ttft-percentile-extractor
+      parameters:
+        intervalDuration: 1s
+        windowSize: 5000
+        maxObservationAge: 3m
+        lowLoadWindowAge: 1h
+        maxRequests: 100
+        minRequests: 20
+    - type: model-config-datasource
+      parameters:
+        modelsPath: /config/models.json
+    profiles:
+    - name: default
+      plugins:
+        request:
+        - pluginRef: model-selector
+        - pluginRef: load-aware-ttft-scorer
+          weight: 1.0
+        - pluginRef: max-score-picker
+        - pluginRef: body-field-to-header
+        - pluginRef: base-model-to-header
+    datalayer:
+      extractors:
+      - pluginRef: ttft-percentile-extractor
+      datasources:
+      - pluginRef: model-config-datasource
+```
+
+The scorer requires the `ttft-percentile-extractor` in `datalayer.extractors`, and a model
+list (here via `model-config-datasource`) so model selection has candidates.
+
 ## Possible Enhancements
 
 ### Score-proportional picker
