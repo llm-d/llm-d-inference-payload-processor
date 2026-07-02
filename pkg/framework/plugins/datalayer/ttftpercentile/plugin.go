@@ -15,7 +15,7 @@ limitations under the License.
 */
 
 // Package ttftpercentile tracks per-model TTFT distributions and publishes
-// P10Low, P50, and inflightAtP50 for the queue-ttft-scorer.
+// P10Low, P50, and inflightAtP50.
 package ttftpercentile
 
 import (
