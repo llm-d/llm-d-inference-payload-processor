@@ -74,7 +74,7 @@ func (p *ModelSelectorPlugin) WithName(name string) *ModelSelectorPlugin {
 }
 
 // ProcessRequest reads candidate models from the Datastore, runs model
-// selection, and writes the selected model into the request body.
+// selection, and writes the selected model into the request body and CycleState.
 func (p *ModelSelectorPlugin) ProcessRequest(ctx context.Context, cycleState *plugin.CycleState, request *requesthandling.InferenceRequest) error {
 	logger := log.FromContext(ctx)
 
