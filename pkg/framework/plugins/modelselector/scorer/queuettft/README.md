@@ -69,6 +69,7 @@ will wait. No fitting, no tunable parameters — just two observed points.
 | `maxRequests` | 100 | Cap the short window to the most recent N observations |
 | `minRequests` | 10 | Minimum capped-window count before the scorer trusts the formula |
 | `lowLoadWindowAge` | 1h | Window for two-level P10Low (long = stable hardware floor) |
+| `floorInterval` | 1m | How often P10Low is recomputed (slow-moving floor; cheaper than every interval) |
 | `windowSize` | 5000 | Ring buffer capacity (~200 KB per model) |
 
 ## Possible Enhancements
