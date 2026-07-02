@@ -22,13 +22,6 @@ import (
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/plugin"
 )
 
-type PreProcessor interface {
-	plugin.Plugin
-
-	// PreProcess is invoked to pre-process requests before the request plugins of the selected profile run.
-	PreProcess(ctx context.Context, cycleState *plugin.CycleState, request *InferenceRequest) error
-}
-
 type ProfilePicker interface {
 	plugin.Plugin
 
@@ -43,16 +36,19 @@ type RequestProcessor interface {
 	ProcessRequest(ctx context.Context, cycleState *plugin.CycleState, request *InferenceRequest) error
 }
 
+// ResponseProcessor processes the complete buffered response body.
+// If any plugin in a profile implements this interface, the framework buffers
+// the entire response before calling ProcessResponse on each such plugin.
 type ResponseProcessor interface {
 	plugin.Plugin
-	// ProcessResponse runs the ResponseProcessor plugin.
-	// ResponseProcessor can mutate the headers and/or the body of the response.
 	ProcessResponse(ctx context.Context, cycleState *plugin.CycleState, response *InferenceResponse) error
 }
 
-type PostProcessor interface {
+// ResponseChunkProcessor processes individual response body chunks as they
+// stream through without buffering. The framework converts the raw chunk bytes
+// to a string once and passes it to all chunk processors. Plugins receive the
+// InferenceResponse to allow header mutation.
+type ResponseChunkProcessor interface {
 	plugin.Plugin
-
-	// PostProcess is invoked to post-process requests after the response plugins of the selected profile run.
-	PostProcess(ctx context.Context, cycleState *plugin.CycleState, response *InferenceResponse) error
+	ProcessResponseChunk(ctx context.Context, cycleState *plugin.CycleState, response *InferenceResponse, chunk string, isFinal bool) error
 }

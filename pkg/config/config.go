@@ -22,9 +22,9 @@ import (
 
 // Config contains the final configuration loaded by the configuration loader
 type Config struct {
-	// PreProcessors are the pre-processing plugin instances executed by the request handler,
-	// in the same order provided in the configuration file.
-	PreProcessors []requesthandling.PreProcessor
+	// PreProcessors are the RequestProcessor plugin instances executed by the request handler,
+	// in the same order provided in the configuration file. These plugins are invoked before profile picker.
+	PreProcessors []requesthandling.RequestProcessor
 
 	// ProfilePicker picks the profile to be run as the pipeline for the incoming requests
 	ProfilePicker requesthandling.ProfilePicker
@@ -32,7 +32,8 @@ type Config struct {
 	// Profiles is the set of pipeline profiles loaded from the configuration file
 	Profiles map[string]*requesthandling.Profile
 
-	// PostProcessors are the response processing plugin instances executed by the response handler,
-	// in the same order provided in the configuration file.
-	PostProcessors []requesthandling.PostProcessor
+	// PostProcessors are the ResponseProcessor plugin instances executed by the response handler,
+	// in the same order provided in the configuration file. These plugins are invoked after the profile's response
+	// plugins are completed and are always invoked on the whole body of the response.
+	PostProcessors []requesthandling.ResponseProcessor
 }

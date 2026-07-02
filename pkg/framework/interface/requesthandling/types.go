@@ -93,6 +93,30 @@ type InferenceRequest struct {
 
 type InferenceResponse struct {
 	InferenceMessage
+
+	// CurrentChunk holds the current response body chunk during streaming.
+	// Set by the framework before calling ResponseChunkProcessor plugins.
+	// Plugins can read or mutate this field; the framework uses the final
+	// value when building the ext_proc response.
+	CurrentChunk string
+	chunkMutated bool
+}
+
+// SetChunk sets the current chunk content and marks it as mutated.
+func (r *InferenceResponse) SetChunk(chunk string) {
+	r.CurrentChunk = chunk
+	r.chunkMutated = true
+}
+
+// ChunkMutated reports whether any plugin modified the chunk via SetChunk.
+func (r *InferenceResponse) ChunkMutated() bool {
+	return r.chunkMutated
+}
+
+// ResetChunkState prepares the response for a new chunk processing cycle.
+func (r *InferenceResponse) ResetChunkState(chunk string) {
+	r.CurrentChunk = chunk
+	r.chunkMutated = false
 }
 
 // NewInferenceRequest returns a new request with initialized Headers, Body, and mutatedHeaders.
@@ -114,9 +138,14 @@ type Profile struct {
 	// RequestPlugins are the request processing plugin instances executed by the request handler,
 	// in the same order provided in the configuration file.
 	RequestPlugins []RequestProcessor
-	// ResponsePlugins are the response processing plugin instances executed by the response handler,
-	// in the same order provided in the configuration file.
+	// ResponsePlugins process the complete buffered response body.
 	ResponsePlugins []ResponseProcessor
+	// ResponseChunkProcessors process individual response chunks without buffering.
+	ResponseChunkProcessors []ResponseChunkProcessor
+	// NeedsResponseBuffering is true when any ResponsePlugin is present.
+	// The framework uses this to decide whether to buffer the full response body
+	// or stream chunks through ResponseChunkProcessors.
+	NeedsResponseBuffering bool
 	// ModelSelectorPlugins are the Filter, Scorer (including WeightedScorer), and Picker plugin
 	// instances to be wired into any model-selector plugin present in RequestPlugins.
 	ModelSelectorPlugins []plugin.Plugin

@@ -73,7 +73,11 @@ func (s *Server) HandleResponseBody(ctx context.Context, reqCtx *RequestContext,
 	})
 
 	logger := log.FromContext(ctx)
-	if len(reqCtx.Profile.ResponsePlugins) == 0 {
+
+	hasProfilePlugins := reqCtx.Profile != nil && len(reqCtx.Profile.ResponsePlugins) > 0
+	hasPostProcessors := len(s.postProcessors) > 0
+
+	if !hasProfilePlugins && !hasPostProcessors {
 		return s.generateEmptyResponseBodyResponse(responseBodyBytes), nil
 	}
 
@@ -82,7 +86,13 @@ func (s *Server) HandleResponseBody(ctx context.Context, reqCtx *RequestContext,
 		return s.generateEmptyResponseBodyResponse(responseBodyBytes), nil
 	}
 
-	if err := s.runResponsePlugins(ctx, reqCtx.CycleState, reqCtx.Response, reqCtx.Profile.ResponsePlugins); err != nil {
+	if hasProfilePlugins {
+		if err := s.runResponsePlugins(ctx, reqCtx.CycleState, reqCtx.Response, reqCtx.Profile.ResponsePlugins); err != nil {
+			return nil, err
+		}
+	}
+
+	if err := s.runResponsePlugins(ctx, reqCtx.CycleState, reqCtx.Response, s.postProcessors); err != nil {
 		return nil, err
 	}
 
@@ -130,6 +140,89 @@ func (s *Server) generateEmptyResponseBodyResponse(responseBodyBytes []byte) []*
 		},
 	}
 	responses = envoy.AddStreamedResponseBody(responses, responseBodyBytes)
+	return responses
+}
+
+// HandleResponseChunk runs ResponseChunkProcessors on a single response body chunk
+// and wraps the result in the ext_proc streaming response format.
+func (s *Server) HandleResponseChunk(ctx context.Context, reqCtx *RequestContext, chunkBytes []byte, endOfStream bool) ([]*eppb.ProcessingResponse, error) {
+	// Bodiless requests (e.g., GET /v1/models) may not have a profile set.
+	if reqCtx.Profile == nil || len(reqCtx.Profile.ResponseChunkProcessors) == 0 {
+		return s.buildStreamedChunkResponse(reqCtx, chunkBytes, endOfStream), nil
+	}
+
+	logger := log.FromContext(ctx).V(logutil.DEFAULT)
+
+	chunk := string(chunkBytes)
+	reqCtx.Response.ResetChunkState(chunk)
+
+	if err := s.runResponseChunkProcessors(ctx, reqCtx.CycleState, reqCtx.Response, endOfStream, reqCtx.Profile.ResponseChunkProcessors); err != nil {
+		logger.Error(err, "Failed to run response chunk processors")
+		return nil, err
+	}
+
+	outBytes := chunkBytes
+	if reqCtx.Response.ChunkMutated() {
+		outBytes = []byte(reqCtx.Response.CurrentChunk)
+	}
+
+	return s.buildStreamedChunkResponse(reqCtx, outBytes, endOfStream), nil
+}
+
+// runResponseChunkProcessors executes chunk processors in the order they were registered.
+// Each plugin receives response.CurrentChunk so mutations from earlier plugins are visible
+// to later ones in the chain.
+func (s *Server) runResponseChunkProcessors(ctx context.Context, cycleState *plugin.CycleState, response *requesthandling.InferenceResponse, isFinal bool, processors []requesthandling.ResponseChunkProcessor) error {
+	logger := log.FromContext(ctx).V(logutil.DEFAULT)
+	verboseLogger := logger.V(logutil.VERBOSE)
+
+	for _, cp := range processors {
+		if verboseLogger.Enabled() {
+			verboseLogger.Info("Executing response chunk plugin", "plugin", cp.TypedName())
+		}
+		before := time.Now()
+		err := cp.ProcessResponseChunk(ctx, cycleState, response, response.CurrentChunk, isFinal)
+		metrics.RecordPluginProcessingLatency(responsePluginExtensionPoint, cp.TypedName().Type, cp.TypedName().Name, time.Since(before))
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// buildStreamedChunkResponse wraps a chunk in the ext_proc streaming response format.
+// On the first call (responseHeadersSent=false), it prepends a HeadersResponse to answer
+// the deferred response headers — envoy requires this before it accepts body responses.
+func (s *Server) buildStreamedChunkResponse(reqCtx *RequestContext, chunk []byte, endOfStream bool) []*eppb.ProcessingResponse {
+	responses := []*eppb.ProcessingResponse{
+		{
+			Response: &eppb.ProcessingResponse_ResponseBody{
+				ResponseBody: &eppb.BodyResponse{
+					Response: &eppb.CommonResponse{
+						BodyMutation: &eppb.BodyMutation{
+							Mutation: &eppb.BodyMutation_StreamedResponse{
+								StreamedResponse: &eppb.StreamedBodyResponse{
+									Body:        chunk,
+									EndOfStream: endOfStream,
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	if !reqCtx.ResponseHeadersSent {
+		headerResp := &eppb.ProcessingResponse{
+			Response: &eppb.ProcessingResponse_ResponseHeaders{
+				ResponseHeaders: &eppb.HeadersResponse{},
+			},
+		}
+		responses = append([]*eppb.ProcessingResponse{headerResp}, responses...)
+		reqCtx.ResponseHeadersSent = true
+	}
+
 	return responses
 }
 

@@ -68,6 +68,10 @@ func (s *Server) HandleRequestBody(ctx context.Context, reqCtx *RequestContext, 
 		return nil, errcommon.Error{Code: errcommon.BadRequest, Msg: fmt.Sprintf("failed to parse request body: %v", err)}
 	}
 
+	if err := s.runRequestPlugins(ctx, reqCtx.CycleState, reqCtx.Request, s.preProcessors); err != nil {
+		return nil, err
+	}
+
 	var err error
 	reqCtx.Profile, err = s.profilePicker.Pick(ctx, reqCtx.CycleState, reqCtx.Request, s.profiles)
 	if err != nil {

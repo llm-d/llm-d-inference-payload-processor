@@ -55,6 +55,7 @@ import (
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/plugins/modelselector/picker/weightedrandom"
 	inflightrequestsscorer "github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/plugins/modelselector/scorer/inflightrequests"
 	queuettftscorer "github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/plugins/modelselector/scorer/queuettft"
+	sessionaffinity "github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/plugins/modelselector/scorer/sessionaffinity"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/plugins/requesthandling/basemodelextractor"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/plugins/requesthandling/bodyfieldtoheader"
 	modelselectorplugin "github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/plugins/requesthandling/modelselector"
@@ -78,10 +79,14 @@ func NewRunner() *Runner {
 // Runner is used to run payload processor with its plugins
 type Runner struct {
 	payloadProcessorExecutableName string
+	// preProcessors is an array of pre-processing plugins that operate on the request
+	preProcessors []requesthandling.RequestProcessor
 	// profilePicker is the profile picker instantiated as specified in the configuration
 	profilePicker requesthandling.ProfilePicker
 	// profiles is the set of named profiles loaded from the configuration
 	profiles map[string]*requesthandling.Profile
+	// postProcessors is an array of post-processing plugins that operate on the response
+	postProcessors []requesthandling.ResponseProcessor
 
 	customCollectors  []prometheus.Collector
 	customControllers []func(client.Client, *ctrlbuilder.Builder) error
@@ -216,11 +221,13 @@ func (r *Runner) Run(ctx context.Context) error {
 
 	// Setup ExtProc Server Runner.
 	serverRunner := &runserver.ExtProcServerRunner{
-		GrpcPort:      opts.GRPCPort,
-		SecureServing: opts.SecureServing,
-		ProfilePicker: r.profilePicker,
-		Profiles:      r.profiles,
-		EventNotifier: r.processor,
+		GrpcPort:       opts.GRPCPort,
+		SecureServing:  opts.SecureServing,
+		PreProcessors:  r.preProcessors,
+		ProfilePicker:  r.profilePicker,
+		Profiles:       r.profiles,
+		PostProcessors: r.postProcessors,
+		EventNotifier:  r.processor,
 	}
 
 	// Register health server.
@@ -268,8 +275,10 @@ func (r *Runner) loadConfiguration(ctx context.Context, opts *runserver.Options,
 		return err
 	}
 
+	r.preProcessors = theConfig.PreProcessors
 	r.profilePicker = theConfig.ProfilePicker
 	r.profiles = theConfig.Profiles
+	r.postProcessors = theConfig.PostProcessors
 
 	return nil
 }
@@ -289,6 +298,7 @@ func (r *Runner) registerInTreePlugins() {
 	plugin.Register(modelselectorplugin.ModelSelectorPluginType, modelselectorplugin.ModelSelectorPluginFactory)
 	plugin.Register(inflightrequestsscorer.PluginType, inflightrequestsscorer.ScorerFactory)
 	plugin.Register(queuettftscorer.PluginType, queuettftscorer.ScorerFactory)
+	plugin.Register(sessionaffinity.PluginType, sessionaffinity.ScorerFactory)
 }
 
 // registerHealthServer adds the Health gRPC server as a Runnable to the given manager.

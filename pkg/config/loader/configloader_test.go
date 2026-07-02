@@ -49,8 +49,6 @@ const (
 	testFilterType       = "test-filter"
 	testPickerType       = "test-picker"
 	testPluginType       = "test-plugin"
-	testPostProcessor    = "test-post-processor"
-	testPreProcessor     = "test-pre-processor"
 	testProfilePicker    = "test-profile-picker"
 	testRequestProcType  = "test-request-processor"
 	testResponseProcType = "test-response-processor"
@@ -471,26 +469,6 @@ type mockPlugin struct {
 
 func (m *mockPlugin) TypedName() plugin.TypedName { return m.t }
 
-// Mock PreProcessor
-type mockPreProcessor struct{ mockPlugin }
-
-// compile time assertion
-var _ requesthandling.PreProcessor = &mockPreProcessor{}
-
-func (m *mockPreProcessor) PreProcess(ctx context.Context, cycleState *plugin.CycleState, request *requesthandling.InferenceRequest) error {
-	return nil
-}
-
-// Mock PostProcessor
-type mockPostProcessor struct{ mockPlugin }
-
-// compile time assertion
-var _ requesthandling.PostProcessor = &mockPostProcessor{}
-
-func (m *mockPostProcessor) PostProcess(ctx context.Context, cycleState *plugin.CycleState, request *requesthandling.InferenceResponse) error {
-	return nil
-}
-
 // Mock ProfilePicker
 type mockProfilePicker struct{ mockPlugin }
 
@@ -582,16 +560,6 @@ func registerTestPlugins(t *testing.T) {
 	plugin.Register(testPluginType,
 		func(name string, params json.RawMessage, _ plugin.Handle) (plugin.Plugin, error) {
 			return &mockPlugin{t: plugin.TypedName{Name: name, Type: testPluginType}}, nil
-		})
-
-	plugin.Register(testPreProcessor,
-		func(name string, params json.RawMessage, _ plugin.Handle) (plugin.Plugin, error) {
-			return &mockPreProcessor{mockPlugin{t: plugin.TypedName{Name: name, Type: testPreProcessor}}}, nil
-		})
-
-	plugin.Register(testPostProcessor,
-		func(name string, params json.RawMessage, _ plugin.Handle) (plugin.Plugin, error) {
-			return &mockPostProcessor{mockPlugin{t: plugin.TypedName{Name: name, Type: testPostProcessor}}}, nil
 		})
 
 	plugin.Register(testProfilePicker,
