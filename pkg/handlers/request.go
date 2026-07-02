@@ -98,7 +98,7 @@ func (s *Server) HandleRequestBody(ctx context.Context, reqCtx *RequestContext, 
 	// Notify the data layer of the incoming request after headers are fully formed.
 	s.eventNotifier.Notify(datasource.Event{
 		Type:    datasource.RequestEventType,
-		Payload: datasource.RequestPayload{Request: reqCtx.Request},
+		Payload: datasource.RequestPayload{Request: reqCtx.Request, CycleState: reqCtx.CycleState},
 	})
 
 	metrics.RecordSuccessCounter()

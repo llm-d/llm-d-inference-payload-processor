@@ -46,15 +46,17 @@ const (
 
 // RequestPayload is the Payload for RequestEventType.
 type RequestPayload struct {
-	Request *requesthandling.InferenceRequest
+	Request    *requesthandling.InferenceRequest
+	CycleState *plugin.CycleState
 }
 
 // ResponsePayload is the Payload for ResponseEventType.
 type ResponsePayload struct {
-	Request  *requesthandling.InferenceRequest
-	Response *requesthandling.InferenceResponse
-	Duration time.Duration
-	TTFT     time.Duration
+	Request    *requesthandling.InferenceRequest
+	Response   *requesthandling.InferenceResponse
+	CycleState *plugin.CycleState
+	Duration   time.Duration
+	TTFT       time.Duration
 }
 
 type DatalayerProcessor interface {
