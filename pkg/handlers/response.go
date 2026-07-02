@@ -72,7 +72,7 @@ func (s *Server) HandleResponseBody(ctx context.Context, reqCtx *RequestContext,
 
 	logger := log.FromContext(ctx)
 
-	hasProfilePlugins := reqCtx.Profile != nil && len(reqCtx.Profile.ResponsePlugins) > 0
+	hasProfilePlugins := len(reqCtx.Profile.ResponsePlugins) > 0
 	hasPostProcessors := len(s.postProcessors) > 0
 
 	if !hasProfilePlugins && !hasPostProcessors {
@@ -144,8 +144,7 @@ func (s *Server) generateEmptyResponseBodyResponse(responseBodyBytes []byte) []*
 // HandleResponseChunk runs ResponseChunkProcessors on a single response body chunk
 // and wraps the result in the ext_proc streaming response format.
 func (s *Server) HandleResponseChunk(ctx context.Context, reqCtx *RequestContext, chunkBytes []byte, endOfStream bool) ([]*eppb.ProcessingResponse, error) {
-	// Bodiless requests (e.g., GET /v1/models) may not have a profile set.
-	if reqCtx.Profile == nil || len(reqCtx.Profile.ResponseChunkProcessors) == 0 {
+	if len(reqCtx.Profile.ResponseChunkProcessors) == 0 {
 		return s.buildStreamedChunkResponse(reqCtx, chunkBytes, endOfStream), nil
 	}
 
