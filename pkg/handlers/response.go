@@ -178,7 +178,7 @@ func (s *Server) runResponseChunkProcessors(ctx context.Context, cycleState *plu
 			verboseLogger.Info("Executing response chunk plugin", "plugin", cp.TypedName())
 		}
 		before := time.Now()
-		err := cp.ProcessResponseChunk(ctx, cycleState, response, response.CurrentChunk, isFinal)
+		err := cp.ProcessResponseChunk(ctx, cycleState, response, isFinal)
 		metrics.RecordPluginProcessingLatency(responsePluginExtensionPoint, cp.TypedName().Type, cp.TypedName().Name, time.Since(before))
 		if err != nil {
 			return err
@@ -188,8 +188,6 @@ func (s *Server) runResponseChunkProcessors(ctx context.Context, cycleState *plu
 }
 
 // buildStreamedChunkResponse wraps a chunk in the ext_proc streaming response format.
-// On the first call (responseHeadersSent=false), it prepends a HeadersResponse to answer
-// the deferred response headers — envoy requires this before it accepts body responses.
 func (s *Server) buildStreamedChunkResponse(reqCtx *RequestContext, chunk []byte, endOfStream bool) []*eppb.ProcessingResponse {
 	responses := []*eppb.ProcessingResponse{
 		{
