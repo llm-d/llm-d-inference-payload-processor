@@ -2,6 +2,7 @@
 [![Go Reference](https://pkg.go.dev/badge/github.com/llm-d/llm-d-inference-payload-processor.svg)](https://pkg.go.dev/github.com/llm-d/llm-d-inference-payload-processor)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Join Slack](https://img.shields.io/badge/Join_Slack-blue?logo=slack)](https://llm-d.slack.com/archives/C08SBNRRSBD)
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Fllm-d%2Fllm-d-inference-payload-processor.svg?type=shield)](https://app.fossa.com/projects/git%2Bgithub.com%2Fllm-d%2Fllm-d-inference-payload-processor?ref=badge_shield)
 
 # llm-d Inference Payload Processor
 
@@ -75,3 +76,7 @@ assembled collaboratively before merging to `main`.
 [Scheduler Architecture]: https://github.com/kubernetes-sigs/gateway-api-inference-extension/tree/main/docs/proposals/0845-scheduler-architecture-proposal
 [ModelSelector proposal]: docs/proposals/043-model-selection-framework/README.md
 [Creating a Plugin]: docs/create_new_plugin.md
+
+
+## License
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Fllm-d%2Fllm-d-inference-payload-processor.svg?type=large)](https://app.fossa.com/projects/git%2Bgithub.com%2Fllm-d%2Fllm-d-inference-payload-processor?ref=badge_large)
