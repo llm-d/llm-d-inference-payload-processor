@@ -194,10 +194,11 @@ func (c *ModelConfigDataSource) syncModels(ctx context.Context) error {
 		c.ds.GetOrCreateModel(m.Name)
 	}
 
-	for _, existing := range c.ds.Models() {
-		if _, ok := desired[existing]; !ok {
-			logger.Info("removing model no longer present in config", "model", existing)
-			c.ds.DeleteModel(existing)
+	for _, model := range c.ds.GetModels(datalayer.AllModelsPredicate) {
+		modelName := model.GetName()
+		if _, ok := desired[modelName]; !ok {
+			logger.Info("removing model no longer present in config", "model", modelName)
+			c.ds.DeleteModel(modelName)
 		}
 	}
 

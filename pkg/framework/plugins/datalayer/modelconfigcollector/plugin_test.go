@@ -88,16 +88,16 @@ func overwriteFile(t *testing.T, path string, cfg ModelsConfig) {
 	}
 }
 
-func waitForModels(t *testing.T, ds datalayer.Datastore, wantCount int, timeout time.Duration) []string {
+func waitForModels(t *testing.T, ds datalayer.Datastore, wantCount int, timeout time.Duration) []datalayer.Model {
 	t.Helper()
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		if models := ds.Models(); len(models) == wantCount {
+		if models := ds.GetModels(datalayer.AllModelsPredicate); len(models) == wantCount {
 			return models
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	return ds.Models()
+	return ds.GetModels(datalayer.AllModelsPredicate)
 }
 
 // --- Factory-level tests ---
@@ -172,7 +172,7 @@ func TestStart_LoadsModels(t *testing.T) {
 		t.Fatalf("Start failed: %v", err)
 	}
 
-	models := ds.Models()
+	models := ds.GetModels(datalayer.AllModelsPredicate)
 	if len(models) != 2 {
 		t.Errorf("expected 2 models after Start, got %d: %v", len(models), models)
 	}
@@ -210,8 +210,8 @@ func TestStart_SkipsEmptyName(t *testing.T) {
 		t.Fatalf("Start failed: %v", err)
 	}
 
-	models := ds.Models()
-	if len(models) != 1 || models[0] != "valid-model" {
+	models := ds.GetModels(datalayer.AllModelsPredicate)
+	if len(models) != 1 || models[0].GetName() != "valid-model" {
 		t.Errorf("expected only [valid-model], got %v", models)
 	}
 }
@@ -233,8 +233,8 @@ func TestStart_RemovesStaleModels(t *testing.T) {
 		t.Fatalf("Start failed: %v", err)
 	}
 
-	models := ds.Models()
-	if len(models) != 1 || models[0] != "current-model" {
+	models := ds.GetModels(datalayer.AllModelsPredicate)
+	if len(models) != 1 || models[0].GetName() != "current-model" {
 		t.Errorf("expected only [current-model], got %v", models)
 	}
 }
@@ -284,7 +284,7 @@ func TestStart_FileChange_RemovesModel(t *testing.T) {
 	})
 
 	models := waitForModels(t, ds, 1, 2*time.Second)
-	if len(models) != 1 || models[0] != "m1" {
+	if len(models) != 1 || models[0].GetName() != "m1" {
 		t.Errorf("expected only [m1] after file update, got %v", models)
 	}
 }
