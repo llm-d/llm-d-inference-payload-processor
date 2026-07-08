@@ -40,18 +40,21 @@ func ExpectHeader(modelName, baseModelName string, contentLength string) *extPro
 									Key:      "Content-Length",
 									RawValue: []byte(contentLength),
 								},
+								AppendAction: envoyCorev3.HeaderValueOption_OVERWRITE_IF_EXISTS_OR_ADD,
 							},
 							{
 								Header: &envoyCorev3.HeaderValue{
 									Key:      "X-Gateway-Base-Model-Name",
 									RawValue: []byte(baseModelName),
 								},
+								AppendAction: envoyCorev3.HeaderValueOption_OVERWRITE_IF_EXISTS_OR_ADD,
 							},
 							{
 								Header: &envoyCorev3.HeaderValue{
 									Key:      "X-Gateway-Model-Name",
 									RawValue: []byte(modelName),
 								},
+								AppendAction: envoyCorev3.HeaderValueOption_OVERWRITE_IF_EXISTS_OR_ADD,
 							},
 						},
 					},

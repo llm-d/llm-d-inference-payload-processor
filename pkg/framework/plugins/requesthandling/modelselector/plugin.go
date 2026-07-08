@@ -20,7 +20,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
@@ -33,6 +32,9 @@ import (
 
 const (
 	ModelSelectorPluginType = "model-selector"
+
+	// SelectedModelCycleStateKey is the CycleState key where the selected model name is stored.
+	SelectedModelCycleStateKey = "model-selector/selected-model"
 )
 
 var _ requesthandling.RequestProcessor = &ModelSelectorPlugin{}
@@ -85,13 +87,14 @@ func (p *ModelSelectorPlugin) ProcessRequest(ctx context.Context, cycleState *pl
 
 	result, err := p.selector.Select(ctx, request, cycleState, candidateModels)
 	if err != nil {
-		return fmt.Errorf("model selection failed: %w", err)
+		return err
 	}
 
 	selectedName := result.TargetModel.GetName()
 	logger.V(logutil.VERBOSE).Info("Model selected", "model", selectedName)
 
 	request.SetBodyField("model", selectedName)
+	cycleState.Write(SelectedModelCycleStateKey, selectedName)
 
 	return nil
 }

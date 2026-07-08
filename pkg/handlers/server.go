@@ -50,12 +50,15 @@ const (
 )
 
 func NewServer(preProcessors []requesthandling.RequestProcessor, profilePicker requesthandling.ProfilePicker,
-	profiles map[string]*requesthandling.Profile, postProcessors []requesthandling.ResponseProcessor) *Server {
+	profiles map[string]*requesthandling.Profile, postProcessors []requesthandling.ResponseProcessor,
+	responseHeadersPostProcessors []requesthandling.ResponseHeadersProcessor) *Server {
 	return &Server{
-		preProcessors:  preProcessors,
-		profilePicker:  profilePicker,
-		profiles:       profiles,
-		postProcessors: postProcessors,
+		preProcessors:                 preProcessors,
+		profilePicker:                 profilePicker,
+		profiles:                      profiles,
+		postProcessors:                postProcessors,
+		responseHeadersPostProcessors: responseHeadersPostProcessors,
+		emptyProfile:                  requesthandling.NewProfile(),
 	}
 }
 
@@ -68,11 +71,14 @@ func (s *Server) WithEventNotifier(n datasource.EventNotifier) *Server {
 // Server implements the Envoy external processing server.
 // https://www.envoyproxy.io/docs/envoy/latest/api-v3/service/ext_proc/v3/external_processor.proto
 type Server struct {
-	preProcessors  []requesthandling.RequestProcessor
-	profilePicker  requesthandling.ProfilePicker
-	profiles       map[string]*requesthandling.Profile
-	postProcessors []requesthandling.ResponseProcessor
-	eventNotifier  datasource.EventNotifier
+	preProcessors                 []requesthandling.RequestProcessor
+	profilePicker                 requesthandling.ProfilePicker
+	profiles                      map[string]*requesthandling.Profile
+	postProcessors                []requesthandling.ResponseProcessor
+	responseHeadersPostProcessors []requesthandling.ResponseHeadersProcessor
+	eventNotifier                 datasource.EventNotifier
+
+	emptyProfile *requesthandling.Profile
 }
 
 // RequestContext stores context information during the lifetime of an HTTP request.
@@ -130,6 +136,7 @@ func (s *Server) Process(srv extProcPb.ExternalProcessor_ProcessServer) error {
 	reqCtx := &RequestContext{
 		Request:    requesthandling.NewInferenceRequest(),
 		Response:   requesthandling.NewInferenceResponse(),
+		Profile:    s.emptyProfile, // request is always initialized with an empty profile to avoid nil pointer
 		CycleState: plugin.NewCycleState(),
 	}
 	// TODO set a max cap on these.
@@ -175,7 +182,7 @@ func (s *Server) Process(srv extProcPb.ExternalProcessor_ProcessServer) error {
 		case *extProcPb.ProcessingRequest_RequestTrailers:
 			responses, err = s.HandleRequestTrailers(v.RequestTrailers)
 		case *extProcPb.ProcessingRequest_ResponseHeaders:
-			responses = s.HandleResponseHeaders(ctx, reqCtx, v.ResponseHeaders)
+			responses, err = s.HandleResponseHeaders(ctx, reqCtx, v.ResponseHeaders)
 			loggerVerbose.Info("processing response headers complete")
 		case *extProcPb.ProcessingRequest_ResponseBody:
 			loggerVerbose.Info("Incoming response body chunk", "EoS", v.ResponseBody.EndOfStream)

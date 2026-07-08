@@ -82,6 +82,7 @@ func TestBodyBasedRouting(t *testing.T) {
 												Key:      "Content-Length",
 												RawValue: []byte("50"),
 											},
+											AppendAction: envoyCorev3.HeaderValueOption_OVERWRITE_IF_EXISTS_OR_ADD,
 										},
 									},
 								},

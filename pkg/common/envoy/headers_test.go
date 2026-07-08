@@ -105,6 +105,7 @@ func TestGenerateHeadersMutation(t *testing.T) {
 						Key:      "x-api-key",
 						RawValue: []byte("secret-123"),
 					},
+					AppendAction: corev3.HeaderValueOption_OVERWRITE_IF_EXISTS_OR_ADD,
 				},
 			},
 		},
@@ -121,18 +122,21 @@ func TestGenerateHeadersMutation(t *testing.T) {
 						Key:      "authorization",
 						RawValue: []byte("Bearer tok"),
 					},
+					AppendAction: corev3.HeaderValueOption_OVERWRITE_IF_EXISTS_OR_ADD,
 				},
 				{
 					Header: &corev3.HeaderValue{
 						Key:      "x-api-key",
 						RawValue: []byte("key-val"),
 					},
+					AppendAction: corev3.HeaderValueOption_OVERWRITE_IF_EXISTS_OR_ADD,
 				},
 				{
 					Header: &corev3.HeaderValue{
 						Key:      "x-request-id",
 						RawValue: []byte("req-456"),
 					},
+					AppendAction: corev3.HeaderValueOption_OVERWRITE_IF_EXISTS_OR_ADD,
 				},
 			},
 		},
@@ -145,6 +149,7 @@ func TestGenerateHeadersMutation(t *testing.T) {
 						Key:      "x-empty",
 						RawValue: []byte(""),
 					},
+					AppendAction: corev3.HeaderValueOption_OVERWRITE_IF_EXISTS_OR_ADD,
 				},
 			},
 		},

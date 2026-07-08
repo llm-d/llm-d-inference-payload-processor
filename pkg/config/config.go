@@ -36,4 +36,8 @@ type Config struct {
 	// in the same order provided in the configuration file. These plugins are invoked after the profile's response
 	// plugins are completed and are always invoked on the whole body of the response.
 	PostProcessors []requesthandling.ResponseProcessor
+
+	// ResponseHeadersPostProcessors run during the response-headers phase,
+	// before the body arrives. They work for both streaming and buffered responses.
+	ResponseHeadersPostProcessors []requesthandling.ResponseHeadersProcessor
 }

@@ -113,6 +113,14 @@ func TestProcessRequestSelectsFromDatastoreModels(t *testing.T) {
 	if !slices.Contains(candidates, selectedModel) {
 		t.Errorf("selected model %q is not in datastore models %v", selectedModel, candidates)
 	}
+
+	storedModel, err := fwkplugin.ReadCycleStateKey[string](cycleState, SelectedModelCycleStateKey)
+	if err != nil {
+		t.Fatalf("expected selected model in CycleState: %v", err)
+	}
+	if storedModel != selectedModel {
+		t.Errorf("CycleState model %q != body model %q", storedModel, selectedModel)
+	}
 }
 
 // TestProcessRequestFailsWithEmptyDatastore checks that ProcessRequest returns an error when no candidate models are available.

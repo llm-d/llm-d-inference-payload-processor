@@ -59,18 +59,21 @@ func TestHandleRequestBody(t *testing.T) {
 										Key:      contentLengthHeader,
 										RawValue: []byte(strconv.Itoa(len(b))),
 									},
+									AppendAction: basepb.HeaderValueOption_OVERWRITE_IF_EXISTS_OR_ADD,
 								},
 								{
 									Header: &basepb.HeaderValue{
 										Key:      bodyfieldtoheader.ModelHeader,
 										RawValue: []byte("foo"),
 									},
+									AppendAction: basepb.HeaderValueOption_OVERWRITE_IF_EXISTS_OR_ADD,
 								},
 								{
 									Header: &basepb.HeaderValue{
 										Key:      basemodelextractor.BaseModelHeader,
 										RawValue: []byte(""),
 									},
+									AppendAction: basepb.HeaderValueOption_OVERWRITE_IF_EXISTS_OR_ADD,
 								},
 							},
 						},
@@ -341,7 +344,7 @@ func (noopNotifier) Notify(datasource.Event) {}
 
 func newServerForTest(profiles map[string]*requesthandling.Profile) *Server {
 	return NewServer([]requesthandling.RequestProcessor{}, single.NewSingleProfilePicker(), profiles,
-		[]requesthandling.ResponseProcessor{}).WithEventNotifier(noopNotifier{})
+		[]requesthandling.ResponseProcessor{}, []requesthandling.ResponseHeadersProcessor{}).WithEventNotifier(noopNotifier{})
 }
 
 func newTestProfiles() map[string]*requesthandling.Profile {
