@@ -15,7 +15,6 @@ plugins:
       queueDepthMetric:      "vllm:num_requests_waiting"
       cpuCacheUsageMetric:   "vllm:cpu_cache_usage_perc"
       runningRequestsMetric: "vllm:num_requests_running"
-      maxConcurrent: 8
 
 datalayer:
   collectors:
