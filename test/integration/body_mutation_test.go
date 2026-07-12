@@ -104,6 +104,7 @@ func TestBodyMutation(t *testing.T) {
 										Key:      "Content-Length",
 										RawValue: []byte(strconv.Itoa(len(wantBody))),
 									},
+									AppendAction: envoyCorev3.HeaderValueOption_OVERWRITE_IF_EXISTS_OR_ADD,
 								},
 							},
 						},

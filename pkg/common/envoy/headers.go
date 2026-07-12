@@ -54,6 +54,7 @@ func GenerateHeadersMutation(headers map[string]string) []*corev3.HeaderValueOpt
 				Key:      key,
 				RawValue: []byte(value),
 			},
+			AppendAction: corev3.HeaderValueOption_OVERWRITE_IF_EXISTS_OR_ADD,
 		})
 	}
 	return headersMutation

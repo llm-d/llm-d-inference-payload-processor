@@ -31,6 +31,7 @@ func makeHeaderValueOption(key, value string) *corev3.HeaderValueOption {
 			Key:      key,
 			RawValue: []byte(value),
 		},
+		AppendAction: corev3.HeaderValueOption_OVERWRITE_IF_EXISTS_OR_ADD,
 	}
 }
 

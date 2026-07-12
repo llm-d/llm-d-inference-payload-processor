@@ -11,6 +11,8 @@
   - [Pre- and Post-Processing](#pre--and-post-processing)
 - [Model Selection](#model-selection)
 - [Data Layer](#data-layer)
+  - [Event-Driven Updates](#event-driven-updates)
+  - [Collection Mechanism](#collection-mechanism)
 - [Multi-Pool Routing](#multi-pool-routing)
 - [Relationship to the Router (EPP)](#relationship-to-the-router-epp)
 - [References](#references)
@@ -153,17 +155,55 @@ and its phases are specified in the [ModelSelector proposal]; the available plug
 
 ## Data Layer
 
-The **data layer** maintains cross-request state that other plugins (e.g., Scorer, Filter, ProfilerPicker) consume to make data-driven
-decisions. It is populated by three kinds of plugins that run continuously, decoupled from any single
-request:
+The **data layer** maintains cross-request state that other plugins (e.g., Scorer, Filter, ProfilePicker)
+consume to make data-driven decisions.
+It is populated through two mechanisms that run independently from the request processing pipeline:
 
-- **Collectors** — Aggregate signals over time, on a timer.
-- **Extractors** — Pull metadata out of request/response events as they arrive.
-- **Datasources** — Import external configuration (e.g. model metadata) into the store, watching for changes.
+- **Event-driven notifications** — Events generated during request/response processing are consumed
+  asynchronously by **Extractors** that update the datastore.
+- **Collection mechanism** — **Collectors** and **Datasources** pull configuration and signals from
+  external resources, either on a timer or through a watch.
 
-Data-layer plugins are registered under the `datalayer` section of the config and run in the background,
-decoupled from any single request. This is how runtime signals such as in-flight request counts become
-available to scoring decisions.
+Data-layer plugins are registered under the `datalayer` section of the config and are **never** part of
+a profile's `request` or `response` plugin lists. This is how runtime signals such as in-flight request
+counts become available to scoring decisions without adding latency to the request path.
+
+### Event-Driven Notifications
+
+
+Events are designed to offload data layer processing asynchronously, away from the time-critical
+request/response pipeline.
+<p align="center">
+  <img src="images/ipp-datalayer-events.svg" width="820" alt="IPP Event-Driven Notifications">
+</p>
+
+The response/request pipeline processor fires events at two points in the request lifecycle:
+a `RequestEvent` after the request plugin stage completes, and a `ResponseEvent` at the start of
+response body handling — before the response plugins run. Beyond these, any plugin can fire additional
+events at any time by calling
+`Handle.EventNotifier().Notify()` — the [`EventNotifier`] interface exposed to every plugin through its
+IPP handle.
+
+Events are delivered non-blocking on a buffered channel. A dedicated event-loop goroutine reads from
+this channel and fans each event out to all registered **Extractors** by calling
+[`Extractor.Extract(ctx, events)`][`datasource.Extractor`]. Each extractor receives every event and is
+responsible for filtering to only the event types it cares about.
+
+### Collection Mechanism
+
+**Collectors** are designed for periodic polling of data. Each collector implements
+[`Collector.Poll(ctx)`][`datasource.Collector`] and declares its own polling interval via
+`CollectorFrequency()`. The data layer processor drives each collector in a dedicated goroutine on a
+ticker at the configured frequency, with an initial random jitter across collectors to avoid
+thundering-herd startup spikes.
+
+**Datasources** are designed for watcher-based and other custom collection mechanisms that do not fit
+the periodic-poll model. A datasource implements [`DataSource.Start(ctx)` / `DataSource.Stop()`][`datasource.DataSource`] —
+the processor starts it in a dedicated goroutine at startup and signals it to stop on shutdown. A
+datasource typically performs an initial synchronization and then enters a watch loop (e.g. a filesystem
+watcher, a Kubernetes informer, or any other event-driven source) to keep the datastore in sync as the
+external source changes.
+
 
 ---
 
@@ -224,3 +264,7 @@ A request first passes through IPP (which selects the pool via header injection)
 [llm-d Router]: https://github.com/llm-d/llm-d-router
 [InferencePool]: https://gateway-api-inference-extension.sigs.k8s.io
 [External Processing (ext-proc)]: https://www.envoyproxy.io/docs/envoy/latest/configuration/http/http_filters/ext_proc_filter
+[`EventNotifier`]: ../pkg/framework/interface/datalayer/types.go
+[`datasource.Extractor`]: ../pkg/framework/interface/datalayer/datasource/types.go
+[`datasource.Collector`]: ../pkg/framework/interface/datalayer/datasource/types.go
+[`datasource.DataSource`]: ../pkg/framework/interface/datalayer/datasource/types.go

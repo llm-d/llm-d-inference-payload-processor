@@ -90,17 +90,17 @@ func TestModels(t *testing.T) {
 	s.GetOrCreateModel("llama-3")
 	s.GetOrCreateModel("mistral")
 
-	models := s.Models()
+	models := s.GetModels(datalayer.AllModelsPredicate)
 	if len(models) != 3 {
 		t.Errorf("expected 3 models, got %d", len(models))
 	}
 
 	expected := map[string]bool{"gpt-4": true, "llama-3": true, "mistral": true}
-	for _, name := range models {
-		if !expected[name] {
-			t.Errorf("unexpected model name: %s", name)
+	for _, model := range models {
+		if !expected[model.GetName()] {
+			t.Errorf("unexpected model name: %s", model.GetName())
 		}
-		delete(expected, name)
+		delete(expected, model.GetName())
 	}
 	if len(expected) > 0 {
 		t.Errorf("missing expected models: %v", expected)

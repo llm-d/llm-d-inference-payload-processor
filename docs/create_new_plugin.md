@@ -29,13 +29,13 @@ type Plugin interface {
 per-instance name from configuration. Because instances are named, one plugin type can be instantiated
 multiple times with different parameters.
 
-A plugin then **additionally implements** one extension-point interface; the loader inspects which it
-satisfies and routes it to the matching pipeline stage:
+A plugin then **additionally implements** one or more extension-point interfaces; the loader inspects
+which it satisfies and routes it to the matching pipeline stage or data-layer role. The interfaces are
+defined in three packages:
 
 | Interface | Package | Role |
 |-----------|---------|------|
-| `PreProcessor` / `PostProcessor` | [`requesthandling`][requesthandling-src] | Reserved global stages (before profile selection / after the response plugins). Defined in the API but not yet invoked by the request path. |
-| `RequestProcessor` | [`requesthandling`][requesthandling-src] | Inspect and mutate the request before routing. |
+| `RequestProcessor` | [`requesthandling`][requesthandling-src] | Inspect and mutate the request before routing. Can be run as part of a profile, or prior to picking a profile. |
 | `ResponseProcessor` | [`requesthandling`][requesthandling-src] | Inspect and mutate the response on its way back. |
 | `ProfilePicker` | [`requesthandling`][requesthandling-src] | Choose which profile runs for a request. |
 | `Filter` / `Scorer` / `Picker` | [`modelselector`][modelselector-src] | The `Filter → Score → Pick` phases that select a *model*. |
@@ -167,16 +167,274 @@ With a single profile and no `profilePicker`, [`single-profile-picker`] is enabl
 [Configuration][Configuration] for the full schema (pre/post processing, the `datalayer` section,
 scorer `weight`, proxy integration).
 
-## Other extension points
+## Additional extension points
 
-A model-selector plugin has the same shape but implements one of the
+Generally, plugins have the same shape but implements different interfaces. E.g., one of the
 [`modelselector`][modelselector-src] interfaces (`Filter`, `Scorer`, or `Picker`) instead of
 `RequestProcessor`. For example, a `Scorer` implements `Score(...) map[datalayer.Model]float64`,
-returning a score per candidate. The [`cost-scorer`][costaware-src] is a concrete reference; its
-factory and `WithName` follow this tutorial (it ships in-tree but, like `model-config-datasource`, is
-not registered in the default runner — add its factory to `registerInTreePlugins` to use it). In
-configuration, a Scorer is referenced from a profile's `request` list alongside the `model-selector`
-entry and **requires** a `weight`. See [Plugins][Plugins] for the full Filter/Scorer/Picker set.
+returning a score per candidate.
+Following is the available interfaces that can be implemented.
+
+### Request-handling interfaces
+
+In addition to `ProcessRequest`, there are additional request processing interfaces, such as **`ProfilePicker`** and **`PreProcess`**.
+
+**`ProfilePicker`** — called once per request to select the profile to run. The implementation below
+is the built-in [`single-profile-picker`][single-profile-picker-src], which asserts exactly one
+profile is configured and returns it unconditionally:
+
+```go
+// Pick selects the Profile to run from the list of candidate profiles, while taking into
+// consideration the request properties and the previously executed cycles along with their results.
+func (p *SingleProfilePicker) Pick(
+    ctx context.Context,
+    cycleState *plugin.CycleState,
+    request *requesthandling.InferenceRequest,
+    profiles map[string]*requesthandling.Profile,
+) (*requesthandling.Profile, error) {
+    if len(profiles) != 1 {
+        return nil, fmt.Errorf("failed to select a single profile from %d profiles", len(profiles))
+    }
+
+    var result *requesthandling.Profile
+    for _, profile := range profiles {
+        result = profile
+        break // assumes a single profile
+    }
+
+    return result, nil
+}
+```
+
+**`ResponseProcessor`** — called during the profile's response stage before sending the response to the user:
+
+The plugin can mutates the response in place via the same `InferenceMessage` helpers as `RequestProcessor`. Runs
+after the model server replies. Following is an example of adding a header to the response from the request cycle state.
+
+```go
+func (p *ModelNameToHeaderPlugin) ProcessResponse(ctx context.Context, cycleState *plugin.CycleState, response *requesthandling.InferenceResponse) error {
+	selectedModel, err := plugin.ReadCycleStateKey[string](cycleState, modelselector.SelectedModelCycleStateKey)
+	if err != nil {
+		log.FromContext(ctx).V(logutil.VERBOSE).Info("no selected model in CycleState, skipping")
+		return nil
+	}
+	response.SetHeader(bodyfieldtoheader.ModelHeader, selectedModel)
+	return nil
+}
+```
+If any plugin in a profile implements this interface, the framework buffers the entire response before calling ProcessResponse.
+
+### Model-selector interfaces ([`modelselector`][modelselector-src])
+
+`Filter` returns the subset of candidates that can serve the request; an empty result is an error.
+`Score` returns a score per candidate in `[0, 1]` (values are clamped); multiple scorers combine via
+per-reference `weight`. `Pick` selects exactly one model from the scored candidates.
+
+**`Filter`** — receives the full candidate list and returns only the models eligible to serve the
+request. The example below is a pass-through that accepts all candidates:
+
+```go
+// Filter returns the subset of models that can serve the request.
+func (f *MyFilter) Filter(
+	   _ context.Context,
+	   _ *plugin.CycleState,
+	   _ *requesthandling.InferenceRequest,
+	   models []datalayer.Model,
+) []datalayer.Model {
+	   return models
+}
+```
+
+**`Score`** — returns a score in `[0, 1]` for each candidate. The example is extracted from
+[`inflight-requests-scorer`][inflightrequests-scorer-src], which ranks models by their active
+request count — the least-loaded model scores 1.0 and the most-loaded scores 0.0:
+
+```go
+// Score returns a score in [0,1] for each model based on its in-flight request count.
+// Formula: score = (max - count) / (max - min)
+func (s *InflightRequestsScorer) Score(
+    _ context.Context,
+    _ *plugin.CycleState,
+    _ *requesthandling.InferenceRequest,
+    models []datalayer.Model,
+) map[datalayer.Model]float64 {
+    var minCount int64 = math.MaxInt64
+    var maxCount int64 = math.MinInt64
+
+    requestCounts := make(map[datalayer.Model]int64, len(models))
+    for _, model := range models {
+        count := inflightRequestCount(model)
+        requestCounts[model] = count
+        if count < minCount {
+            minCount = count
+        }
+        if count > maxCount {
+            maxCount = count
+        }
+    }
+
+    scores := make(map[datalayer.Model]float64, len(models))
+    for _, model := range models {
+        if maxCount == minCount {
+            scores[model] = 1.0
+        } else {
+            scores[model] = float64(maxCount-requestCounts[model]) / float64(maxCount-minCount)
+        }
+    }
+    return scores
+}
+```
+
+**`Pick`** — selects exactly one model from the scored candidates. The example is extracted from
+[`max-score-picker`][maxscore-picker-src], which returns the model with the highest aggregate score:
+
+```go
+// Pick selects the model with the highest score.
+func (p *MaxScorePicker) Pick(
+	   ctx context.Context,
+	   _ *plugin.CycleState,
+	   scoredModels []*modelselector.ScoredModel,
+) *modelselector.PipelineRunResult {
+	   // Shuffle for random tie-breaking when scores are equal.
+	   picker.ShuffleScoredModels(scoredModels)
+
+	   slices.SortStableFunc(scoredModels, func(i, j *modelselector.ScoredModel) int {
+	       if i.Score > j.Score {
+	           return -1
+	       }
+	       if i.Score < j.Score {
+	           return 1
+	       }
+	       return 0
+	   })
+
+	   return &modelselector.PipelineRunResult{TargetModel: scoredModels[0].Model}
+}
+```
+
+### Data-layer interfaces ([`datalayer/datasource`][datalayer-src])
+
+**`Extractor`** — called once per event batch, which includes one or more event; must filter internally to the event types it cares
+about. The example is from [`request-metadata-extractor`][requestmetadata-src], which increments and
+decrements per-model in-flight counters on request/response events:
+
+```go
+func (e *RequestMetadataExtractor) Extract(_ context.Context, events []dlsrc.Event) error {
+    updated := map[string]RequestMetadataCount{}
+    for _, ev := range events {
+        switch ev.Type {
+        case dlsrc.RequestEventType:
+            p, ok := ev.Payload.(dlsrc.RequestPayload)
+            if !ok {
+                continue
+            }
+            model, _ := p.Request.Body["model"].(string)
+            if model == "" {
+                continue
+            }
+            maxTokens, _ := p.Request.Body["max_tokens"].(float64)
+            c := e.counters[model]
+            c.Requests++
+            c.Tokens += int64(maxTokens)
+            e.counters[model] = c
+            updated[model] = c
+        case dlsrc.ResponseEventType:
+            p, ok := ev.Payload.(dlsrc.ResponsePayload)
+            if !ok {
+                continue
+            }
+            model, _ := p.Request.Body["model"].(string)
+            if model == "" {
+                continue
+            }
+            maxTokens, _ := p.Request.Body["max_tokens"].(float64)
+            c := e.counters[model]
+            floorDecrement(&c.Requests, 1)
+            floorDecrement(&c.Tokens, int64(maxTokens))
+            e.counters[model] = c
+            updated[model] = c
+        }
+    }
+    for model, c := range updated {
+        e.ds.GetOrCreateModel(model).GetAttributes().Put(RequestMetadataAttributeKey, c)
+    }
+    return nil
+}
+```
+
+**`Collector`** — `Poll` is called on a timer at the interval returned by `CollectorFrequency`.
+The skeleton below matches the interface:
+
+```go
+func (c *MyCollector) Poll(_ context.Context) (any, error) { 
+    return nil, nil 
+}
+func (c *MyCollector) CollectorFrequency() time.Duration   {
+    return 30 * time.Second
+}
+```
+
+**`DataSource`** — manages its own watch or control loop. `Start` runs until the context is
+cancelled; `Stop` unblocks it and releases resources. The example is from
+[`model-config-datasource`][modelconfigcollector-src], which watches a JSON file and keeps the
+datastore in sync:
+
+```go
+// Start performs an initial sync then watches the config file's parent directory for changes.
+func (c *ModelConfigDataSource) Start(ctx context.Context) error {
+    if err := c.syncModels(ctx); err != nil {
+        return err
+    }
+    watcher, err := fsnotify.NewWatcher()
+    if err != nil {
+        return err
+    }
+    if err := watcher.Add(filepath.Dir(c.absModelsPath)); err != nil {
+        watcher.Close() //nolint:errcheck
+        return err
+    }
+    go func() {
+        defer close(c.doneCh)
+        defer watcher.Close() //nolint:errcheck
+        for {
+            select {
+            case <-c.stopCh:
+                return
+            case <-ctx.Done():
+                return
+            case event, ok := <-watcher.Events:
+                if !ok {
+                    return
+                }
+                if absEvent, _ := filepath.Abs(event.Name); absEvent != c.absModelsPath {
+                    continue
+                }
+                if event.Has(fsnotify.Write) || event.Has(fsnotify.Create) {
+                    c.syncModels(ctx) //nolint:errcheck
+                }
+            }
+        }
+    }()
+    return nil
+}
+
+// Stop signals the watcher goroutine to exit and blocks until it has stopped.
+func (c *ModelConfigDataSource) Stop() {
+    close(c.stopCh)
+    <-c.doneCh
+}
+```
+
+### Implementing a multi-plugin feature
+
+When implementing a multi plug-in feature, the loader creates the
+instance **once** from the factory and wires the same object at every matching location in the
+pipeline or data layer — there is no second construction. A plugin that implements both
+`RequestProcessor` and `Extractor`, for example, is registered once under `plugins`, referenced from
+the profile's `request` list, and also from `datalayer.extractors`; the loader recognises both roles
+and routes accordingly. Because it is one object, state accumulated in `ProcessRequest` is directly
+accessible in `Extract` without any external coordination.
+
 
 ## Testing
 
@@ -211,8 +469,11 @@ Tests call the factory or constructor directly and read mutations back through t
 [requesthandling-types-src]: https://github.com/llm-d/llm-d-inference-payload-processor/blob/main/pkg/framework/interface/requesthandling/types.go
 [modelselector-src]: https://github.com/llm-d/llm-d-inference-payload-processor/blob/main/pkg/framework/interface/modelselector/plugins.go
 [datalayer-src]: https://github.com/llm-d/llm-d-inference-payload-processor/blob/main/pkg/framework/interface/datalayer/datasource/types.go
+[single-profile-picker-src]: https://github.com/llm-d/llm-d-inference-payload-processor/blob/main/pkg/framework/plugins/requesthandling/profilepicker/single/single_profile_picker.go
 [body-field-to-header-src]: https://github.com/llm-d/llm-d-inference-payload-processor/blob/main/pkg/framework/plugins/requesthandling/bodyfieldtoheader/body_field_to_header.go
 [body-field-to-header-test-src]: https://github.com/llm-d/llm-d-inference-payload-processor/blob/main/pkg/framework/plugins/requesthandling/bodyfieldtoheader/body_field_to_header_test.go
 [costaware-src]: https://github.com/llm-d/llm-d-inference-payload-processor/blob/main/pkg/framework/plugins/modelselector/scorer/costaware/plugin.go
+[inflightrequests-scorer-src]: https://github.com/llm-d/llm-d-inference-payload-processor/blob/main/pkg/framework/plugins/modelselector/scorer/inflightrequests/plugin.go
+[maxscore-picker-src]: https://github.com/llm-d/llm-d-inference-payload-processor/blob/main/pkg/framework/plugins/modelselector/picker/maxscore/picker.go
 [costaware-test-src]: https://github.com/llm-d/llm-d-inference-payload-processor/blob/main/pkg/framework/plugins/modelselector/scorer/costaware/plugin_test.go
 [runner-src]: https://github.com/llm-d/llm-d-inference-payload-processor/blob/main/cmd/runner/runner.go

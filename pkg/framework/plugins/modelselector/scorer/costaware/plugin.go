@@ -21,36 +21,23 @@ import (
 	"encoding/json"
 
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/datalayer"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/datalayer/pricing"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/modelselector"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/plugin"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/requesthandling"
 )
 
 // Package costaware provides a scorer that scores candidate models based on expected cost
-// for an inference request, by ranking nominal prices of the models.
-// Model prices are expressed in USD per 1M tokens.
-// Each model in the model selector has a valid price.
-// The actual cost is calculated as the product of the number of tokens and the price per 1M tokens.
-// This scorer assumes that there are no price reversals and the lowest nominal price of a model
-// results in the lowest cost for the request.
+// for an inference request, by ranking input-token prices of the models.
+// Input-token prices are stored on each model under pricing.TokenPricesAttributeKey
+// as the InputTokenPrice field of a *pricing.TokenPrices (USD per single input token,
+// i.e. the per-1M-tokens price divided by 1e6). The scorer ranks by this value alone;
+// the actual per-request cost would also depend on the output-token price, but ordering
+// models by input-token price is assumed to produce the same ordering as ordering by
+// total cost.
 
-const (
-	// CostScorerType is the type of the CostScorer scorer
-	CostScorerType = "cost-scorer"
-
-	// PriceAttributeKey is the key used to retrieve the price from model attributes
-	PriceAttributeKey = "price"
-)
-
-// PriceValue is a Cloneable wrapper for float64 price values
-type PriceValue struct {
-	Value float64
-}
-
-// Clone implements the Cloneable interface
-func (p *PriceValue) Clone() datalayer.Cloneable {
-	return &PriceValue{Value: p.Value}
-}
+// CostScorerType is the type of the CostScorer scorer.
+const CostScorerType = "cost-scorer"
 
 // compile-time type assertion
 var _ modelselector.Scorer = &CostScorer{}
@@ -104,8 +91,8 @@ func (s *CostScorer) Score(_ context.Context, _ *plugin.CycleState, _ *requestha
 	// Calculate the sum of all prices
 	var sumPrices float64
 	for _, model := range models {
-		priceValue, _ := model.GetAttributes().Get(PriceAttributeKey)
-		price := priceValue.(*PriceValue).Value
+		v, _ := model.GetAttributes().Get(pricing.TokenPricesAttributeKey)
+		price := v.(*pricing.TokenPrices).InputTokenPrice
 		sumPrices += price
 	}
 
@@ -119,8 +106,8 @@ func (s *CostScorer) Score(_ context.Context, _ *plugin.CycleState, _ *requestha
 
 	// Calculate scores using inverted sum normalization: 1 - price/sum(prices)
 	for _, model := range models {
-		priceValue, _ := model.GetAttributes().Get(PriceAttributeKey)
-		price := priceValue.(*PriceValue).Value
+		v, _ := model.GetAttributes().Get(pricing.TokenPricesAttributeKey)
+		price := v.(*pricing.TokenPrices).InputTokenPrice
 		scores[model] = 1.0 - price/sumPrices
 	}
 

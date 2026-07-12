@@ -24,6 +24,8 @@ const (
 	ResponseEventType EventType = "response"
 )
 
+var AllModelsPredicate = func(Model) bool { return true }
+
 // Event is the carrier for all data layer events.
 type Event struct {
 	Type    EventType
@@ -40,7 +42,6 @@ type EventNotifier interface {
 type Datastore interface {
 	GetOrCreateModel(name string) Model
 	DeleteModel(name string)
-	Models() []string
 	// GetModels returns all models matching predicate in a single call.
 	// Pass a predicate that always returns true to retrieve all models.
 	GetModels(predicate func(Model) bool) []Model

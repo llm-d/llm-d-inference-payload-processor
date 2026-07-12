@@ -20,7 +20,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
@@ -33,6 +32,9 @@ import (
 
 const (
 	ModelSelectorPluginType = "model-selector"
+
+	// SelectedModelCycleStateKey is the CycleState key where the selected model name is stored.
+	SelectedModelCycleStateKey = "model-selector/selected-model"
 )
 
 var _ requesthandling.RequestProcessor = &ModelSelectorPlugin{}
@@ -78,20 +80,21 @@ func (p *ModelSelectorPlugin) WithName(name string) *ModelSelectorPlugin {
 func (p *ModelSelectorPlugin) ProcessRequest(ctx context.Context, cycleState *plugin.CycleState, request *requesthandling.InferenceRequest) error {
 	logger := log.FromContext(ctx)
 
-	candidateModels := p.loadCandidateModels()
+	candidateModels := p.datastore.GetModels(datalayer.AllModelsPredicate)
 	if len(candidateModels) == 0 {
 		return errors.New("no candidate models available in datastore")
 	}
 
 	result, err := p.selector.Select(ctx, request, cycleState, candidateModels)
 	if err != nil {
-		return fmt.Errorf("model selection failed: %w", err)
+		return err
 	}
 
 	selectedName := result.TargetModel.GetName()
 	logger.V(logutil.VERBOSE).Info("Model selected", "model", selectedName)
 
 	request.SetBodyField("model", selectedName)
+	cycleState.Write(SelectedModelCycleStateKey, selectedName)
 
 	return nil
 }
@@ -104,14 +107,4 @@ func (p *ModelSelectorPlugin) Pipeline() *ms.ModelSelectorPipeline {
 // AddPlugins adds the given plugins to the model selector pipeline.
 func (p *ModelSelectorPlugin) AddPlugins(plugins ...plugin.Plugin) error {
 	return p.selector.Pipeline().AddPlugins(plugins...)
-}
-
-// loadCandidateModels reads all known models from the Datastore.
-func (p *ModelSelectorPlugin) loadCandidateModels() []datalayer.Model {
-	modelNames := p.datastore.Models()
-	candidates := make([]datalayer.Model, len(modelNames))
-	for i, name := range modelNames {
-		candidates[i] = p.datastore.GetOrCreateModel(name)
-	}
-	return candidates
 }

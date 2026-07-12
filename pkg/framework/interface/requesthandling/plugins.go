@@ -44,11 +44,20 @@ type ResponseProcessor interface {
 	ProcessResponse(ctx context.Context, cycleState *plugin.CycleState, response *InferenceResponse) error
 }
 
+// ResponseHeadersProcessor processes response headers before the body arrives.
+// Plugins implementing this interface run during HandleResponseHeaders, so they
+// work for both streaming and non-streaming responses. Use this when a plugin
+// only needs CycleState and header access (not the response body).
+type ResponseHeadersProcessor interface {
+	plugin.Plugin
+	ProcessResponseHeaders(ctx context.Context, cycleState *plugin.CycleState, response *InferenceResponse) error
+}
+
 // ResponseChunkProcessor processes individual response body chunks as they
-// stream through without buffering. The framework converts the raw chunk bytes
-// to a string once and passes it to all chunk processors. Plugins receive the
-// InferenceResponse to allow header mutation.
+// stream through without buffering. The framework sets response.CurrentChunk
+// before calling plugins. Plugins read the chunk via response.CurrentChunk
+// and mutate it via response.SetChunk().
 type ResponseChunkProcessor interface {
 	plugin.Plugin
-	ProcessResponseChunk(ctx context.Context, cycleState *plugin.CycleState, response *InferenceResponse, chunk string, isFinal bool) error
+	ProcessResponseChunk(ctx context.Context, cycleState *plugin.CycleState, response *InferenceResponse, isFinal bool) error
 }
