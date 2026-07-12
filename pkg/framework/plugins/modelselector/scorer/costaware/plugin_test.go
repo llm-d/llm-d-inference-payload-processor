@@ -22,6 +22,7 @@ import (
 	"testing"
 
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/datalayer"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/datalayer/pricing"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/plugin"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/requesthandling"
 )
@@ -231,32 +232,11 @@ func TestScore(t *testing.T) {
 	}
 }
 
-// TestPriceValueClone tests the Clone method of PriceValue
-func TestPriceValueClone(t *testing.T) {
-	original := &PriceValue{Value: 42.5}
-	cloned := original.Clone()
-
-	clonedPrice, ok := cloned.(*PriceValue)
-	if !ok {
-		t.Fatal("Clone() did not return *PriceValue type")
-	}
-
-	if clonedPrice.Value != original.Value {
-		t.Errorf("Clone() value = %v, want %v", clonedPrice.Value, original.Value)
-	}
-
-	// Verify it's a copy, not a reference
-	clonedPrice.Value = 100.0
-	if original.Value == 100.0 {
-		t.Error("Clone() did not create an independent copy")
-	}
-}
-
 // Helper functions
 
 func createModelWithPrice(name string, price float64) datalayer.Model {
 	model := datalayer.NewModel(name)
-	model.GetAttributes().Put(PriceAttributeKey, &PriceValue{Value: price})
+	model.GetAttributes().Put(pricing.TokenPricesAttributeKey, &pricing.TokenPrices{InputTokenPrice: price})
 	return model
 }
 

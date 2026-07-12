@@ -80,7 +80,7 @@ func (p *ModelSelectorPlugin) WithName(name string) *ModelSelectorPlugin {
 func (p *ModelSelectorPlugin) ProcessRequest(ctx context.Context, cycleState *plugin.CycleState, request *requesthandling.InferenceRequest) error {
 	logger := log.FromContext(ctx)
 
-	candidateModels := p.loadCandidateModels()
+	candidateModels := p.datastore.GetModels(datalayer.AllModelsPredicate)
 	if len(candidateModels) == 0 {
 		return errors.New("no candidate models available in datastore")
 	}
@@ -107,14 +107,4 @@ func (p *ModelSelectorPlugin) Pipeline() *ms.ModelSelectorPipeline {
 // AddPlugins adds the given plugins to the model selector pipeline.
 func (p *ModelSelectorPlugin) AddPlugins(plugins ...plugin.Plugin) error {
 	return p.selector.Pipeline().AddPlugins(plugins...)
-}
-
-// loadCandidateModels reads all known models from the Datastore.
-func (p *ModelSelectorPlugin) loadCandidateModels() []datalayer.Model {
-	modelNames := p.datastore.Models()
-	candidates := make([]datalayer.Model, len(modelNames))
-	for i, name := range modelNames {
-		candidates[i] = p.datastore.GetOrCreateModel(name)
-	}
-	return candidates
 }

@@ -1,0 +1,58 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm-deepseek-r1
+  namespace: ${NAMESPACE}
+  labels:
+    app: vllm-deepseek-r1
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vllm-deepseek-r1
+  template:
+    metadata:
+      labels:
+        app: vllm-deepseek-r1
+    spec:
+      containers:
+        - name: sim
+          image: ${SIM_IMAGE}
+          imagePullPolicy: IfNotPresent
+          args:
+            - --port=8000
+            - --model=ipp-test-deepseek
+            - --mode=echo
+          ports:
+            - containerPort: 8000
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 2
+            periodSeconds: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vllm-deepseek-r1
+  namespace: ${NAMESPACE}
+spec:
+  selector:
+    app: vllm-deepseek-r1
+  ports:
+    - port: 8000
+      targetPort: 8000
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: deepseek-adapters
+  namespace: ${NAMESPACE}
+  labels:
+    inference.llm-d.ai/ipp-managed: "true"
+data:
+  baseModel: ipp-test-deepseek
+  adapters: |
+    - deepseek-adapter-1
+    - deepseek-adapter-2

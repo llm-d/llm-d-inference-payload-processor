@@ -57,17 +57,6 @@ func (s *store) DeleteModel(name string) {
 	delete(s.models, name)
 }
 
-// Models returns the names of all tracked models. Order is not guaranteed.
-func (s *store) Models() []string {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	names := make([]string, 0, len(s.models))
-	for n := range s.models {
-		names = append(names, n)
-	}
-	return names
-}
-
 // GetModels returns all models matching predicate under a single read lock.
 // Pass a predicate that always returns true to retrieve all models.
 func (s *store) GetModels(predicate func(datalayer.Model) bool) []datalayer.Model {
