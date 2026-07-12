@@ -393,7 +393,7 @@ func TestBuildPreAndPostProcessors(t *testing.T) {
 			require.NoError(t, err, "setup: instantiatePlugins failed")
 
 			preProcessors, preErr := buildPreProcessors(rawConfig.PreProcessing, handle)
-			postProcessors, postErr := buildPostProcessors(rawConfig.PostProcessing, handle)
+			postProcessors, _, postErr := buildPostProcessors(rawConfig.PostProcessing, handle)
 
 			if tc.wantErr {
 				if preErr == nil && postErr == nil {

@@ -21,9 +21,13 @@
     - [`random-picker`](#random-picker)
     - [`weighted-random-picker`](#weighted-random-picker)
 - [Data Layer Plugins](#data-layer-plugins)
-  - [`request-metadata-extractor`](#request-metadata-extractor)
-  - [`model-config-datasource`](#model-config-datasource)
+  - [Collectors](#collectors-1)
+  - [Extractors](#extractors)
+    - [`request-metadata-extractor`](#request-metadata-extractor)
+  - [Datasources](#datasources)
+    - [`model-config-datasource`](#model-config-datasource)
 - [Response Handling Plugins](#response-handling-plugins)
+  - [`model-name-to-header`](#model-name-to-header)
 - [Pre- and Post-Processors](#pre--and-post-processors)
 - [Configuration Example](#configuration-example)
 - [References](#references)
@@ -57,7 +61,9 @@ config loader routes each plugin to the right extension point based on that inte
 | **Model Selector — Scorer** | Score the remaining candidate models, conventionally in `[0, 1]`. | Second phase of the ModelSelector pipeline; scores combine via per-reference `weight`. |
 | **Model Selector — Picker** | Select exactly one final model from the scored candidates. | Third phase of the ModelSelector pipeline; exactly one picker runs. |
 | **Profile Picker** | Choose which profile runs for a request. | Globally, before the profile's request plugins. |
-| **Data Layer** | Maintain cross-request state (collectors, extractors, datasources) consumed by Scorers (and Filters). | Continuously in the background, decoupled from any single request. |
+| **Data Layer — Collector** | Aggregate cross-request signals over time and write them into the datastore for other plugins to consume. | Runs continuously in the background on a timer, independent of any single request. |
+| **Data Layer — Extractor** | Derive cross-request metadata from request/response events and persist it in the datastore. | Runs in the background when request/response events arrive, independent of any single request profile stage. |
+| **Data Layer — Datasource** | Import external configuration or metadata into the datastore and keep it in sync as the source changes. | Starts once in the background, performs an initial sync, then keeps watching its source for updates. |
 
 ---
 
@@ -255,25 +261,51 @@ falls back to `random-picker` for uniform selection.
 
 ## Data Layer Plugins
 
-Data-layer plugins maintain cross-request state consumed by Scorers (and Filters). They run
-continuously in the background (extractors on request/response events, collectors on a timer,
-datasources as watchers), decoupled from any single request, and are referenced under the top-level
-`datalayer` section as `collectors`, `extractors`, or `datasources` — **never** in a profile's
-request list. See [Data Layer][Architecture] for the conceptual model.
+Data-layer plugins maintain cross-request state consumed by Scorers, Filters, and any other plugin
+that needs shared runtime data. As described in [Architecture][Architecture], the data layer is split
+into three plugin categories:
 
-### `request-metadata-extractor`
+- **Collectors** aggregate signals over time on a timer.
+- **Extractors** process request/response events as they arrive.
+- **Datasources** import external state and keep the datastore synchronized with it.
+
+These plugins are referenced only from the top-level `datalayer` section as `collectors`,
+`extractors`, or `datasources` — **never** from a profile's `request` list. They run outside the
+per-request pipeline, in background loops owned by the data layer.
+
+### Collectors
+
+Collectors aggregate signals over time and write the results into the shared datastore. They are
+started by the data layer and run continuously on their own schedule, independent of request flow.
+
+### Extractors
+
+Extractors consume request and response events emitted by the data layer's event stream. They do not
+run as ordinary profile plugins; instead, the data layer invokes them in the background whenever new
+events arrive.
+
+#### `request-metadata-extractor`
 
 An **extractor** that tracks in-flight request counts and token sums per model. On each request event
 it increments the model's request count and adds the request's `max_tokens` to its token sum; on the
-corresponding response event it decrements both (flooring at zero). The result is written to each
-model's `request-metadata` attribute, which [`inflight-requests-scorer`](#inflight-requests-scorer)
-consumes. Reference it under `datalayer.extractors`.
+corresponding response event it decrements both (flooring at zero). The extractor batches the changed
+models for that event set and writes the result to each model's `request-metadata` attribute, which
+[`inflight-requests-scorer`](#inflight-requests-scorer) consumes. Reference it under
+`datalayer.extractors`.
+
+**How it runs:** The data layer calls [`RequestMetadataExtractor.Extract()`](pkg/framework/plugins/datalayer/requestmetadata/plugin.go:83) whenever request/response events arrive. The extractor updates its in-memory counters and persists the latest values to the shared datastore.
 
 **Parameters:** None. The extractor is wired to the shared datastore via its plugin handle.
 
 **Source:** [`pkg/framework/plugins/datalayer/requestmetadata/`][src-requestmetadata]
 
-### `model-config-datasource`
+### Datasources
+
+Datasources import state from an external source into the shared datastore. The data layer starts them
+in the background; a datasource typically performs an initial sync and then keeps watching its source
+for changes.
+
+#### `model-config-datasource`
 
 A **datasource** that imports the set of known model names into the datastore from a JSON config
 file, keeping the datastore in sync as the file changes. It watches the file's parent directory (to
@@ -281,6 +313,8 @@ handle atomic, rename-based replacements such as Kubernetes ConfigMap remounts),
 listed model, and removes any datastore model no longer present in the file. This populates the
 candidate-model set that [`model-selector`](#model-selector) reads. Reference it under
 `datalayer.datasources`.
+
+**How it runs:** When the data layer starts the plugin, [`ModelConfigDataSource.Start()`](pkg/framework/plugins/datalayer/modelconfigcollector/plugin.go:106) performs an initial sync from `modelsPath`, then launches a background filesystem watcher on the parent directory. On matching file `Write` or `Create` events it re-reads the config and reconciles the datastore.
 
 **Parameters:**
 
@@ -299,18 +333,55 @@ candidate-model set that [`model-selector`](#model-selector) reads. Reference it
 
 ## Response Handling Plugins
 
-Response-handling plugins implement the `ResponseProcessor` interface and run during a profile's
-`response` stage. **There are no in-tree response-handling plugins** — this is a framework
-extension point. To add one, implement `ResponseProcessor` and register it (see
-[Creating a Plugin][Creating a Plugin]).
+Response-handling plugins process the response on its way back to the client. There are three
+plugin interfaces:
+
+| Interface | When executed | Body access |
+|-----------|-------------|-------------|
+| `ResponseHeadersProcessor` | During the response-headers phase, before the body arrives. Works for both streaming and buffered responses. | No |
+| `ResponseProcessor` | After the full response body is buffered and parsed as JSON. Forces response buffering. | Yes |
+| `ResponseChunkProcessor` | Per-chunk as the response streams through. Cannot be mixed with `ResponseProcessor` in the same profile. | Chunk only |
+
+### `model-name-to-header`
+
+Echoes the model name that was selected during request processing back to the client as a response
+header. When [`model-selector`](#model-selector) runs, it resolves the client's request to a specific
+model and stores the result in `CycleState`; this plugin reads that stored value during the
+response-headers phase and sets the header so that clients can discover which model actually served
+their request. Because it runs at the response-headers phase (implementing `ResponseHeadersProcessor`),
+it works for both streaming and non-streaming responses. This is useful when the client sends a logical
+model name (e.g. a model group or alias) and needs to know the concrete model that was selected — for
+example, to pin follow-up requests to the same model for session affinity.
+
+**Prerequisites:** The [`model-selector`](#model-selector) plugin must be configured in the same
+profile's `request` list. If no model selection occurred (the `CycleState` key is absent), the
+plugin silently skips without error.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `headerName` | string | no | `X-Gateway-Model-Name` | Name of the response header to set. |
+
+**Source:** [`pkg/framework/plugins/responsehandling/modelnametoheader/`][src-modelnametoheader]
 
 ---
 
 ## Pre- and Post-Processors
 
-**PreProcessing** and **PostProcessing** are reserved global extension points in the config API
-(before profile selection and after the response plugins). They are **not yet invoked by the request
-path**, and there are no in-tree pre- or post-processors.
+**PreProcessing** runs before profile selection and is available as a global extension point.
+**PostProcessing** runs after the per-profile response plugins and applies to all profiles.
+
+Post-processing plugins are classified by their interface:
+
+| Interface | Phase | Forces buffering |
+|-----------|-------|-----------------|
+| `ResponseHeadersProcessor` | Response headers (before body) | No |
+| `ResponseProcessor` | Response body (after JSON unmarshal) | Yes |
+
+`model-name-to-header` is an in-tree post-processor. Because it implements
+`ResponseHeadersProcessor`, it runs in the response-headers phase and works for both streaming and
+non-streaming responses without forcing response buffering.
 
 ---
 
@@ -341,6 +412,7 @@ plugins:
 - type: inflight-requests-scorer
 - type: weighted-random-picker
 - type: request-metadata-extractor
+- type: model-name-to-header
 - type: model-config-datasource
   parameters:
     modelsPath: /etc/ipp/models.json
@@ -356,6 +428,8 @@ profiles:
     - pluginRef: inflight-requests-scorer
       weight: 2.0
     - pluginRef: weighted-random-picker
+postProcessing:
+- pluginRef: model-name-to-header
 datalayer:
   extractors:
   - pluginRef: request-metadata-extractor
@@ -392,6 +466,7 @@ For the full schema, Helm values, ConfigMaps, and proxy integration, see [Config
 [src-inflightscorer]: https://github.com/llm-d/llm-d-inference-payload-processor/tree/main/pkg/framework/plugins/modelselector/scorer/inflightrequests
 [src-requestmetadata]: https://github.com/llm-d/llm-d-inference-payload-processor/tree/main/pkg/framework/plugins/datalayer/requestmetadata
 [src-modelconfig]: https://github.com/llm-d/llm-d-inference-payload-processor/tree/main/pkg/framework/plugins/datalayer/modelconfigcollector
+[src-modelnametoheader]: https://github.com/llm-d/llm-d-inference-payload-processor/tree/main/pkg/framework/plugins/responsehandling/modelnametoheader
 [readme-single]: https://github.com/llm-d/llm-d-inference-payload-processor/blob/main/pkg/framework/plugins/requesthandling/profilepicker/single/README.md
 [readme-maxscore]: https://github.com/llm-d/llm-d-inference-payload-processor/blob/main/pkg/framework/plugins/modelselector/picker/maxscore/README.md
 [readme-random]: https://github.com/llm-d/llm-d-inference-payload-processor/blob/main/pkg/framework/plugins/modelselector/picker/random/README.md

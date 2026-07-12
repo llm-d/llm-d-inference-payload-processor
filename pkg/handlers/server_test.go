@@ -59,18 +59,21 @@ func TestHandleRequestBody(t *testing.T) {
 										Key:      contentLengthHeader,
 										RawValue: []byte(strconv.Itoa(len(b))),
 									},
+									AppendAction: basepb.HeaderValueOption_OVERWRITE_IF_EXISTS_OR_ADD,
 								},
 								{
 									Header: &basepb.HeaderValue{
 										Key:      bodyfieldtoheader.ModelHeader,
 										RawValue: []byte("foo"),
 									},
+									AppendAction: basepb.HeaderValueOption_OVERWRITE_IF_EXISTS_OR_ADD,
 								},
 								{
 									Header: &basepb.HeaderValue{
 										Key:      basemodelextractor.BaseModelHeader,
 										RawValue: []byte(""),
 									},
+									AppendAction: basepb.HeaderValueOption_OVERWRITE_IF_EXISTS_OR_ADD,
 								},
 							},
 						},
@@ -257,6 +260,92 @@ func TestHandleResponseBody_Streaming(t *testing.T) {
 	}
 }
 
+// TestProcess_DuplicateEndOfStreamIgnored reproduces Envoy re-delivering the
+// final request body chunk after EndOfStream (observed with >1MB bodies in
+// FULL_DUPLEX_STREAMED mode on Envoy 1.35+). Without the completion guard, the
+// duplicate chunk is appended to the already-processed buffer and re-parsed,
+// failing with "invalid character ... after top-level value" and terminating
+// the stream with an immediate 400 response.
+func TestProcess_DuplicateEndOfStreamIgnored(t *testing.T) {
+	streamCtx, cancel := context.WithCancel(logutil.NewTestLoggerIntoContext(context.Background()))
+	profiles := newTestProfiles()
+	profiles[testProfileName].NeedsResponseBuffering = true
+	srv := newServerForTest(profiles)
+	testListener, errChan := utils.SetupTestStreamingServer(t, streamCtx, srv)
+	process, conn := utils.GetStreamingServerClient(streamCtx, t)
+	defer conn.Close()
+	defer func() {
+		cancel()
+		<-errChan
+		testListener.Close()
+	}()
+
+	if err := process.Send(&extProcPb.ProcessingRequest{
+		Request: &extProcPb.ProcessingRequest_RequestHeaders{},
+	}); err != nil {
+		t.Fatalf("send request headers: %v", err)
+	}
+
+	body := []byte(`{"model":"testing"}`)
+	chunks := []struct {
+		body        []byte
+		endOfStream bool
+	}{
+		{body: body[:10], endOfStream: false},
+		{body: body[10:], endOfStream: true},
+		// Duplicate delivery of the final chunk after EndOfStream.
+		{body: body[10:], endOfStream: true},
+	}
+	for _, c := range chunks {
+		if err := process.Send(&extProcPb.ProcessingRequest{
+			Request: &extProcPb.ProcessingRequest_RequestBody{
+				RequestBody: &extProcPb.HttpBody{Body: c.body, EndOfStream: c.endOfStream},
+			},
+		}); err != nil {
+			t.Fatalf("send request body chunk: %v", err)
+		}
+	}
+
+	for _, phase := range []string{"request headers", "request body"} {
+		msg, err := process.Recv()
+		if err != nil {
+			t.Fatalf("recv %s response: %v", phase, err)
+		}
+		if msg.GetImmediateResponse() != nil {
+			t.Fatalf("stream terminated with immediate response after duplicate EoS chunk (%s phase): %v", phase, msg)
+		}
+	}
+
+	// The stream must still be usable: run the response phase end to end.
+	if err := process.Send(&extProcPb.ProcessingRequest{
+		Request: &extProcPb.ProcessingRequest_ResponseHeaders{
+			ResponseHeaders: utils.BuildEnvoyGRPCHeaders(map[string]string{
+				":method":      "POST",
+				"content-type": "text/event-stream",
+			}, true),
+		},
+	}); err != nil {
+		t.Fatalf("send response headers: %v", err)
+	}
+	if err := process.Send(&extProcPb.ProcessingRequest{
+		Request: &extProcPb.ProcessingRequest_ResponseBody{
+			ResponseBody: &extProcPb.HttpBody{
+				Body:        []byte(`{"choices":[{"text":"Hello!"}]}`),
+				EndOfStream: true,
+			},
+		},
+	}); err != nil {
+		t.Fatalf("send response body: %v", err)
+	}
+	msg, err := process.Recv()
+	if err != nil {
+		t.Fatalf("recv response phase after duplicate request EoS: %v", err)
+	}
+	if msg.GetImmediateResponse() != nil {
+		t.Fatalf("response phase failed after duplicate request EoS chunk: %v", msg)
+	}
+}
+
 // recordingSink is a minimal logr.LogSink that records the key/value pairs added
 // via WithValues so tests can assert on logger enrichment.
 type recordingSink struct {
@@ -341,7 +430,7 @@ func (noopNotifier) Notify(datasource.Event) {}
 
 func newServerForTest(profiles map[string]*requesthandling.Profile) *Server {
 	return NewServer([]requesthandling.RequestProcessor{}, single.NewSingleProfilePicker(), profiles,
-		[]requesthandling.ResponseProcessor{}).WithEventNotifier(noopNotifier{})
+		[]requesthandling.ResponseProcessor{}, []requesthandling.ResponseHeadersProcessor{}).WithEventNotifier(noopNotifier{})
 }
 
 func newTestProfiles() map[string]*requesthandling.Profile {

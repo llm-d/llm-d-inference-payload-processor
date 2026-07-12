@@ -18,13 +18,13 @@ package modelselector
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
+	errcommon "github.com/llm-d/llm-d-inference-payload-processor/pkg/common/error"
 	logutil "github.com/llm-d/llm-d-inference-payload-processor/pkg/common/observability/logging"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/datalayer"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/modelselector"
@@ -146,7 +146,9 @@ func (p *ModelSelectorPipeline) String() string {
 func (p *ModelSelectorPipeline) Run(ctx context.Context, request *requesthandling.InferenceRequest, cycleState *plugin.CycleState, candidateModels []datalayer.Model) (*modelselector.PipelineRunResult, error) {
 	models := p.runFilterPlugins(ctx, request, cycleState, candidateModels)
 	if len(models) == 0 {
-		return nil, errors.New("no models available after filtering")
+		// Typed so the handler maps it to an HTTP ImmediateResponse instead of
+		// failing the ext_proc stream.
+		return nil, errcommon.Error{Code: errcommon.ResourceExhausted, Msg: "no models available after filtering"}
 	}
 
 	weightedScorePerModel := p.runScorerPlugins(ctx, request, cycleState, models)

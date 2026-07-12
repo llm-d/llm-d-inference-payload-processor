@@ -177,7 +177,7 @@ func TestRequestMetadataUnknownEventTypeIgnored(t *testing.T) {
 		t.Fatalf("Extract failed: %v", err)
 	}
 
-	modelCount := len(ds.Models())
+	modelCount := len(ds.GetModels(datalayer.AllModelsPredicate))
 	if modelCount != 0 {
 		t.Errorf("expected no models in datastore, got %d", modelCount)
 	}
@@ -196,7 +196,7 @@ func TestRequestMetadataMissingModelFieldIgnored(t *testing.T) {
 		t.Fatalf("Extract failed: %v", err)
 	}
 
-	modelCount := len(ds.Models())
+	modelCount := len(ds.GetModels(datalayer.AllModelsPredicate))
 	if modelCount != 0 {
 		t.Errorf("expected no models in datastore, got %d", modelCount)
 	}

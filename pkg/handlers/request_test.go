@@ -198,6 +198,7 @@ func TestHandleRequestBody_BuiltInPlugins(t *testing.T) {
 												Key:      "Content-Length",
 												RawValue: []byte("27"),
 											},
+											AppendAction: basepb.HeaderValueOption_OVERWRITE_IF_EXISTS_OR_ADD,
 										},
 									},
 								},
@@ -241,11 +242,13 @@ func TestHandleRequestBody_BuiltInPlugins(t *testing.T) {
 													Key:      "Content-Length",
 													RawValue: []byte(strconv.Itoa(len(b))),
 												},
+												AppendAction: basepb.HeaderValueOption_OVERWRITE_IF_EXISTS_OR_ADD,
 											},
 											{
 												Header: &basepb.HeaderValue{
 													Key: basemodelextractor.BaseModelHeader,
 												},
+												AppendAction: basepb.HeaderValueOption_OVERWRITE_IF_EXISTS_OR_ADD,
 											},
 										},
 									},
@@ -293,18 +296,21 @@ func TestHandleRequestBody_BuiltInPlugins(t *testing.T) {
 													Key:      "Content-Length",
 													RawValue: []byte(strconv.Itoa(len(b))),
 												},
+												AppendAction: basepb.HeaderValueOption_OVERWRITE_IF_EXISTS_OR_ADD,
 											},
 											{
 												Header: &basepb.HeaderValue{
 													Key:      bodyfieldtoheader.ModelHeader,
 													RawValue: []byte("1"),
 												},
+												AppendAction: basepb.HeaderValueOption_OVERWRITE_IF_EXISTS_OR_ADD,
 											},
 											{
 												Header: &basepb.HeaderValue{
 													Key:      basemodelextractor.BaseModelHeader,
 													RawValue: []byte(""),
 												},
+												AppendAction: basepb.HeaderValueOption_OVERWRITE_IF_EXISTS_OR_ADD,
 											},
 										},
 									},
@@ -352,18 +358,21 @@ func TestHandleRequestBody_BuiltInPlugins(t *testing.T) {
 													Key:      contentLengthHeader,
 													RawValue: []byte(strconv.Itoa(len(b))),
 												},
+												AppendAction: basepb.HeaderValueOption_OVERWRITE_IF_EXISTS_OR_ADD,
 											},
 											{
 												Header: &basepb.HeaderValue{
 													Key:      bodyfieldtoheader.ModelHeader,
 													RawValue: []byte("foo"),
 												},
+												AppendAction: basepb.HeaderValueOption_OVERWRITE_IF_EXISTS_OR_ADD,
 											},
 											{
 												Header: &basepb.HeaderValue{
 													Key:      basemodelextractor.BaseModelHeader,
 													RawValue: []byte(""),
 												},
+												AppendAction: basepb.HeaderValueOption_OVERWRITE_IF_EXISTS_OR_ADD,
 											},
 										},
 									},
@@ -418,18 +427,21 @@ func TestHandleRequestBody_BuiltInPlugins(t *testing.T) {
 													Key:      contentLengthHeader,
 													RawValue: []byte(strconv.Itoa(len(b))),
 												},
+												AppendAction: basepb.HeaderValueOption_OVERWRITE_IF_EXISTS_OR_ADD,
 											},
 											{
 												Header: &basepb.HeaderValue{
 													Key:      bodyfieldtoheader.ModelHeader,
 													RawValue: []byte("foo"),
 												},
+												AppendAction: basepb.HeaderValueOption_OVERWRITE_IF_EXISTS_OR_ADD,
 											},
 											{
 												Header: &basepb.HeaderValue{
 													Key:      basemodelextractor.BaseModelHeader,
 													RawValue: []byte(""),
 												},
+												AppendAction: basepb.HeaderValueOption_OVERWRITE_IF_EXISTS_OR_ADD,
 											},
 										},
 									},
@@ -843,6 +855,7 @@ func buildStreamingResponse(bodyBytes []byte, setHeaders map[string]string, remo
 			Key:      contentLengthHeader,
 			RawValue: []byte(strconv.Itoa(len(bodyBytes))),
 		},
+		AppendAction: basepb.HeaderValueOption_OVERWRITE_IF_EXISTS_OR_ADD,
 	})
 	for k, v := range setHeaders {
 		setHeaderOpts = append(setHeaderOpts, &basepb.HeaderValueOption{
@@ -850,6 +863,7 @@ func buildStreamingResponse(bodyBytes []byte, setHeaders map[string]string, remo
 				Key:      k,
 				RawValue: []byte(v),
 			},
+			AppendAction: basepb.HeaderValueOption_OVERWRITE_IF_EXISTS_OR_ADD,
 		})
 	}
 
@@ -930,6 +944,7 @@ func TestHandleRequestBody_BodyMutation(t *testing.T) {
 										Key:      contentLengthHeader,
 										RawValue: []byte(strconv.Itoa(len(b))),
 									},
+									AppendAction: basepb.HeaderValueOption_OVERWRITE_IF_EXISTS_OR_ADD,
 								},
 							},
 						},

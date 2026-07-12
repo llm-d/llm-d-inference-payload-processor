@@ -30,6 +30,7 @@ import (
 
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/datalayer"
 	dlsrc "github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/datalayer/datasource"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/datalayer/pricing"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/plugin"
 )
 
@@ -44,9 +45,15 @@ type PluginConfig struct {
 }
 
 // ModelConfiguration is a single model entry in the config file.
+//
+// Pricing holds the per-million pricing block. When omitted from JSON, it defaults
+// to the zero value (0 input, 0 output per million), registering the model as free.
+// Prices are expressed in USD per 1,000,000 tokens and are converted to per-token
+// prices (divided by 1e6) before storage as TokenPrices in the datastore.
 type ModelConfiguration struct {
-	Name string `json:"name"`
+	Name       string `json:"name"`
 	MetricsURL string `json:"metricsURL,omitempty"`
+	Pricing    pricing.ModelPriceShape `json:"pricing"`
 }
 
 // ModelsConfig is the schema of the JSON config file.
@@ -192,15 +199,24 @@ func (c *ModelConfigDataSource) syncModels(ctx context.Context) error {
 			logger.Info("skipping model entry with empty name")
 			continue
 		}
+		if m.Pricing.InputPerMillion < 0 || m.Pricing.OutputPerMillion < 0 {
+			logger.Info("skipping model entry with negative price",
+				"model", m.Name,
+				"input_per_million", m.Pricing.InputPerMillion,
+				"output_per_million", m.Pricing.OutputPerMillion)
+			continue
+		}
 		desired[m.Name] = struct{}{}
 		mdl := c.ds.GetOrCreateModel(m.Name)
 		applyMetricsURL(ctx, mdl, m.Name, m.MetricsURL)
+		mdl.GetAttributes().Put(pricing.TokenPricesAttributeKey, pricing.ToTokenPrices(m.Pricing))
 	}
 
-	for _, existing := range c.ds.Models() {
-		if _, ok := desired[existing]; !ok {
-			logger.Info("removing model no longer present in config", "model", existing)
-			c.ds.DeleteModel(existing)
+	for _, model := range c.ds.GetModels(datalayer.AllModelsPredicate) {
+		modelName := model.GetName()
+		if _, ok := desired[modelName]; !ok {
+			logger.Info("removing model no longer present in config", "model", modelName)
+			c.ds.DeleteModel(modelName)
 		}
 	}
 

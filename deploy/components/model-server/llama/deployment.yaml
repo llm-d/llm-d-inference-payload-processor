@@ -1,0 +1,58 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm-llama3-8b-instruct
+  namespace: ${NAMESPACE}
+  labels:
+    app: vllm-llama3-8b-instruct
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vllm-llama3-8b-instruct
+  template:
+    metadata:
+      labels:
+        app: vllm-llama3-8b-instruct
+    spec:
+      containers:
+        - name: sim
+          image: ${SIM_IMAGE}
+          imagePullPolicy: IfNotPresent
+          args:
+            - --port=8000
+            - --model=ipp-test-llama
+            - --mode=echo
+          ports:
+            - containerPort: 8000
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 2
+            periodSeconds: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vllm-llama3-8b-instruct
+  namespace: ${NAMESPACE}
+spec:
+  selector:
+    app: vllm-llama3-8b-instruct
+  ports:
+    - port: 8000
+      targetPort: 8000
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: llama-adapters
+  namespace: ${NAMESPACE}
+  labels:
+    inference.llm-d.ai/ipp-managed: "true"
+data:
+  baseModel: ipp-test-llama
+  adapters: |
+    - llama-adapter-1
+    - llama-adapter-2
