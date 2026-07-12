@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package kvcachecollector
+package llmdroutermetricscollector
 
 import (
 	"context"
@@ -31,7 +31,6 @@ import (
 
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/datalayer"
 	dlsrc "github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/datalayer/datasource"
-	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/datalayer/metricsendpoint"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/plugin"
 	ippmetrics "github.com/llm-d/llm-d-inference-payload-processor/pkg/metrics"
 )
@@ -46,8 +45,7 @@ const (
 )
 
 const (
-	PluginType                 = "kv-cache-collector"
-	KVCacheMetricsAttributeKey = "kv-cache-metrics"
+	PluginType = "router-metrics-collector"
 
 	defaultInterval = 30 * time.Second
 	defaultTimeout  = 5 * time.Second
@@ -58,47 +56,38 @@ const (
 	defaultRunningRequestsMetric = "vllm:num_requests_running"
 )
 
-var _ dlsrc.Collector = &KVCacheCollector{}
-
-// KVCacheMetrics is the per-model attribute written after a successful scrape.
-// A failed scrape leaves the prior value; consumers gate freshness on LastObservedAt.
-type KVCacheMetrics struct {
-	Utilization     float64 // KV-cache pressure in [0, 1]
-	QueueDepth      int64   // waiting requests
-	CPUCacheUsage   float64 // CPU-cache pressure in [0, 1]
-	RunningRequests int64   // running requests
-	LastObservedAt  int64   // unix-nanos of last successful scrape; 0 if never
-}
-
-func (m KVCacheMetrics) Clone() datalayer.Cloneable { return m }
+var _ dlsrc.Collector = &RouterMetricsCollector{}
 
 // CollectorConfig is the optional JSON config; empty fields use defaults.
 type CollectorConfig struct {
 	Interval              string `json:"interval,omitempty"`
 	Timeout               string `json:"timeout,omitempty"`
+	MaxConcurrent         int    `json:"maxConcurrent,omitempty"`
 	UtilizationMetric     string `json:"utilizationMetric,omitempty"`
 	QueueDepthMetric      string `json:"queueDepthMetric,omitempty"`
 	CPUCacheUsageMetric   string `json:"cpuCacheUsageMetric,omitempty"`
 	RunningRequestsMetric string `json:"runningRequestsMetric,omitempty"`
 }
 
-// KVCacheCollector polls model metricsURLs; Poll runs serially so state needs no lock.
-type KVCacheCollector struct {
+// RouterMetricsCollector polls model metricsURLs.
+// When maxConcurrent > 1, targets are scraped in parallel using a semaphore.
+type RouterMetricsCollector struct {
 	typedName  plugin.TypedName
 	ds         datalayer.Datastore
 	httpClient *http.Client
 
 	interval              time.Duration
 	timeout               time.Duration
+	maxConcurrent         int
 	utilizationMetric     string
 	queueDepthMetric      string
 	cpuCacheUsageMetric   string
 	runningRequestsMetric string
 }
 
-// NewKVCacheCollector returns a collector with defaults.
-func NewKVCacheCollector(ds datalayer.Datastore) *KVCacheCollector {
-	return &KVCacheCollector{
+// NewRouterMetricsCollector returns a collector with defaults.
+func NewRouterMetricsCollector(ds datalayer.Datastore) *RouterMetricsCollector {
+	return &RouterMetricsCollector{
 		typedName:             plugin.TypedName{Type: PluginType, Name: PluginType},
 		ds:                    ds,
 		httpClient:            &http.Client{}, // no Client.Timeout; per-scrape timeout via context
@@ -111,7 +100,7 @@ func NewKVCacheCollector(ds datalayer.Datastore) *KVCacheCollector {
 	}
 }
 
-// CollectorFactory parses and validates JSON config into a KVCacheCollector.
+// CollectorFactory parses and validates JSON config into a RouterMetricsCollector.
 func CollectorFactory(name string, raw json.RawMessage, h plugin.Handle) (plugin.Plugin, error) {
 	cfg := CollectorConfig{Interval: defaultInterval.String(), Timeout: defaultTimeout.String()}
 	if len(raw) > 0 {
@@ -128,11 +117,15 @@ func CollectorFactory(name string, raw json.RawMessage, h plugin.Handle) (plugin
 	if err != nil {
 		return nil, fmt.Errorf("plugin %q: invalid timeout: %w", name, err)
 	}
+	if cfg.MaxConcurrent < 0 {
+		return nil, fmt.Errorf("plugin %q: maxConcurrent must be >= 0", name)
+	}
 
-	c := NewKVCacheCollector(h.Datastore())
+	c := NewRouterMetricsCollector(h.Datastore())
 	c.typedName.Name = name
 	c.interval = interval
 	c.timeout = timeout
+	c.maxConcurrent = cfg.MaxConcurrent
 	c.utilizationMetric = orDefault(cfg.UtilizationMetric, defaultUtilizationMetric)
 	c.queueDepthMetric = orDefault(cfg.QueueDepthMetric, defaultQueueDepthMetric)
 	c.cpuCacheUsageMetric = orDefault(cfg.CPUCacheUsageMetric, defaultCPUCacheUsageMetric)
@@ -140,16 +133,16 @@ func CollectorFactory(name string, raw json.RawMessage, h plugin.Handle) (plugin
 	return c, nil
 }
 
-func (c *KVCacheCollector) TypedName() plugin.TypedName       { return c.typedName }
-func (c *KVCacheCollector) CollectorFrequency() time.Duration { return c.interval }
+func (c *RouterMetricsCollector) TypedName() plugin.TypedName       { return c.typedName }
+func (c *RouterMetricsCollector) CollectorFrequency() time.Duration { return c.interval }
 
 // Poll scrapes each model with a metrics endpoint, sequentially. Failures are
 // logged and leave the prior attribute in place (stale, not zeroed).
 //
-// TODO: scrape targets concurrently (bounded by a configurable maxConcurrent)
-// once a deployment fronts enough pools that sequential polling lags.
-func (c *KVCacheCollector) Poll(ctx context.Context) (any, error) {
-	logger := log.FromContext(ctx).WithName("kv-cache-collector")
+// TODO: scrape targets concurrently (bounded by maxConcurrent) once a
+// deployment fronts enough pools that sequential polling lags.
+func (c *RouterMetricsCollector) Poll(ctx context.Context) (any, error) {
+	logger := log.FromContext(ctx).WithName("router-metrics-collector")
 
 	for _, t := range c.collectTargets() {
 		scrapeCtx, cancel := context.WithTimeout(ctx, c.timeout)
@@ -164,7 +157,7 @@ func (c *KVCacheCollector) Poll(ctx context.Context) (any, error) {
 		}
 		m.LastObservedAt = time.Now().UnixNano()
 		recordMetrics(t.model, m)
-		c.ds.GetOrCreateModel(t.model).GetAttributes().Put(KVCacheMetricsAttributeKey, m)
+		c.ds.GetOrCreateModel(t.model).GetAttributes().Put(datalayer.RouterMetricsAttributeKey, m)
 	}
 	return nil, nil
 }
@@ -174,15 +167,16 @@ type target struct {
 	url   string
 }
 
-// collectTargets snapshots (model, url) for models with a metrics endpoint.
-func (c *KVCacheCollector) collectTargets() []target {
+// collectTargets returns (model, url) pairs for models that have a metrics endpoint configured.
+// Models without a MetricsEndpoint attribute are not inference-pool targets and are skipped.
+func (c *RouterMetricsCollector) collectTargets() []target {
 	var targets []target
-	for _, m := range c.ds.GetModels(func(datalayer.Model) bool { return true }) {
-		v, ok := m.GetAttributes().Get(metricsendpoint.AttributeKey)
-		if !ok {
-			continue
-		}
-		if ep, ok := v.(metricsendpoint.MetricsEndpoint); ok && ep.URL != "" {
+	for _, m := range c.ds.GetModels(func(m datalayer.Model) bool {
+		_, ok := m.GetAttributes().Get(datalayer.MetricsEndpointAttributeKey)
+		return ok
+	}) {
+		ep, err := datalayer.ReadAttributeKey[datalayer.MetricsEndpoint](m.GetAttributes(), datalayer.MetricsEndpointAttributeKey)
+		if err == nil && ep.URL != "" {
 			targets = append(targets, target{m.GetName(), ep.URL})
 		}
 	}
@@ -190,47 +184,47 @@ func (c *KVCacheCollector) collectTargets() []target {
 }
 
 // scrape fetches url and returns parsed metrics, or a failReason* label + error.
-func (c *KVCacheCollector) scrape(ctx context.Context, url string) (KVCacheMetrics, string, error) {
+func (c *RouterMetricsCollector) scrape(ctx context.Context, url string) (datalayer.RouterMetrics, string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return KVCacheMetrics{}, failReasonRequestBuild, err
+		return datalayer.RouterMetrics{}, failReasonRequestBuild, err
 	}
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
-			return KVCacheMetrics{}, failReasonTimeout, err
+			return datalayer.RouterMetrics{}, failReasonTimeout, err
 		}
-		return KVCacheMetrics{}, failReasonDial, err
+		return datalayer.RouterMetrics{}, failReasonDial, err
 	}
 	defer resp.Body.Close() //nolint:errcheck
 	if resp.StatusCode != http.StatusOK {
-		return KVCacheMetrics{}, failReasonHTTPStatus, fmt.Errorf("HTTP %d", resp.StatusCode)
+		return datalayer.RouterMetrics{}, failReasonHTTPStatus, fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
 
 	// LegacyValidation permits colon names like "vllm:kv_cache_usage_perc".
 	parser := expfmt.NewTextParser(model.LegacyValidation)
 	fams, err := parser.TextToMetricFamilies(resp.Body)
 	if err != nil {
-		return KVCacheMetrics{}, failReasonParse, err
+		return datalayer.RouterMetrics{}, failReasonParse, err
 	}
 	// max collapses ratio gauges (hottest engine wins); sum collapses counts.
 	util, _ := gaugeStats(fams, c.utilizationMetric)
 	cpu, _ := gaugeStats(fams, c.cpuCacheUsageMetric)
 	_, queue := gaugeStats(fams, c.queueDepthMetric)
 	_, running := gaugeStats(fams, c.runningRequestsMetric)
-	return KVCacheMetrics{
-		Utilization:     util,
-		QueueDepth:      int64(queue),
-		CPUCacheUsage:   cpu,
-		RunningRequests: int64(running),
+	return datalayer.RouterMetrics{
+		KVCacheUtilization:  util,
+		CPUCacheUtilization: cpu,
+		WaitingRequests:     int64(queue),
+		RunningRequests:     int64(running),
 	}, "", nil
 }
 
-func recordMetrics(model string, m KVCacheMetrics) {
-	ippmetrics.RecordKVCacheUtilization(model, m.Utilization)
-	ippmetrics.RecordKVCacheCPUUsage(model, m.CPUCacheUsage)
-	ippmetrics.RecordKVCacheQueueDepth(model, m.QueueDepth)
-	ippmetrics.RecordKVCacheRunningRequests(model, m.RunningRequests)
+func recordMetrics(modelName string, m datalayer.RouterMetrics) {
+	ippmetrics.RecordKVCacheUtilization(modelName, m.KVCacheUtilization)
+	ippmetrics.RecordKVCacheCPUUsage(modelName, m.CPUCacheUtilization)
+	ippmetrics.RecordKVCacheQueueDepth(modelName, m.WaitingRequests)
+	ippmetrics.RecordKVCacheRunningRequests(modelName, m.RunningRequests)
 }
 
 func parsePositive(s string) (time.Duration, error) {

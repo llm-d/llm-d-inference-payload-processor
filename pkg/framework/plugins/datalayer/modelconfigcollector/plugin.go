@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 
@@ -45,6 +46,7 @@ type PluginConfig struct {
 // ModelConfiguration is a single model entry in the config file.
 type ModelConfiguration struct {
 	Name string `json:"name"`
+	MetricsURL string `json:"metricsURL,omitempty"`
 }
 
 // ModelsConfig is the schema of the JSON config file.
@@ -191,7 +193,8 @@ func (c *ModelConfigDataSource) syncModels(ctx context.Context) error {
 			continue
 		}
 		desired[m.Name] = struct{}{}
-		c.ds.GetOrCreateModel(m.Name)
+		mdl := c.ds.GetOrCreateModel(m.Name)
+		applyMetricsURL(ctx, mdl, m.Name, m.MetricsURL)
 	}
 
 	for _, existing := range c.ds.Models() {
@@ -202,4 +205,22 @@ func (c *ModelConfigDataSource) syncModels(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// applyMetricsURL attaches a MetricsEndpoint attribute for a valid http(s) URL,
+// or deletes any prior attribute if raw is empty or unparseable.
+func applyMetricsURL(ctx context.Context, mdl datalayer.Model, modelName, raw string) {
+	logger := log.FromContext(ctx).WithName("model-config-datasource")
+	if raw == "" {
+		mdl.GetAttributes().Delete(datalayer.MetricsEndpointAttributeKey)
+		return
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
+		logger.Info("ignoring invalid metricsURL; treating as absent",
+			"model", modelName, "metricsURL", raw)
+		mdl.GetAttributes().Delete(datalayer.MetricsEndpointAttributeKey)
+		return
+	}
+	mdl.GetAttributes().Put(datalayer.MetricsEndpointAttributeKey, datalayer.MetricsEndpoint{URL: raw})
 }

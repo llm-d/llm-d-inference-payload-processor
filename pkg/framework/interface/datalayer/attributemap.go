@@ -116,6 +116,33 @@ func (a *Attributes) Clone() AttributeMap {
 	return clone
 }
 
+// MetricsEndpointAttributeKey is the AttributeMap key for a model's MetricsEndpoint.
+const MetricsEndpointAttributeKey = "metrics-endpoint"
+
+// MetricsEndpoint holds the pool-aggregated Prometheus URL for a model.
+type MetricsEndpoint struct {
+	URL string
+}
+
+// Clone implements Cloneable.
+func (e MetricsEndpoint) Clone() Cloneable { return e }
+
+// RouterMetricsAttributeKey is the AttributeMap key for a model's RouterMetrics.
+const RouterMetricsAttributeKey = "router-metrics"
+
+// RouterMetrics is the per-model scrape result written by the llmd-router-metrics-collector.
+// A failed scrape leaves the prior value; consumers gate freshness on LastObservedAt.
+type RouterMetrics struct {
+	KVCacheUtilization  float64 // GPU KV-cache pressure in [0, 1]
+	CPUCacheUtilization float64 // CPU KV-cache pressure in [0, 1]
+	WaitingRequests     int64   // requests queued but not yet running
+	RunningRequests     int64   // requests actively being processed
+	LastObservedAt      int64   // unix-nanos of last successful scrape; 0 if never
+}
+
+// Clone implements Cloneable.
+func (m RouterMetrics) Clone() Cloneable { return m }
+
 // ReadAttributeKey reads an attribute by key and asserts the value to type T.
 // Returns an error if the key is not found or the type assertion fails.
 //

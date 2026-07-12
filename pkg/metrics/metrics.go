@@ -109,6 +109,61 @@ var (
 		},
 		[]string{"model"},
 	)
+	// --- router-metrics-collector observability ---
+	kvCacheScrapeDuration = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Subsystem: component,
+			Name:      "kv_cache_scrape_duration_seconds",
+			Help:      metricsutil.HelpMsgWithStability("Latency of a single KV-cache metrics scrape, including failures.", compbasemetrics.ALPHA),
+			Buckets:   []float64{0.01, 0.05, 0.1, 0.25, 0.5, 1, 2, 5},
+		},
+		[]string{"model"},
+	)
+
+	kvCacheScrapeFailures = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Subsystem: component,
+			Name:      "kv_cache_scrape_failures_total",
+			Help:      metricsutil.HelpMsgWithStability("Number of failed KV-cache metrics scrapes by reason.", compbasemetrics.ALPHA),
+		},
+		[]string{"model", "reason"},
+	)
+
+	kvCacheUtilization = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Subsystem: component,
+			Name:      "kv_cache_utilization_ratio",
+			Help:      metricsutil.HelpMsgWithStability("Last observed pool-wide KV-cache utilization per model (0.0-1.0).", compbasemetrics.ALPHA),
+		},
+		[]string{"model"},
+	)
+
+	kvCacheCPUUsage = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Subsystem: component,
+			Name:      "kv_cache_cpu_usage_ratio",
+			Help:      metricsutil.HelpMsgWithStability("Last observed pool-wide CPU KV-cache utilization per model (0.0-1.0).", compbasemetrics.ALPHA),
+		},
+		[]string{"model"},
+	)
+
+	kvCacheQueueDepth = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Subsystem: component,
+			Name:      "kv_cache_queue_depth",
+			Help:      metricsutil.HelpMsgWithStability("Last observed sum of waiting requests across the pool per model.", compbasemetrics.ALPHA),
+		},
+		[]string{"model"},
+	)
+
+	kvCacheRunningRequests = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Subsystem: component,
+			Name:      "kv_cache_running_requests",
+			Help:      metricsutil.HelpMsgWithStability("Last observed sum of running requests across the pool per model.", compbasemetrics.ALPHA),
+		},
+		[]string{"model"},
+	)
 )
 
 var registerMetrics sync.Once
@@ -124,6 +179,12 @@ func Register(customCollectors ...prometheus.Collector) {
 		metrics.Registry.MustRegister(modelSelectorE2ELatency)
 		metrics.Registry.MustRegister(modelSelectorAttemptTotal)
 		metrics.Registry.MustRegister(requestTTFT)
+		metrics.Registry.MustRegister(kvCacheScrapeDuration)
+		metrics.Registry.MustRegister(kvCacheScrapeFailures)
+		metrics.Registry.MustRegister(kvCacheUtilization)
+		metrics.Registry.MustRegister(kvCacheCPUUsage)
+		metrics.Registry.MustRegister(kvCacheQueueDepth)
+		metrics.Registry.MustRegister(kvCacheRunningRequests)
 		for _, collector := range customCollectors {
 			metrics.Registry.MustRegister(collector)
 		}
@@ -172,4 +233,34 @@ func RecordModelSelectorAttempt(err error) {
 		return
 	}
 	modelSelectorAttemptTotal.WithLabelValues("success").Inc()
+}
+
+// RecordKVCacheScrapeDuration records scrape latency; called for both successes and failures.
+func RecordKVCacheScrapeDuration(model string, duration time.Duration) {
+	kvCacheScrapeDuration.WithLabelValues(model).Observe(duration.Seconds())
+}
+
+// RecordKVCacheScrapeFailure records a failed scrape; reason must be a low-cardinality token.
+func RecordKVCacheScrapeFailure(model, reason string) {
+	kvCacheScrapeFailures.WithLabelValues(model, reason).Inc()
+}
+
+// RecordKVCacheUtilization records the last observed pool-wide GPU KV-cache utilization.
+func RecordKVCacheUtilization(model string, value float64) {
+	kvCacheUtilization.WithLabelValues(model).Set(value)
+}
+
+// RecordKVCacheCPUUsage records the last observed pool-wide CPU KV-cache utilization.
+func RecordKVCacheCPUUsage(model string, value float64) {
+	kvCacheCPUUsage.WithLabelValues(model).Set(value)
+}
+
+// RecordKVCacheQueueDepth records the last observed sum of waiting requests across the pool.
+func RecordKVCacheQueueDepth(model string, value int64) {
+	kvCacheQueueDepth.WithLabelValues(model).Set(float64(value))
+}
+
+// RecordKVCacheRunningRequests records the last observed sum of running requests across the pool.
+func RecordKVCacheRunningRequests(model string, value int64) {
+	kvCacheRunningRequests.WithLabelValues(model).Set(float64(value))
 }

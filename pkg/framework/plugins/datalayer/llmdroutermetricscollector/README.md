@@ -1,13 +1,13 @@
-# kv-cache-collector
+# router-metrics-collector
 
-Polls each model's pool-aggregated Prometheus metrics endpoint and writes a per-model `KVCacheMetrics` attribute carrying KV-cache utilization, CPU-cache usage, queue depth, and running-request count.
+Polls each model's pool-aggregated Prometheus metrics endpoint and writes a per-model `RouterMetrics` attribute carrying KV-cache utilization, CPU-cache usage, queue depth, and running-request count.
 
 
 ## Plugin configuration
 
 ```yaml
 plugins:
-  - type: kv-cache-collector
+  - type: router-metrics-collector
     parameters:
       interval: "30s"
       timeout:  "5s"
@@ -19,7 +19,7 @@ plugins:
 
 datalayer:
   collectors:
-    - pluginRef: kv-cache-collector
+    - pluginRef: router-metrics-collector
 ```
 
 ## Per-model input
@@ -40,7 +40,7 @@ The URL is contractually a *pool-aggregated* endpoint (Prometheus `/federate`, a
 
 | Where | Contents |
 |--|--|
-| Datastore attribute `kv-cache-metrics` | `KVCacheMetrics{Utilization, QueueDepth, CPUCacheUsage, RunningRequests, LastObservedAt}` |
+| Datastore attribute `router-metrics` | `datalayer.RouterMetrics{KVCacheUtilization, CPUCacheUtilization, WaitingRequests, RunningRequests, LastObservedAt}` |
 | Prometheus gauge `ipp_kv_cache_utilization_ratio{model}` | Mirror of the last observed KV-cache utilization (0–1) |
 | Prometheus gauge `ipp_kv_cache_cpu_usage_ratio{model}` | Mirror of the last observed CPU-cache usage (0–1) |
 | Prometheus gauge `ipp_kv_cache_queue_depth{model}` | Mirror of the last observed sum of waiting requests |
