@@ -82,10 +82,12 @@ func NewTTFTAwareScorer() *TTFTAwareScorer {
 }
 
 func (s *TTFTAwareScorer) TypedName() plugin.TypedName { return s.typedName }
+
 func (s *TTFTAwareScorer) WithName(name string) *TTFTAwareScorer {
 	s.typedName.Name = name
 	return s
 }
+
 func (s *TTFTAwareScorer) WithExplorationRate(r float64) *TTFTAwareScorer {
 	s.explorationRate = r
 	return s
@@ -170,10 +172,10 @@ func (s *TTFTAwareScorer) Score(ctx context.Context, cycleState *plugin.CycleSta
 // metricsFor reads the TTFT percentile metrics an extractor published for the model.
 // A missing or malformed attribute yields the zero value, which reads as truly cold.
 func metricsFor(model datalayer.Model) ttftpercentile.TTFTPercentileMetrics {
-	if val, ok := model.GetAttributes().Get(ttftpercentile.AttributeKey); ok {
-		if m, ok := val.(ttftpercentile.TTFTPercentileMetrics); ok {
-			return m
-		}
+	if val, err := datalayer.ReadAttributeKey[ttftpercentile.TTFTPercentileMetrics](
+		model.GetAttributes(), ttftpercentile.AttributeKey,
+	); err == nil {
+		return val
 	}
 	return ttftpercentile.TTFTPercentileMetrics{}
 }
