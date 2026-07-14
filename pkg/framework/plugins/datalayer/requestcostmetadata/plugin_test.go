@@ -148,7 +148,6 @@ func newTestExtractor(t *testing.T) (*RequestCostMetadataExtractor, datalayer.Da
 
 // --- Factory tests ---
 
-
 func TestExtractorFactory_HonorsConfig(t *testing.T) {
 	ds := datastore.NewFakeDataStore()
 	raw := json.RawMessage(`{"compression":50,"flushIntervalDuration":"1m"}`)
@@ -360,9 +359,9 @@ func TestExtract_MultipleModels(t *testing.T) {
 	setTokenPrices(ds, "m2", 5e-7, 1e-6) // input $0.5/M, output $1/M
 
 	// Batch with interleaved models: m1, m2, m1
-	ev1 := makeResponseEvent("m1", 100, 50, false)   // cost = 100*1e-6 + 50*2e-6 = 1e-4 + 1e-4 = 2e-4
-	ev2 := makeResponseEvent("m2", 200, 100, false)  // cost = 200*5e-7 + 100*1e-6 = 1e-4 + 1e-4 = 2e-4
-	ev3 := makeResponseEvent("m1", 50, 100, false)   // cost = 50*1e-6 + 100*2e-6 = 5e-5 + 2e-4 = 2.5e-4
+	ev1 := makeResponseEvent("m1", 100, 50, false)  // cost = 100*1e-6 + 50*2e-6 = 1e-4 + 1e-4 = 2e-4
+	ev2 := makeResponseEvent("m2", 200, 100, false) // cost = 200*5e-7 + 100*1e-6 = 1e-4 + 1e-4 = 2e-4
+	ev3 := makeResponseEvent("m1", 50, 100, false)  // cost = 50*1e-6 + 100*2e-6 = 5e-5 + 2e-4 = 2.5e-4
 
 	if err := ext.Extract(context.Background(), []dlsrc.Event{ev1, ev2, ev3}); err != nil {
 		t.Fatalf("Extract: %v", err)
@@ -622,4 +621,3 @@ func TestExtract_FlushIntervalGating(t *testing.T) {
 		t.Errorf("expected published digest to have samples, got count=0")
 	}
 }
-
