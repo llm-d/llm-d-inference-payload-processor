@@ -223,6 +223,18 @@ func (s *Server) Process(srv extProcPb.ExternalProcessor_ProcessServer) error {
 				reqCtx.ResponseCompleteTimestamp = time.Now()
 				model, _ := reqCtx.Request.Body["model"].(string)
 				metrics.RecordRequestTTFT(model, reqCtx.ResponseFirstChunkTimestamp.Sub(reqCtx.RequestReceivedTimestamp))
+
+				// Notify the data layer of the completed response.
+				s.eventNotifier.Notify(datasource.Event{
+					Type: datasource.ResponseEventType,
+					Payload: datasource.ResponsePayload{
+						Request:    reqCtx.Request,
+						Response:   reqCtx.Response,
+						CycleState: reqCtx.CycleState,
+						Duration:   reqCtx.ResponseCompleteTimestamp.Sub(reqCtx.RequestReceivedTimestamp),
+						TTFT:       reqCtx.ResponseFirstChunkTimestamp.Sub(reqCtx.RequestSentTimestamp),
+					},
+				})
 			}
 		case *extProcPb.ProcessingRequest_ResponseTrailers:
 			responses, err = s.HandleResponseTrailers(v.ResponseTrailers)
