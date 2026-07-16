@@ -22,6 +22,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"time"
 
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -43,36 +44,45 @@ const (
 	defaultWindowSize        = 5000
 	defaultMaxObservationAge = 3 * time.Minute // observations older than this are never used
 	defaultIntervalDuration  = 5 * time.Second
-	defaultFloorInterval     = 1 * time.Minute // P10Low recompute cadence (slow-moving floor)
-	defaultLowLoadWindowAge  = 1 * time.Hour
 	defaultMaxRequests       = 100 // cap the short window to the most recent N observations
 	defaultMinRequests       = 10  // below this count the scorer falls back to the optimistic seed
+
+	// Floor (P10Low) is the P10 of a bounded history of per-bucket P10s. When the history
+	// is full, the smallest and largest entries are evicted (not the oldest).
+	defaultBucketDuration    = 1 * time.Minute // one floor-history entry per bucket
+	defaultBucketHistorySize = 720             // buckets kept: 720 * 1m = 12h of history
 )
 
 var _ dlsrc.Extractor = &TTFTPercentileExtractor{}
 
 type TTFTPercentileExtractorConfig struct {
 	IntervalDuration string `json:"intervalDuration,omitempty"`
-	// FloorInterval is how often the P10Low floor is recomputed. Defaults to 1m.
-	FloorInterval string `json:"floorInterval,omitempty"`
-	WindowSize    int    `json:"windowSize,omitempty"`
+	WindowSize       int    `json:"windowSize,omitempty"`
 	// MaxObservationAge caps how far back the short window looks.
 	// Observations older than this are never used for P50 or short-window P10.
 	MaxObservationAge string `json:"maxObservationAge,omitempty"`
-	LowLoadWindowAge  string `json:"lowLoadWindowAge,omitempty"`
 	// MaxRequests caps the short window to the most recent N observations regardless of age.
 	MaxRequests int `json:"maxRequests,omitempty"`
 	// MinRequests is the minimum capped-window count for the scorer to use the trusted
 	// operating point. Below this the scorer falls back to the optimistic seed (floor only).
 	MinRequests int `json:"minRequests,omitempty"`
+	// BucketDuration is the window over which each floor-history entry's P10 is computed.
+	// Defaults to 1m. Keep it <= maxObservationAge so the tracker retains a full bucket.
+	BucketDuration string `json:"bucketDuration,omitempty"`
+	// BucketHistorySize caps the number of per-bucket P10s kept for the floor. The effective
+	// floor horizon is bucketDuration * bucketHistorySize (default 1m * 720 = 12h). When the
+	// history is full, the smallest and largest entries are dropped to make room.
+	BucketHistorySize int `json:"bucketHistorySize,omitempty"`
 }
 
 // TTFTPercentileMetrics is written to each model's attribute store every intervalDuration.
 type TTFTPercentileMetrics struct {
 	Requests       int64
+	InflightAtP25  float64 // avg inflight_at_dispatch of observations in the P15-P35 band
 	InflightAtP50  float64 // avg inflight_at_dispatch of observations in the P40-P60 band
-	P10LowTTFT     float64 // two-level P10: P10 of the bottom decile; hardware-floor estimate
+	P10LowTTFT     float64 // P10 of the per-bucket P10 history; load-invariant floor estimate
 	P10TTFT        float64 // P10 from capped short window
+	P25TTFT        float64 // P25 from capped short window
 	P50TTFT        float64 // P50 from capped short window
 	LastObservedAt int64
 	RecentN        int // count of observations in the capped short window
@@ -110,30 +120,43 @@ func (m TTFTPercentileMetrics) Predict() (effectiveTTFT float64, trusted bool) {
 type modelPercentileState struct {
 	TTFTPercentileMetrics
 	intervalStart time.Time
-	floorStart    time.Time
+	bucketStart   time.Time
+	bucketP10s    []float64 // bounded history of per-bucket P10s, kept value-sorted
 	tracker       *slidingWindowTracker
 }
 
-func (s *modelPercentileState) flush(now time.Time, maxObservationAge, lowLoadWindowAge, floorInterval time.Duration, maxRequests int) {
+func (s *modelPercentileState) flush(now time.Time, maxObservationAge, bucketDuration time.Duration, maxRequests, bucketHistorySize int) {
 	// Short window (value-sorted, capped): one snapshot feeds P10, P50 and inflightAtP50.
 	// Recomputed every interval to keep the operating point fresh.
 	short := s.tracker.window(now, maxObservationAge, maxRequests)
 	s.RecentN = len(short)
 	if len(short) > 0 {
 		s.P10TTFT = percentileOf(short, 0.10)
+		s.P25TTFT = percentileOf(short, 0.25)
 		s.P50TTFT = percentileOf(short, 0.50)
+		s.InflightAtP25 = bandInflight(short, 0.25)
 		s.InflightAtP50 = bandInflight(short, 0.50)
 		s.LastObservedAt = now.UnixNano()
 	}
 	s.intervalStart = now
 
-	// Long window (uncapped): stable hardware floor. Recomputed at most once per floorInterval,
-	// since its scan+sort is the expensive part of flush and the floor barely changes.
-	if now.Sub(s.floorStart) >= floorInterval {
-		if long := s.tracker.window(now, lowLoadWindowAge, 0); len(long) > 0 {
-			s.P10LowTTFT = twoLevelP10(long)
+	// Floor: once per bucket, add that bucket's P10 to the history and set the floor to the
+	// P10 of the history. The history is sorted here (needed for the percentile anyway), so
+	// when it is full its smallest and largest entries are the ends and get evicted — dropping
+	// anomalous buckets rather than the oldest.
+	if s.bucketStart.IsZero() {
+		s.bucketStart = now
+	}
+	if now.Sub(s.bucketStart) >= bucketDuration {
+		if bucket := s.tracker.window(now, bucketDuration, 0); len(bucket) > 0 {
+			s.bucketP10s = append(s.bucketP10s, percentileOf(bucket, 0.10))
+			sort.Float64s(s.bucketP10s)
+			if len(s.bucketP10s) > bucketHistorySize {
+				s.bucketP10s = dropMinMax(s.bucketP10s)
+			}
+			s.P10LowTTFT = percentileFloat64(s.bucketP10s, 0.10)
 		}
-		s.floorStart = now
+		s.bucketStart = now
 	}
 }
 
@@ -144,21 +167,21 @@ type TTFTPercentileExtractor struct {
 	windowSize        int
 	maxObservationAge time.Duration
 	intervalDuration  time.Duration
-	floorInterval     time.Duration
-	lowLoadWindowAge  time.Duration
 	maxRequests       int
 	minRequests       int
+	bucketDuration    time.Duration
+	bucketHistorySize int
 }
 
 func ExtractorFactory(name string, parameters json.RawMessage, h plugin.Handle) (plugin.Plugin, error) {
 	cfg := TTFTPercentileExtractorConfig{
 		IntervalDuration:  defaultIntervalDuration.String(),
-		FloorInterval:     defaultFloorInterval.String(),
 		WindowSize:        defaultWindowSize,
 		MaxObservationAge: defaultMaxObservationAge.String(),
-		LowLoadWindowAge:  defaultLowLoadWindowAge.String(),
 		MaxRequests:       defaultMaxRequests,
 		MinRequests:       defaultMinRequests,
+		BucketDuration:    defaultBucketDuration.String(),
+		BucketHistorySize: defaultBucketHistorySize,
 	}
 	if len(parameters) > 0 {
 		if err := json.Unmarshal(parameters, &cfg); err != nil {
@@ -174,29 +197,27 @@ func ExtractorFactory(name string, parameters json.RawMessage, h plugin.Handle) 
 	if cfg.MinRequests <= 0 {
 		return nil, fmt.Errorf("minRequests must be > 0 for plugin %q", name)
 	}
+	if cfg.BucketHistorySize < 2 {
+		return nil, fmt.Errorf("bucketHistorySize must be >= 2 for plugin %q", name)
+	}
 	interval, err := time.ParseDuration(cfg.IntervalDuration)
 	if err != nil {
 		return nil, fmt.Errorf("invalid intervalDuration %q for plugin %q: %w", cfg.IntervalDuration, name, err)
-	}
-	floorInterval, err := time.ParseDuration(cfg.FloorInterval)
-	if err != nil {
-		return nil, fmt.Errorf("invalid floorInterval %q for plugin %q: %w", cfg.FloorInterval, name, err)
 	}
 	maxObsAge, err := time.ParseDuration(cfg.MaxObservationAge)
 	if err != nil {
 		return nil, fmt.Errorf("invalid maxObservationAge %q for plugin %q: %w", cfg.MaxObservationAge, name, err)
 	}
-	lowLoadAge, err := time.ParseDuration(cfg.LowLoadWindowAge)
+	bucketDur, err := time.ParseDuration(cfg.BucketDuration)
 	if err != nil {
-		return nil, fmt.Errorf("invalid lowLoadWindowAge %q for plugin %q: %w", cfg.LowLoadWindowAge, name, err)
+		return nil, fmt.Errorf("invalid bucketDuration %q for plugin %q: %w", cfg.BucketDuration, name, err)
 	}
 	return NewTTFTPercentileExtractor(h.Datastore()).
 		WithName(name).
 		WithIntervalDuration(interval).
-		WithFloorInterval(floorInterval).
 		WithWindow(cfg.WindowSize, maxObsAge).
-		WithLowLoadWindowAge(lowLoadAge).
-		WithRequestBounds(cfg.MaxRequests, cfg.MinRequests), nil
+		WithRequestBounds(cfg.MaxRequests, cfg.MinRequests).
+		WithFloorBuckets(bucketDur, cfg.BucketHistorySize), nil
 }
 
 func NewTTFTPercentileExtractor(ds datalayer.Datastore) *TTFTPercentileExtractor {
@@ -207,10 +228,10 @@ func NewTTFTPercentileExtractor(ds datalayer.Datastore) *TTFTPercentileExtractor
 		windowSize:        defaultWindowSize,
 		maxObservationAge: defaultMaxObservationAge,
 		intervalDuration:  defaultIntervalDuration,
-		floorInterval:     defaultFloorInterval,
-		lowLoadWindowAge:  defaultLowLoadWindowAge,
 		maxRequests:       defaultMaxRequests,
 		minRequests:       defaultMinRequests,
+		bucketDuration:    defaultBucketDuration,
+		bucketHistorySize: defaultBucketHistorySize,
 	}
 }
 
@@ -223,20 +244,16 @@ func (e *TTFTPercentileExtractor) WithIntervalDuration(d time.Duration) *TTFTPer
 	e.intervalDuration = d
 	return e
 }
-func (e *TTFTPercentileExtractor) WithFloorInterval(d time.Duration) *TTFTPercentileExtractor {
-	e.floorInterval = d
-	return e
-}
 func (e *TTFTPercentileExtractor) WithWindow(size int, maxObsAge time.Duration) *TTFTPercentileExtractor {
 	e.windowSize, e.maxObservationAge = size, maxObsAge
 	return e
 }
-func (e *TTFTPercentileExtractor) WithLowLoadWindowAge(age time.Duration) *TTFTPercentileExtractor {
-	e.lowLoadWindowAge = age
-	return e
-}
 func (e *TTFTPercentileExtractor) WithRequestBounds(maxN, minN int) *TTFTPercentileExtractor {
 	e.maxRequests, e.minRequests = maxN, minN
+	return e
+}
+func (e *TTFTPercentileExtractor) WithFloorBuckets(dur time.Duration, historySize int) *TTFTPercentileExtractor {
+	e.bucketDuration, e.bucketHistorySize = dur, historySize
 	return e
 }
 
@@ -292,7 +309,7 @@ func (e *TTFTPercentileExtractor) Extract(ctx context.Context, events []dlsrc.Ev
 				}
 			}
 			if now.Sub(s.intervalStart) >= e.intervalDuration {
-				s.flush(now, e.maxObservationAge, e.lowLoadWindowAge, e.floorInterval, e.maxRequests)
+				s.flush(now, e.maxObservationAge, e.bucketDuration, e.maxRequests, e.bucketHistorySize)
 			}
 			updated[model] = true
 		}
@@ -308,8 +325,9 @@ func (e *TTFTPercentileExtractor) Extract(ctx context.Context, events []dlsrc.Ev
 			eff, _ := m.Predict()
 			debugLogger.Info("ttft-percentile wrote attribute",
 				"model", model, "Requests", m.Requests,
-				"InflightAtP50", m.InflightAtP50, "P10Low_s", m.P10LowTTFT,
-				"P10_s", m.P10TTFT, "P50_s", m.P50TTFT, "EffectiveTTFT_s", eff,
+				"InflightAtP25", m.InflightAtP25, "InflightAtP50", m.InflightAtP50,
+				"P10Low_s", m.P10LowTTFT, "P10_s", m.P10TTFT, "P25_s", m.P25TTFT,
+				"P50_s", m.P50TTFT, "EffectiveTTFT_s", eff,
 				"RecentN", m.RecentN, "MinRequests", m.MinRequests,
 			)
 		}

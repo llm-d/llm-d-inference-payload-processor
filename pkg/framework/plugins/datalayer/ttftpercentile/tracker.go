@@ -81,11 +81,30 @@ func percentileOf(sorted []observation, p float64) float64 {
 	return sorted[lo].value + (idx-float64(lo))*(sorted[lo+1].value-sorted[lo].value)
 }
 
-// twoLevelP10 estimates the hardware floor: the P10 of the bottom-decile slice (~P1 of all),
-// isolating the fastest requests in the window regardless of their inflight count.
-func twoLevelP10(sorted []observation) float64 {
-	lo := int(0.10 * float64(len(sorted)-1))
-	return percentileOf(sorted[:lo+1], 0.10)
+// percentileFloat64 returns the p-th percentile of a value-sorted float slice by
+// linear interpolation. Mirrors percentileOf for the per-bucket P10 history.
+func percentileFloat64(sorted []float64, p float64) float64 {
+	n := len(sorted)
+	if n == 0 {
+		return 0
+	}
+	idx := p * float64(n-1)
+	lo := int(idx)
+	if lo+1 >= n {
+		return sorted[lo]
+	}
+	return sorted[lo] + (idx-float64(lo))*(sorted[lo+1]-sorted[lo])
+}
+
+// dropMinMax removes the smallest and largest entries from a value-sorted slice,
+// reusing the backing array. It is the floor history's eviction policy: when the
+// per-bucket P10 history is full, the extreme buckets are dropped rather than the
+// oldest, so a single anomalously fast or slow bucket never sticks in the history.
+func dropMinMax(sorted []float64) []float64 {
+	if len(sorted) < 2 {
+		return sorted
+	}
+	return sorted[:copy(sorted, sorted[1:len(sorted)-1])]
 }
 
 // bandInflight returns the average inflight of observations in the [p-0.1, p+0.1] band of
