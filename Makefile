@@ -134,13 +134,9 @@ helm-push: yq helm-install ## Package and push the payload-processor Helm chart.
 ##@ Deployment
 
 .PHONY: kustomize
-kustomize: ## Download kustomize locally if necessary
-	@test -f $(KUSTOMIZE) || { \
-		mkdir -p $(LOCALBIN); \
-		curl -sSLo /tmp/kustomize.tar.gz https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2F$(KUSTOMIZE_VERSION)/kustomize_$(KUSTOMIZE_VERSION)_linux_amd64.tar.gz && \
-		tar -xzf /tmp/kustomize.tar.gz -C $(LOCALBIN) && \
-		rm /tmp/kustomize.tar.gz; \
-	}
+kustomize: $(KUSTOMIZE) ## Download kustomize locally if necessary.
+$(KUSTOMIZE): | $(LOCALBIN)
+	$(call go-install-tool,$(KUSTOMIZE),sigs.k8s.io/kustomize/kustomize/v5,$(KUSTOMIZE_VERSION))
 
 .PHONY: kustomize-build
 kustomize-build: kustomize ## Render Kustomize manifests (KUSTOMIZE_OVERLAY=default|istio|gke)
