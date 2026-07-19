@@ -87,10 +87,12 @@ cd config/kustomize/overlays/default
 kustomize edit set namespace my-namespace
 ```
 
-> **Istio and GKE users:** The `cluster_name` in `overlays/istio/envoyfilter.yaml` and the
-> `host` in `overlays/istio/destinationrule.yaml` embed the namespace as part of the FQDN
-> (`payload-processor.<namespace>.svc.cluster.local`). Update those fields to match your
-> chosen namespace.
+> **Istio users:** The `cluster_name` in `overlays/istio/envoyfilter.yaml` and the `host` in
+> `overlays/istio/destinationrule.yaml` embed the namespace as part of the FQDN
+> (`payload-processor.<namespace>.svc.cluster.local`). This is handled automatically — the
+> `replacements` block in `overlays/istio/kustomization.yaml` injects the overlay's
+> `namespace:` value into both fields at build time, so there is nothing to edit manually and
+> no risk of drift between them.
 
 ### Change the container image
 

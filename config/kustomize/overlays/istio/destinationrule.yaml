@@ -4,8 +4,9 @@ metadata:
   # Namespace is set by kustomization.yaml
   name: payload-processor
 spec:
-  # Update the namespace segment (currently "default") to match
-  # the namespace set in kustomization.yaml.
+  # The namespace segment below is a placeholder; it is replaced at build
+  # time by the `replacements` block in kustomization.yaml to match the
+  # overlay's `namespace:`.
   host: payload-processor.default.svc.cluster.local
   trafficPolicy:
     tls:

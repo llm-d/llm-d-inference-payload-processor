@@ -34,6 +34,7 @@ spec:
               response_trailer_mode: "SEND"
             grpc_service:
               envoy_grpc:
-                # Update the namespace segment (currently "default") to match
-                # the namespace set in kustomization.yaml.
+                # The namespace segment below is a placeholder; it is
+                # replaced at build time by the `replacements` block in
+                # kustomization.yaml to match the overlay's `namespace:`.
                 cluster_name: outbound|9004||payload-processor.default.svc.cluster.local
