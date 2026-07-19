@@ -6,52 +6,66 @@ Routes each request to the model with the lowest predicted TTFT under current lo
 
 Every TTFT decomposes as `TTFT = prefill_time + queue_wait`.
 
-**P10Low** — hardware-bound service floor:
+**P10Low** — hardware-bound service floor (published by the extractor):
 
-Computed from a long window (default 1h) using all observations regardless of inflight level:
-1. Find the P10 TTFT threshold across all observations in the window
-2. Take the P10 of only the observations at or below that threshold (~P1 of all)
+The extractor keeps a bounded history of per-bucket P10s: once per `bucketDuration` it records
+the P10 TTFT of that bucket, and `P10Low` is the P10 of that history. When the history is full
+(`bucketHistorySize` entries) the smallest and largest entries are evicted — not the oldest — so
+a single anomalously fast or slow bucket never sticks.
 
-This isolates the fastest requests in the window — those with the least queue wait — without
-requiring the model to have idle periods. P10Low is hardware-bound and stable: prefill time
-does not change with queue depth, concurrency level, or scale events.
+This is load-invariant and robust: the history spans idle and busy buckets, and taking a low
+percentile of it locks onto the idle buckets (the true prefill floor) instead of drifting up with
+recent load. Prefill time does not change with queue depth or concurrency, so the floor is stable.
 
-**P50 and inflightAtP50** — current operating point (short window, default 3m / 100 requests):
+**Operating points** — measured over a short window (default 3m / 100 requests, kept responsive):
 ```
-P50           = 50th percentile TTFT
-inflightAtP50 = average inflight_at_dispatch of observations in the P40-P60 band
+P25, P50            = 25th / 50th percentile TTFT
+inflightAtP25       = average inflight_at_dispatch in the P15-P35 band
+inflightAtP50       = average inflight_at_dispatch in the P40-P60 band
 ```
-The short window keeps P50 responsive to current load. Averaging over a band rather than
-a single observation makes inflightAtP50 more stable.
+Averaging inflight over a band rather than a single observation stabilises the estimate.
 
-**effectiveTTFT** — predicted TTFT for a request arriving now:
+**effectiveTTFT** — predicted TTFT for a request arriving now.
+
+A line through the high operating point `(inflightAtP50, P50)` and a low anchor that blends between
+the in-cloud point `(inflightAtP25, P25)` and the load-free floor `(0, P10Low)`:
 ```
-effectiveTTFT = P10Low + inflight x (P50 - P10Low) / inflightAtP50
+w             = clamp((inflightAtP50 - inflightAtP25) / anchorGapScale, 0, 1)
+lowInflight   = w * inflightAtP25
+lowTTFT       = w * P25 + (1 - w) * P10Low
+effectiveTTFT = lowTTFT + (inflight - lowInflight) * (P50 - lowTTFT) / (inflightAtP50 - lowInflight)
 ```
-Falls back to P10Low when P50 is not yet available or equals the floor.
+Clamped to `>= P10Low`. Under-observed models (not yet calibrated) seed at `P10Low`.
 
 **Score:**
 ```
 score = (maxTTFT - effectiveTTFT) / (maxTTFT - minTTFT)
 ```
-Under-observed models (UNOBSERVED or SEED state) receive an optimistic high score.
-With `explorationRate > 0`, that high score is suppressed to 0 with probability
-`(1 - explorationRate)` so only ~`explorationRate` fraction of requests are routed
-to the under-observed model for calibration probing.
+Under-observed models (UNOBSERVED or SEED state) receive an optimistic high score. With
+`explorationRate > 0`, that high score is suppressed to 0 with probability `(1 - explorationRate)`
+so only ~`explorationRate` of requests probe the under-observed model for calibration.
 
 ## Why it works physically
 
-When more requests are in flight, a new request has to wait longer in the queue before
-the model processes it. The longer the queue, the higher the TTFT. This wait grows
-roughly in proportion to the number of in-flight requests.
+When more requests are in flight, a new request waits longer in the queue, so TTFT rises with
+inflight — and it rises *faster than linearly* as the server approaches saturation (queueing).
 
-The scorer draws a straight line through two points it has actually observed:
+The scorer draws a line through two points it has actually observed:
 
-- when there is no queue (`inflight = 0`): TTFT = P10Low (just the raw prefill time)
-- at the recent median load (`inflight = inflightAtP50`): TTFT = P50
+- fast requests ran at lower load: `(inflightAtP25, P25)`
+- median requests at higher load: `(inflightAtP50, P50)`
 
-It then reads off that line at the current inflight to predict what the next request
-will wait. No fitting, no tunable parameters — just two observed points.
+Because both anchors sit *inside* the observed load cloud, the line follows the **local slope** of
+that convex curve — so it does not systematically under-predict the way a single chord drawn from a
+synthetic zero-load floor does.
+
+At low load the two anchors collapse together (every request sees similar, low inflight), so their
+slope is ill-defined. The blend weight `w` handles this smoothly: as the inflight gap shrinks, `w →
+0` slides the low anchor down to `(0, P10Low)`, recovering the stable floor chord. There is no
+threshold and no discontinuity — the prediction transitions continuously between the two regimes,
+and the denominator `inflightAtP50 - w*inflightAtP25` can never collapse. The only knob,
+`anchorGapScale`, is a numerical-conditioning scale (how much inflight separation counts as "well
+separated"), not a fitted parameter.
 
 ## Parameters
 
@@ -59,18 +73,19 @@ will wait. No fitting, no tunable parameters — just two observed points.
 
 | Parameter | Default | Description |
 |---|---|---|
-| `explorationRate` | 0.0 | Fraction of requests routed to under-observed models for calibration probing. 0 = all requests go to the trusted winner; 0.1 = ~10% probe the under-observed model. |
+| `explorationRate` | 0.0 | Fraction of requests routed to under-observed models for calibration probing. 0 = all traffic to the trusted winner; 0.1 = ~10% probe. |
+| `anchorGapScale` | 2.0 | Inflight separation (`inflightAtP50 - inflightAtP25`) at which the prediction fully trusts the in-cloud secant; below it the low anchor blends toward the floor chord. Must be > 0. |
 
 ### Extractor (`ttft-percentile-extractor`)
 
 | Parameter | Default | Description |
 |---|---|---|
-| `maxObservationAge` | 3m | Time bound for the short window (P50 / P10) |
+| `maxObservationAge` | 3m | Time bound for the short window (P25 / P50 / P10) |
 | `maxRequests` | 100 | Cap the short window to the most recent N observations |
-| `minRequests` | 10 | Minimum capped-window count before the scorer trusts the formula |
-| `lowLoadWindowAge` | 1h | Window for two-level P10Low (long = stable hardware floor) |
-| `floorInterval` | 1m | How often P10Low is recomputed (slow-moving floor; cheaper than every interval) |
+| `minRequests` | 10 | Minimum capped-window count before the scorer trusts the operating point |
 | `windowSize` | 5000 | Ring buffer capacity (~200 KB per model) |
+| `bucketDuration` | 1m | Window for each floor-history entry's P10; keep `<= maxObservationAge` |
+| `bucketHistorySize` | 720 | Per-bucket P10s kept for the floor (`bucketDuration * bucketHistorySize` = horizon, 12h); min/max evicted when full |
 
 ## Example configuration
 
@@ -88,19 +103,19 @@ payloadProcessor:
     - type: base-model-to-header
     - type: model-selector
     - type: ttft-aware-scorer
-      # effectiveTTFT = P10Low + inflight x (P50 - P10Low) / inflightAtP50
-      # line through (0, P10Low) and (inflightAtP50, P50), extrapolated linearly
       parameters:
         explorationRate: 0.1          # 10% of requests probe under-observed models; 0 = disabled
+        anchorGapScale: 2.0           # inflight separation at which the in-cloud secant is fully trusted
     - type: max-score-picker
     - type: ttft-percentile-extractor
       parameters:
         intervalDuration: 1s
         windowSize: 5000
         maxObservationAge: 3m
-        lowLoadWindowAge: 1h
         maxRequests: 100
         minRequests: 20
+        bucketDuration: 1m
+        bucketHistorySize: 720
     - type: model-config-datasource
       parameters:
         modelsPath: /config/models.json
