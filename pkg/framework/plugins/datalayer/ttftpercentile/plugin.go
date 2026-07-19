@@ -91,30 +91,13 @@ type TTFTPercentileMetrics struct {
 
 func (m TTFTPercentileMetrics) Clone() datalayer.Cloneable { return m }
 
-// Floor is the load-invariant service floor: P10Low, or P10 before the long window fills.
+// Floor is the load-invariant service floor: P10Low, or P10 before the history fills.
 // Zero means the model is truly cold.
 func (m TTFTPercentileMetrics) Floor() float64 {
 	if m.P10LowTTFT > 0 {
 		return m.P10LowTTFT
 	}
 	return m.P10TTFT
-}
-
-// Predict returns the effective TTFT at the current inflight and whether it is trusted
-// (calibrated). Uncalibrated but observed → floor as an optimistic seed; cold → (0, false).
-func (m TTFTPercentileMetrics) Predict() (effectiveTTFT float64, trusted bool) {
-	floor := m.Floor()
-	if floor == 0 {
-		return 0, false
-	}
-	if m.RecentN >= m.MinRequests && m.InflightAtP50 > 0 && m.P50TTFT > floor {
-		eff := floor + float64(m.Requests)*(m.P50TTFT-floor)/m.InflightAtP50
-		if eff < floor {
-			eff = floor
-		}
-		return eff, true
-	}
-	return floor, false
 }
 
 type modelPercentileState struct {
@@ -322,12 +305,13 @@ func (e *TTFTPercentileExtractor) Extract(ctx context.Context, events []dlsrc.Ev
 		e.ds.GetOrCreateModel(model).GetAttributes().Put(AttributeKey, m)
 
 		if debugLogger.Enabled() {
-			eff, _ := m.Predict()
+			// Log the raw published anchors only. The prediction (effectiveTTFT) is the scorer's
+			// job and is logged there; the extractor must not carry a second, divergent formula.
 			debugLogger.Info("ttft-percentile wrote attribute",
 				"model", model, "Requests", m.Requests,
 				"InflightAtP25", m.InflightAtP25, "InflightAtP50", m.InflightAtP50,
 				"P10Low_s", m.P10LowTTFT, "P10_s", m.P10TTFT, "P25_s", m.P25TTFT,
-				"P50_s", m.P50TTFT, "EffectiveTTFT_s", eff,
+				"P50_s", m.P50TTFT,
 				"RecentN", m.RecentN, "MinRequests", m.MinRequests,
 			)
 		}
