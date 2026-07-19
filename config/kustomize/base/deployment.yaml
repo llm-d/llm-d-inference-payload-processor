@@ -28,8 +28,31 @@ spec:
                 fieldRef:
                   fieldPath: metadata.namespace
           ports:
-            - containerPort: 9004
-            - containerPort: 9005
+            - name: grpc
+              containerPort: 9004
+            - name: grpc-health
+              containerPort: 9005
+          # Conservative starting point for a request/response processing
+          # sidecar; tune based on observed load (payload size, RPS) before
+          # running in production.
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              memory: 512Mi
+          # Port 9005 serves the standard gRPC health protocol
+          # (grpc.health.v1), see cmd/runner/health.go.
+          readinessProbe:
+            grpc:
+              port: 9005
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            grpc:
+              port: 9005
+            initialDelaySeconds: 15
+            periodSeconds: 20
           volumeMounts:
             - name: config-volume
               mountPath: /config

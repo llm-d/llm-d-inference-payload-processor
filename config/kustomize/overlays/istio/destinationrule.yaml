@@ -11,4 +11,9 @@ spec:
   trafficPolicy:
     tls:
       mode: SIMPLE
+      # IPP serves TLS with a self-signed certificate generated at startup
+      # (see internal/tls/tls.go) rather than one issued by a shared/trusted
+      # CA, so Istio cannot validate it against a CA bundle. This setting
+      # is intentional for intra-cluster traffic to the sidecar; do not set
+      # this on a DestinationRule that targets an externally-facing host.
       insecureSkipVerify: true

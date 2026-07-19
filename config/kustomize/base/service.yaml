@@ -6,7 +6,10 @@ spec:
   selector:
     app: payload-processor
   ports:
-    - protocol: TCP
+    # Named so Istio (and other mesh sidecars) detect the protocol from the
+    # port name instead of treating the traffic as opaque TCP.
+    - name: grpc-ext-proc
+      protocol: TCP
       port: 9004
       targetPort: 9004
       appProtocol: HTTP2
