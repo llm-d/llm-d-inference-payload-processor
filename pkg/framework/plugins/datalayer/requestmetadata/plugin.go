@@ -19,12 +19,10 @@ package requestmetadata
 import (
 	"context"
 	"encoding/json"
-	"time"
 
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/datalayer"
 	dlsrc "github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/datalayer/datasource"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/plugin"
-	"github.com/llm-d/llm-d-inference-payload-processor/pkg/metrics"
 )
 
 const (
@@ -33,14 +31,6 @@ const (
 
 	// RequestMetadataAttributeKey is the attribute key written to each model's attribute store.
 	RequestMetadataAttributeKey = "request-metadata"
-
-	// defaultIntervalDuration is the interval over which TTFT/TPOT observations are averaged
-	// before a single exponential moving average (EMA) update is applied.
-	defaultIntervalDuration = 5 * time.Second
-
-	// defaultEmaAlpha is the smoothing factor for the exponential moving average.
-	// A smaller value makes the average more stable but slower to react to changes.
-	defaultEmaAlpha = 0.1
 )
 
 // compile-time interface assertion
@@ -51,65 +41,34 @@ func ExtractorFactory(name string, _ json.RawMessage, h plugin.Handle) (plugin.P
 	return NewRequestMetadataExtractor(h.Datastore()).WithName(name), nil
 }
 
-// ModelMetrics holds per-model metadata: in-flight request count and
-// EMA estimates for TTFT and TPOT.
-type ModelMetrics struct {
+// RequestMetadataCount holds in-flight request and token counts for one model.
+type RequestMetadataCount struct {
 	Requests int64
-	AvgTTFT  float64
-	AvgTPOT  float64
+	Tokens   int64
 }
 
-func (r ModelMetrics) Clone() datalayer.Cloneable { return r }
+func (r RequestMetadataCount) Clone() datalayer.Cloneable { return r }
 
-// modelIntervalAccumulator embeds the published counter and adds the internal interval accumulator.
-// Observations collected within the interval are averaged and applied as one EMA update on flush.
-type modelIntervalAccumulator struct {
-	ModelMetrics
-
-	intervalStart time.Time
-	ttftSum       float64
-	ttftN         int
-	tpotSum       float64
-	tpotN         int
-}
-
-// flush averages the accumulated interval observations into the EMA, emits Prometheus gauges, and resets the interval.
-func (s *modelIntervalAccumulator) flush(now time.Time, model string) {
-	if s.ttftN > 0 {
-		s.AvgTTFT = ema(s.AvgTTFT, s.ttftSum/float64(s.ttftN))
-		metrics.RecordModelAvgTTFT(model, s.AvgTTFT)
-	}
-	if s.tpotN > 0 {
-		s.AvgTPOT = ema(s.AvgTPOT, s.tpotSum/float64(s.tpotN))
-		metrics.RecordModelAvgTPOT(model, s.AvgTPOT)
-	}
-	s.intervalStart = now
-	s.ttftSum, s.ttftN = 0, 0
-	s.tpotSum, s.tpotN = 0, 0
-}
-
-// RequestMetadataExtractor tracks per-model in-flight request counts and latency estimates.
-// It writes ModelMetrics to each model's RequestMetadataAttributeKey attribute.
+// RequestMetadataExtractor tracks in-flight request counts and token sums per model.
+// It writes RequestMetadataCount to each model's RequestMetadataAttributeKey attribute.
 //
 // Extract is assumed to be called from a single goroutine (the NotificationSource event loop).
-// If parallel dispatch is introduced, add a sync.Mutex around state and the DataStore write.
+// If parallel dispatch is introduced, add a sync.Mutex around counters and the DataStore write.
 //
 // TODO: counters leak if a request fails without a corresponding ResponseEventType (e.g. connection
 // drop, upstream error, context cancellation). The call site should fire a
 // synthetic ResponseEventType in its error/EOF path to keep counts accurate.
 type RequestMetadataExtractor struct {
-	typedName        plugin.TypedName
-	ds               datalayer.Datastore
-	state            map[string]*modelIntervalAccumulator
-	intervalDuration time.Duration
+	typedName plugin.TypedName
+	ds        datalayer.Datastore
+	counters  map[string]RequestMetadataCount
 }
 
 func NewRequestMetadataExtractor(ds datalayer.Datastore) *RequestMetadataExtractor {
 	return &RequestMetadataExtractor{
-		typedName:        plugin.TypedName{Type: PluginType, Name: PluginType},
-		ds:               ds,
-		state:            make(map[string]*modelIntervalAccumulator),
-		intervalDuration: defaultIntervalDuration,
+		typedName: plugin.TypedName{Type: PluginType, Name: PluginType},
+		ds:        ds,
+		counters:  make(map[string]RequestMetadataCount),
 	}
 }
 
@@ -121,16 +80,8 @@ func (e *RequestMetadataExtractor) WithName(name string) *RequestMetadataExtract
 	return e
 }
 
-// WithIntervalDuration overrides the aggregation interval. Pass 0 to flush after every response
-// (useful in unit tests where real time cannot advance between calls).
-func (e *RequestMetadataExtractor) WithIntervalDuration(d time.Duration) *RequestMetadataExtractor {
-	e.intervalDuration = d
-	return e
-}
-
 func (e *RequestMetadataExtractor) Extract(_ context.Context, events []dlsrc.Event) error {
-	now := time.Now()
-	updated := map[string]bool{}
+	updated := map[string]RequestMetadataCount{}
 
 	for _, ev := range events {
 		switch ev.Type {
@@ -143,9 +94,12 @@ func (e *RequestMetadataExtractor) Extract(_ context.Context, events []dlsrc.Eve
 			if model == "" {
 				continue
 			}
-			s := e.getOrCreateModelIntervalAccumulator(model)
-			s.Requests++
-			updated[model] = true
+			maxTokens, _ := p.Request.Body["max_tokens"].(float64)
+			c := e.counters[model]
+			c.Requests++
+			c.Tokens += int64(maxTokens)
+			e.counters[model] = c
+			updated[model] = c
 
 		case dlsrc.ResponseEventType:
 			p, ok := ev.Payload.(dlsrc.ResponsePayload)
@@ -156,55 +110,19 @@ func (e *RequestMetadataExtractor) Extract(_ context.Context, events []dlsrc.Eve
 			if model == "" {
 				continue
 			}
-			s := e.getOrCreateModelIntervalAccumulator(model)
-			floorDecrement(&s.Requests, 1)
-
-			// Accumulate latency observations into the current interval.
-			if p.TTFT > 0 {
-				s.ttftSum += p.TTFT.Seconds()
-				s.ttftN++
-			}
-			if usage, ok := p.Response.Body["usage"].(map[string]any); ok {
-				if ct, ok := usage["completion_tokens"].(float64); ok && ct > 0 {
-					// Decode time only: subtract TTFT so queue wait and prefill are not mixed into TPOT.
-					if decodeTime := p.Duration - p.TTFT; decodeTime > 0 {
-						s.tpotSum += decodeTime.Seconds() / ct
-						s.tpotN++
-					}
-				}
-			}
-
-			// Once the interval has elapsed, average all accumulated observations and apply one EMA update.
-			// intervalDuration=0 means flush after every response (used in unit tests).
-			if now.Sub(s.intervalStart) >= e.intervalDuration {
-				s.flush(now, model)
-			}
-			updated[model] = true
+			maxTokens, _ := p.Request.Body["max_tokens"].(float64)
+			c := e.counters[model]
+			floorDecrement(&c.Requests, 1)
+			floorDecrement(&c.Tokens, int64(maxTokens))
+			e.counters[model] = c
+			updated[model] = c
 		}
 	}
 
-	for model := range updated {
-		e.ds.GetOrCreateModel(model).GetAttributes().Put(RequestMetadataAttributeKey, e.state[model].ModelMetrics)
+	for model, c := range updated {
+		e.ds.GetOrCreateModel(model).GetAttributes().Put(RequestMetadataAttributeKey, c)
 	}
 	return nil
-}
-
-func (e *RequestMetadataExtractor) getOrCreateModelIntervalAccumulator(model string) *modelIntervalAccumulator {
-	if s, ok := e.state[model]; ok {
-		return s
-	}
-	s := &modelIntervalAccumulator{}
-	e.state[model] = s
-	return s
-}
-
-// ema applies an exponential moving average update with α = defaultEmaAlpha.
-// If current is zero (no prior observation), the new value is returned directly.
-func ema(current, newValue float64) float64 {
-	if current == 0 {
-		return newValue
-	}
-	return defaultEmaAlpha*newValue + (1-defaultEmaAlpha)*current
 }
 
 // floorDecrement decrements v by delta, flooring at zero.
