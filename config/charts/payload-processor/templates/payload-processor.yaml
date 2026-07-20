@@ -21,7 +21,7 @@ spec:
         args:
         - --config-file
         {{- if .Values.payloadProcessor.customConfig }}
-        - "config/custom-ipp-config.yaml"
+        - "/config/custom-ipp-config.yaml"
         {{- else }}
         - "/config/default-ipp-config.yaml"
         {{- end }}

@@ -4,7 +4,7 @@ payloadProcessor:
   image:
     registry: ghcr.io/llm-d
     repository: llm-d-inference-payload-processor
-    tag: main
+    tag: v0.1.0
     pullPolicy: IfNotPresent
   port: 9004
   healthCheckPort: 9005
