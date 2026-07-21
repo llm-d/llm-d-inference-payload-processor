@@ -17,6 +17,7 @@ limitations under the License.
 package handlers
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -72,8 +73,13 @@ func (s *Server) HandleResponseBody(ctx context.Context, reqCtx *RequestContext,
 	}
 
 	if err := json.Unmarshal(responseBodyBytes, &reqCtx.Response.Body); err != nil {
-		logger.Error(err, "Failed to parse response body as JSON, skipping response plugins")
-		return s.generatePassthroughResponseBodyResponse(reqCtx, responseBodyBytes), nil
+		if sseBody := parseSSEResponseBody(responseBodyBytes); sseBody != nil {
+			reqCtx.Response.Body = sseBody
+			logger.V(logutil.VERBOSE).Info("parsed SSE response body for response plugins")
+		} else {
+			logger.Error(err, "Failed to parse response body as JSON or SSE, skipping response plugins")
+			return s.generatePassthroughResponseBodyResponse(reqCtx, responseBodyBytes), nil
+		}
 	}
 
 	if hasProfilePlugins {
@@ -295,4 +301,116 @@ func (s *Server) runResponsePlugins(ctx context.Context, cycleState *plugin.Cycl
 	}
 
 	return nil
+}
+
+// parseSSEResponseBody extracts a composite response body from an SSE stream.
+// It scans all "data:" lines for JSON objects and merges usage/model fields into
+// a single map that response plugins can process.
+func parseSSEResponseBody(body []byte) map[string]any {
+	result := map[string]any{}
+	var contentBuilder bytes.Buffer
+	var stopReason string
+	lines := bytes.Split(body, []byte("\n"))
+
+	for _, line := range lines {
+		line = bytes.TrimSpace(line)
+		if !bytes.HasPrefix(line, []byte("data:")) {
+			continue
+		}
+		data := bytes.TrimSpace(line[5:])
+		if len(data) == 0 || bytes.Equal(data, []byte("[DONE]")) {
+			continue
+		}
+
+		var event map[string]any
+		if err := json.Unmarshal(data, &event); err != nil {
+			continue
+		}
+
+		if model, ok := event["model"].(string); ok && model != "" {
+			result["model"] = model
+		}
+
+		// Anthropic: extract text from content_block_delta events
+		if delta, ok := event["delta"].(map[string]any); ok {
+			if text, ok := delta["text"].(string); ok {
+				contentBuilder.WriteString(text)
+			}
+			if sr, ok := delta["stop_reason"].(string); ok && sr != "" {
+				stopReason = sr
+			}
+		}
+
+		// Anthropic message_start: extract model from nested message
+		if msg, ok := event["message"].(map[string]any); ok {
+			if m, ok := msg["model"].(string); ok && m != "" {
+				result["model"] = m
+			}
+		}
+
+		// OpenAI chat completions: extract content from choices[].delta.content
+		if choices, ok := event["choices"].([]any); ok {
+			for _, c := range choices {
+				choice, _ := c.(map[string]any)
+				if d, ok := choice["delta"].(map[string]any); ok {
+					if text, ok := d["content"].(string); ok {
+						contentBuilder.WriteString(text)
+					}
+				}
+				if fr, ok := choice["finish_reason"].(string); ok && fr != "" {
+					stopReason = fr
+				}
+			}
+		}
+
+		// Usage: top level (Anthropic) or nested in response (OpenAI Responses)
+		usage, _ := event["usage"].(map[string]any)
+		if usage == nil {
+			if resp, ok := event["response"].(map[string]any); ok {
+				usage, _ = resp["usage"].(map[string]any)
+				if m, ok := resp["model"].(string); ok && m != "" {
+					result["model"] = m
+				}
+			}
+		}
+		if usage != nil {
+			existing, _ := result["usage"].(map[string]any)
+			if existing == nil {
+				existing = map[string]any{}
+			}
+			for k, v := range usage {
+				existing[k] = v
+			}
+			result["usage"] = existing
+		}
+	}
+
+	if len(result) == 0 {
+		return nil
+	}
+
+	// Reconstruct in a format that translators expect.
+	// Anthropic: content as array of {type,text} blocks.
+	// OpenAI: choices[].message.content as string.
+	if contentBuilder.Len() > 0 {
+		if _, hasChoices := result["choices"]; hasChoices {
+			// OpenAI format — content already merged via choices[].delta.content above
+		} else {
+			// Anthropic Messages format — wrap in content block array
+			result["content"] = []any{
+				map[string]any{"type": "text", "text": contentBuilder.String()},
+			}
+			if result["type"] == nil {
+				result["type"] = "message"
+			}
+			if result["role"] == nil {
+				result["role"] = "assistant"
+			}
+		}
+	}
+	if stopReason != "" {
+		result["stop_reason"] = stopReason
+	}
+
+	return result
 }
