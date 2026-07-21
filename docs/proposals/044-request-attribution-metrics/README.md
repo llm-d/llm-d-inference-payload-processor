@@ -28,7 +28,7 @@ chargeback/showback, observability, governance, and audit.
 > SDKs, and cost engines) and a detailed analysis of the alternatives that were considered, see
 > [Appendix: Background — the attribution landscape](#appendix-background--the-attribution-landscape).
 
-See the companion proposal (LINK!!!) describing the changes required in OpenCost to leverage the new metrics and provide tenant, workload and requestor level inference costs.
+See the companion [OpenCost proposal](https://github.com/simanadler/opencost/blob/bd9be47efea6ec850d0b37052c9d087c4621ad83/docs/inference-cost-new-dimensions-proposal.md) describing the changes required in OpenCost to leverage the new metrics and provide tenant, workload and requestor level inference costs.
 
 ### Why IPP is the correct home
 
@@ -172,7 +172,7 @@ labels. Because the number of requestors could potentially be very large, the de
 - [Metrics](../../metrics.md) — existing `ipp_`-prefixed Prometheus metrics.
 - [Gateway API Inference Extension](https://gateway-api-inference-extension.sigs.k8s.io) — the EPP / routing layer.
 - [OpenCost Inference Cost Tracking](https://github.com/opencost/opencost/blob/develop/docs/inference-cost-tracking.md) - existing inference infrastructure level costs
-- [Proposal to expand OpenCost Inference Metrics]() - LINK!!!
+- [Proposal to expand OpenCost Inference Metrics](https://github.com/simanadler/opencost/blob/bd9be47efea6ec850d0b37052c9d087c4621ad83/docs/inference-cost-new-dimensions-proposal.md) - leverage new metrics to provide requestor, tenant and workload level inference costs
 
 [cycle_state]: ../../../pkg/framework/interface/plugin/cycle_state.go
 [plugins]: ../../../pkg/framework/interface/requesthandling/plugins.go
