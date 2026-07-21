@@ -21,47 +21,41 @@ import (
 	"sync"
 )
 
-// Cloneable types support cloning of the value.
-// All values stored in AttributeMap must implement this interface
-// to ensure data isolation and prevent unintended mutations.
+// Cloneable types support cloning, required for all values stored in an
+// AttributeMap to prevent unintended mutations.
 type Cloneable interface {
 	Clone() Cloneable
 }
 
-// AttributeMap is used to store flexible metadata or traits
-// across different aspects of a model.
+// StringAttribute is a Cloneable wrapper around a plain string.
+type StringAttribute string
+
+func (s StringAttribute) Clone() Cloneable {
+	return s
+}
+
+// AttributeMap stores flexible, goroutine-safe metadata about a model.
 // Stored values must be Cloneable.
-//
-// All operations are goroutine-safe.
 type AttributeMap interface {
-	// Put stores or updates an attribute.
-	// Empty keys and nil values are ignored (no-op).
+	// Put stores or updates an attribute. Empty keys and nil values are no-ops.
 	Put(key string, value Cloneable)
 
-	// Get retrieves a cloned copy of the attribute value.
-	// Returns (value, true) if found, (nil, false) if not found.
-	// The returned value is a clone to prevent unintended mutations.
+	// Get returns a cloned copy of the attribute value, if found.
 	Get(key string) (Cloneable, bool)
 
-	// Delete removes an attribute by key.
-	// No-op if key doesn't exist.
 	Delete(key string)
 
-	// Keys returns all attribute keys as a string slice.
-	// Order is not guaranteed.
+	// Keys returns all attribute keys, in no particular order.
 	Keys() []string
 
-	// Clone creates a deep copy of the entire attribute map.
 	Clone() AttributeMap
 }
 
-// Attributes provides a goroutine-safe implementation of AttributeMap.
-// Uses sync.Map for concurrent access without explicit locking.
+// Attributes is a goroutine-safe AttributeMap backed by sync.Map.
 type Attributes struct {
-	data sync.Map // key: attribute name (string), value: attribute value (Cloneable)
+	data sync.Map // key: attribute name, value: Cloneable
 }
 
-// NewAttributes creates a new AttributeMap instance.
 func NewAttributes() AttributeMap {
 	return &Attributes{}
 }
@@ -116,16 +110,8 @@ func (a *Attributes) Clone() AttributeMap {
 	return clone
 }
 
-// ReadAttributeKey reads an attribute by key and asserts the value to type T.
-// Returns an error if the key is not found or the type assertion fails.
-//
-// This is a convenience function for type-safe attribute retrieval.
-// The returned value is a clone (as per AttributeMap.Get behavior).
-//
-// Type Parameter T:
-//   - Can be a value type (e.g., MyType) or pointer type (e.g., *MyType)
-//   - Must match the concrete type returned by the stored value's Clone() method
-//   - For types implementing Cloneable, use the same type as Clone() returns
+// ReadAttributeKey reads an attribute by key and asserts it to type T, which
+// must match the concrete type returned by the stored value's Clone().
 func ReadAttributeKey[T any](attrs AttributeMap, key string) (T, error) {
 	var zero T
 
@@ -134,9 +120,6 @@ func ReadAttributeKey[T any](attrs AttributeMap, key string) (T, error) {
 		return zero, fmt.Errorf("attribute %q: not found", key)
 	}
 
-	// Attempt direct type assertion to T
-	// This works for both value types and pointer types because
-	// Get() returns the result of Clone(), which returns the concrete type
 	val, ok := raw.(T)
 	if !ok {
 		return zero, fmt.Errorf("unexpected type for key %q: got %T, want %T", key, raw, zero)
