@@ -62,7 +62,10 @@ func modelWithDigest(t *testing.T, name string, cd *accumulator.CostDigest) data
 }
 
 // TestScore_AllNeutral covers cases where Score should return neutral for
-// every input model:
+// every input model (or the empty map when there are no models):
+//   - "empty-input": zero models — Score returns an empty map.
+//   - "single-well-explored": one over-threshold model — the len(explored)
+//     < 2 guard collapses it to neutralScore regardless of digest quality.
 //   - "single-explored-plus-under-explored": the len(explored) < 2 guard —
 //     with one explored model there is no meaningful sigmoid to compute.
 //   - "identical-ranks": the sigma == 0 guard — when all explored models
@@ -81,6 +84,16 @@ func TestScore_AllNeutral(t *testing.T) {
 		name   string
 		models []modelSpec
 	}{
+		{
+			name:   "empty-input",
+			models: nil,
+		},
+		{
+			name: "single-well-explored",
+			models: []modelSpec{
+				{"only", 42.0, over},
+			},
+		},
 		{
 			name: "single-explored-plus-under-explored",
 			models: []modelSpec{
@@ -203,20 +216,6 @@ func TestScore_UnevenSpread(t *testing.T) {
 	assert.Greater(t, scores[cheap], scores[mid], "cheap ranks below median so scores above neutral")
 	assert.Less(t, scores[expensive], 0.15, "expensive is a far outlier and saturates the sigmoid tail")
 	assert.Less(t, scores[cheap], 0.55, "cheap is only slightly below median so its score barely exceeds neutral")
-}
-
-// TestScore_SingleModelInput asserts that Score handles a single-element
-// models slice: len(scores) == 1 and the sole model receives neutralScore
-// via the len(explored) < 2 guard, regardless of whether it has a valid
-// well-explored digest.
-func TestScore_SingleModelInput(t *testing.T) {
-	s := newTestScorer(t)
-	overCount := s.sampleThreshold + 50
-	m := modelWithDigest(t, "only", newCostDigestN(t, 42.0, overCount))
-	scores := s.Score(context.Background(), plugin.NewCycleState(), requesthandling.NewInferenceRequest(),
-		[]datalayer.Model{m})
-	require.Len(t, scores, 1)
-	assert.Equal(t, neutralScore, scores[m])
 }
 
 // TestScore_UnderExplored verifies the two paths that classify a model as
@@ -397,16 +396,12 @@ func TestFactory_AcceptedBoundaries(t *testing.T) {
 	}
 }
 
-// --- WithName test ---
-
 func TestWithName(t *testing.T) {
 	s := newTestScorer(t)
 	result := s.WithName("custom-name")
 	assert.Same(t, s, result, "WithName should return the same instance for chaining")
 	assert.Equal(t, "custom-name", s.TypedName().Name)
 }
-
-// --- Helper tests ---
 
 // TestMedian verifies median across the branch matrix: odd-length picks
 // the middle element, even-length averages the two middle elements,
@@ -434,8 +429,3 @@ func TestMedian(t *testing.T) {
 	}
 }
 
-func TestScore_EmptyModels(t *testing.T) {
-	s := newTestScorer(t)
-	scores := s.Score(context.Background(), plugin.NewCycleState(), requesthandling.NewInferenceRequest(), nil)
-	assert.Empty(t, scores)
-}
