@@ -41,6 +41,11 @@ const (
 	// from the request event to the matching response event.
 	inflightAtDispatchKey = "ttft-percentile/inflight-at-dispatch"
 
+	// requestIDHeaderKey is the request-id request header, logged with each ttft-observation so
+	// an offline analysis can pair the actual TTFT with the scorer's predicted effectiveTTFT
+	// (which logs the same id via the request-context logger). Debug-only.
+	requestIDHeaderKey = "x-request-id"
+
 	defaultWindowSize        = 5000
 	defaultMaxObservationAge = 3 * time.Minute // observations older than this are never used
 	defaultIntervalDuration  = 5 * time.Second
@@ -85,15 +90,21 @@ type TTFTPercentileMetrics struct {
 	P25TTFT        float64 // P25 from capped short window
 	P50TTFT        float64 // P50 from capped short window
 	LastObservedAt int64
-	RecentN        int // count of observations in the capped short window
-	MinRequests    int // scorer threshold — copied from config so the scorer needs no separate param
+	RecentN        int   // count of observations in the capped short window
+	Observations   int64 // cumulative observations feeding the floor; gates Floor until >= MinRequests
+	MinRequests    int   // scorer threshold — copied from config so the scorer needs no separate param
 }
 
 func (m TTFTPercentileMetrics) Clone() datalayer.Cloneable { return m }
 
 // Floor is the load-invariant service floor: P10Low, or P10 before the history fills.
-// Zero means the model is truly cold.
+// Zero means the model is cold. A model observed fewer than MinRequests times is also
+// treated as cold: its P10 is percentile-noise from a handful of cold-start requests, so
+// returning it would let a barely-observed pool compete on a poisoned value.
 func (m TTFTPercentileMetrics) Floor() float64 {
+	if m.Observations < int64(m.MinRequests) {
+		return 0
+	}
 	if m.P10LowTTFT > 0 {
 		return m.P10LowTTFT
 	}
@@ -285,8 +296,10 @@ func (e *TTFTPercentileExtractor) Extract(ctx context.Context, events []dlsrc.Ev
 				if inflightAtDispatch, err := plugin.ReadCycleStateKey[int64](p.CycleState, inflightAtDispatchKey); err == nil {
 					ttft := p.TTFT.Seconds()
 					s.tracker.add(ttft, inflightAtDispatch, now)
+					s.Observations++
 					if debugLogger.Enabled() {
 						debugLogger.Info("ttft-observation",
+							"x-request-id", p.Request.Headers[requestIDHeaderKey],
 							"model", model, "ttft_s", ttft, "inflightAtDispatch", inflightAtDispatch,
 						)
 					}
@@ -313,7 +326,7 @@ func (e *TTFTPercentileExtractor) Extract(ctx context.Context, events []dlsrc.Ev
 				"InflightAtP25", m.InflightAtP25, "InflightAtP50", m.InflightAtP50,
 				"P10Low_s", m.P10LowTTFT, "P10_s", m.P10TTFT, "P25_s", m.P25TTFT,
 				"P50_s", m.P50TTFT,
-				"RecentN", m.RecentN, "MinRequests", m.MinRequests,
+				"RecentN", m.RecentN, "Observations", m.Observations, "MinRequests", m.MinRequests,
 			)
 		}
 	}
