@@ -46,16 +46,25 @@ const (
 	// (which logs the same id via the request-context logger). Debug-only.
 	requestIDHeaderKey = "x-request-id"
 
-	defaultWindowSize        = 5000
-	defaultMaxObservationAge = 3 * time.Minute // observations older than this are never used
-	defaultIntervalDuration  = 5 * time.Second
-	defaultMaxRequests       = 100 // cap the short window to the most recent N observations
-	defaultMinRequests       = 10  // below this count the scorer falls back to the optimistic seed
+	// how many past observations to keep per pool - the size of the notebook
+	defaultWindowSize = 5000
+	// how far back "recent" reaches for the operating point - what counts as "now"
+	defaultMaxObservationAge = 3 * time.Minute
+	// how often the summary percentiles are recomputed - observations stream in continuously,
+	// they are only refreshed on this cadence
+	defaultIntervalDuration = 5 * time.Second
+	// even inside the time window, use only the newest N observations - a cap on top of a cap
+	defaultMaxRequests = 100
+	// how much evidence before we trust a pool's operating point - the "do I trust this yet?" threshold
+	defaultMinRequests = 10
 
-	// Floor (P10Low) is the P10 of a bounded history of per-bucket P10s. When the history
-	// is full, the smallest and largest entries are evicted (not the oldest).
-	defaultBucketDuration    = 1 * time.Minute // one floor-history entry per bucket
-	defaultBucketHistorySize = 720             // buckets kept: 720 * 1m = 12h of history
+	// Floor (P10Low) is the P10 of a bounded history of per-bucket P10s; when the history is
+	// full, the smallest and largest entries are evicted.
+	//
+	// how much time makes up one floor sample - the floor takes one P10 per bucket
+	defaultBucketDuration = 1 * time.Minute
+	// how many bucket-floors to remember - at 1 minute each, 720 = 12 hours
+	defaultBucketHistorySize = 720
 )
 
 var _ dlsrc.Extractor = &TTFTPercentileExtractor{}
