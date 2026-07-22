@@ -121,12 +121,9 @@ type modelEval struct {
 }
 
 // Score ranks models by predicted TTFT: score = (maxTTFT − effectiveTTFT) / (maxTTFT − minTTFT).
-//
-// Cold models (no floor) are seeded at the best observed TTFT; if every model is cold, all
-// score 1.0. With explorationRate > 0, each request makes one exploration decision: with
-// probability explorationRate the under-observed models keep their scores (so one may win and
-// get a calibration probe), otherwise they are suppressed to 0 — but only when a calibrated
-// model exists to take the traffic.
+// Cold models (no floor) are seeded at the best observed TTFT; if every model is cold, all score
+// 1.0. With explorationRate > 0 each under-observed model is independently explored (forced to the
+// top) or suppressed — see the scoring loop below and README.md.
 func (s *TTFTAwareScorer) Score(ctx context.Context, cycleState *plugin.CycleState, _ *requesthandling.InferenceRequest, models []datalayer.Model) map[datalayer.Model]float64 {
 	evals := make(map[datalayer.Model]*modelEval, len(models))
 	minEff := math.MaxFloat64
@@ -158,12 +155,13 @@ func (s *TTFTAwareScorer) Score(ctx context.Context, cycleState *plugin.CycleSta
 		return scores
 	}
 
-	// One exploration decision per request: with probability (1 - explorationRate) suppress all
-	// under-observed models so only calibrated models compete; otherwise leave them scored so an
-	// under-observed model can win and get a calibration probe. Only suppress when a calibrated
-	// model exists to take the traffic.
-	suppressUntrusted := s.explorationRate > 0 && anyTrusted && rand.Float64() >= s.explorationRate
-
+	// Independent coin per under-observed model (explorationRate == 0 disables exploration). Heads
+	// forces that model to the top so the picker sends it a calibration probe; tails suppresses it to
+	// 0 so only calibrated models compete, but only when a calibrated model exists to take over. Each
+	// under-observed model is flipped independently, so the fraction of requests that explore grows
+	// with the number of under-observed models (~1-(1-rate)^k) — a larger budget in exchange for
+	// guaranteed per-model probe coverage. The override sets the final score only — eff and the
+	// min/max normalization above are untouched.
 	for _, model := range models {
 		e := evals[model]
 		if !e.observed {
@@ -174,8 +172,12 @@ func (s *TTFTAwareScorer) Score(ctx context.Context, cycleState *plugin.CycleSta
 		} else {
 			scores[model] = (maxEff - e.eff) / (maxEff - minEff)
 		}
-		if suppressUntrusted && !e.trusted {
-			scores[model] = 0
+		if s.explorationRate > 0 && !e.trusted {
+			if rand.Float64() < s.explorationRate {
+				scores[model] = 1.0 // explore: probe this under-observed model
+			} else if anyTrusted {
+				scores[model] = 0 // exploit: a calibrated model takes the traffic
+			}
 		}
 	}
 
