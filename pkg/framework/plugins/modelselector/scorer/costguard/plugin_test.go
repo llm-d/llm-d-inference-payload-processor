@@ -437,7 +437,7 @@ func TestMedian(t *testing.T) {
 // TestScore_Explore verifies the epsilon=1 explore branch across the three
 // exploration-relevant trajectories. Each subtest runs 500 trials.
 //
-// Trials numnber rationale: with a 4-model uniform pick, the probability
+// Trials number rationale: with a 4-model uniform pick, the probability
 // that any given model is *never* selected across K trials is (3/4)^K.
 // At K=500 that is approximately 3^-63 per model, which is well below
 // any conceivable threshold.
