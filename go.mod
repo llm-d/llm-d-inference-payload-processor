@@ -23,12 +23,12 @@ require (
 	go.opentelemetry.io/otel/trace v1.44.0
 	go.uber.org/zap v1.28.0
 	google.golang.org/grpc v1.82.1
-	google.golang.org/protobuf v1.36.11
-	k8s.io/api v0.35.6
-	k8s.io/apimachinery v0.35.6
-	k8s.io/client-go v0.35.6
-	k8s.io/code-generator v0.35.6
-	k8s.io/component-base v0.35.6
+	google.golang.org/protobuf v1.36.12-0.20260120151049-f2248ac996af
+	k8s.io/api v0.35.7
+	k8s.io/apimachinery v0.35.7
+	k8s.io/client-go v0.35.7
+	k8s.io/code-generator v0.35.7
+	k8s.io/component-base v0.35.7
 	sigs.k8s.io/controller-runtime v0.23.3
 	sigs.k8s.io/gateway-api-inference-extension v1.5.0
 	sigs.k8s.io/yaml v1.6.0
