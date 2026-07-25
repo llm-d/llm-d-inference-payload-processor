@@ -114,27 +114,25 @@ func (s *TTFTAwareScorer) WithAnchorGapScale(g float64) *TTFTAwareScorer {
 
 // modelEval is the scorer's per-model working state for one Score call.
 type modelEval struct {
-	metrics  ttftpercentile.TTFTPercentileMetrics
 	eff      float64
 	trusted  bool // calibrated operating point
 	observed bool // has a service floor (not truly cold)
 }
 
-// Score ranks models by predicted TTFT: score = (maxTTFT − effectiveTTFT) / (maxTTFT − minTTFT).
+// Score ranks models by predicted TTFT: score = (maxTTFT - effectiveTTFT) / (maxTTFT - minTTFT).
 // Cold models (no floor) are seeded at the best observed TTFT; if every model is cold, all score
 // 1.0. With explorationRate > 0 each under-observed model is independently explored (forced to the
 // top) or suppressed — see the scoring loop below and README.md.
-func (s *TTFTAwareScorer) Score(ctx context.Context, cycleState *plugin.CycleState, _ *requesthandling.InferenceRequest, models []datalayer.Model) map[datalayer.Model]float64 {
-	evals := make(map[datalayer.Model]*modelEval, len(models))
+func (s *TTFTAwareScorer) Score(ctx context.Context, _ *plugin.CycleState, _ *requesthandling.InferenceRequest, models []datalayer.Model) map[datalayer.Model]float64 {
+	evals := make([]modelEval, len(models))
 	minEff := math.MaxFloat64
 	maxEff := 0.0
 	anyObserved := false
 	anyTrusted := false
 
-	for _, model := range models {
-		m := metricsFor(model)
-		eff, trusted, observed := s.predict(m)
-		evals[model] = &modelEval{metrics: m, eff: eff, trusted: trusted, observed: observed}
+	for i, model := range models {
+		eff, trusted, observed := s.predict(metricsFor(model))
+		evals[i] = modelEval{eff: eff, trusted: trusted, observed: observed}
 		if observed {
 			anyObserved = true
 			minEff = min(minEff, eff)
@@ -162,8 +160,8 @@ func (s *TTFTAwareScorer) Score(ctx context.Context, cycleState *plugin.CycleSta
 	// with the number of under-observed models (~1-(1-rate)^k) — a larger budget in exchange for
 	// guaranteed per-model probe coverage. The override sets the final score only — eff and the
 	// min/max normalization above are untouched.
-	for _, model := range models {
-		e := evals[model]
+	for i, model := range models {
+		e := &evals[i]
 		if !e.observed {
 			e.eff = minEff // seed cold models at the best observed TTFT (optimistic)
 		}
@@ -182,8 +180,8 @@ func (s *TTFTAwareScorer) Score(ctx context.Context, cycleState *plugin.CycleSta
 	}
 
 	if dl := log.FromContext(ctx).V(logutil.DEBUG); dl.Enabled() {
-		for _, model := range models {
-			e := evals[model]
+		for i, model := range models {
+			e := evals[i]
 			dl.Info("ttft-aware score", "model", model.GetName(),
 				"effectiveTTFT", e.eff, "score", scores[model], "trusted", e.trusted)
 		}
