@@ -14,8 +14,9 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Package ttftpercentile tracks per-model TTFT distributions and publishes
-// P10Low, P50, and inflightAtP50.
+// Package ttftpercentile observes per-model TTFTs and publishes a TTFTPercentileMetrics snapshot
+// (the service floor P10Low, the P25/P50 operating points and their inflight anchors) to each
+// model's attribute store for the ttft-aware scorer to consume.
 package ttftpercentile
 
 import (
@@ -52,7 +53,7 @@ const (
 	defaultMaxObservationAge = 3 * time.Minute
 	// how often the summary percentiles are recomputed - observations stream in continuously,
 	// they are only refreshed on this cadence
-	defaultIntervalDuration = 5 * time.Second
+	defaultIntervalDuration = 1 * time.Second
 	// even inside the time window, use only the newest N observations - a cap on top of a cap
 	defaultMaxRequests = 100
 	// how much evidence before we trust a pool's operating point - the "do I trust this yet?" threshold
@@ -124,6 +125,7 @@ type modelPercentileState struct {
 	TTFTPercentileMetrics
 	intervalStart time.Time
 	bucketStart   time.Time
+	lastTouched   time.Time // last event seen for this model; drives stale-state eviction
 	bucketP10s    []float64 // bounded history of per-bucket P10s, kept value-sorted
 	tracker       *slidingWindowTracker
 }
@@ -174,6 +176,7 @@ type TTFTPercentileExtractor struct {
 	minRequests       int
 	bucketDuration    time.Duration
 	bucketHistorySize int
+	lastSweep         time.Time // last stale-state eviction pass; throttles the sweep
 }
 
 func ExtractorFactory(name string, parameters json.RawMessage, h plugin.Handle) (plugin.Plugin, error) {
@@ -207,13 +210,22 @@ func ExtractorFactory(name string, parameters json.RawMessage, h plugin.Handle) 
 	if err != nil {
 		return nil, fmt.Errorf("invalid intervalDuration %q for plugin %q: %w", cfg.IntervalDuration, name, err)
 	}
+	if interval <= 0 {
+		return nil, fmt.Errorf("intervalDuration must be > 0 for plugin %q", name)
+	}
 	maxObsAge, err := time.ParseDuration(cfg.MaxObservationAge)
 	if err != nil {
 		return nil, fmt.Errorf("invalid maxObservationAge %q for plugin %q: %w", cfg.MaxObservationAge, name, err)
 	}
+	if maxObsAge <= 0 {
+		return nil, fmt.Errorf("maxObservationAge must be > 0 for plugin %q", name)
+	}
 	bucketDur, err := time.ParseDuration(cfg.BucketDuration)
 	if err != nil {
 		return nil, fmt.Errorf("invalid bucketDuration %q for plugin %q: %w", cfg.BucketDuration, name, err)
+	}
+	if bucketDur <= 0 {
+		return nil, fmt.Errorf("bucketDuration must be > 0 for plugin %q", name)
 	}
 	return NewTTFTPercentileExtractor(h.Datastore()).
 		WithName(name).
@@ -323,6 +335,7 @@ func (e *TTFTPercentileExtractor) Extract(ctx context.Context, events []dlsrc.Ev
 
 	for model := range updated {
 		s := e.state[model]
+		s.lastTouched = now
 		m := s.TTFTPercentileMetrics
 		m.MinRequests = e.minRequests
 		e.ds.GetOrCreateModel(model).GetAttributes().Put(AttributeKey, m)
@@ -339,7 +352,25 @@ func (e *TTFTPercentileExtractor) Extract(ctx context.Context, events []dlsrc.Ev
 			)
 		}
 	}
+	e.evictStale(now)
 	return nil
+}
+
+// evictStale reclaims state for models not seen within the floor horizon (bucketDuration *
+// bucketHistorySize), so churned or decommissioned model names do not leak. It is throttled to
+// once per interval, and keeps any model with inflight requests. A model that later reappears is
+// re-created cold and re-calibrates — correct, since a floor older than its whole horizon is stale.
+func (e *TTFTPercentileExtractor) evictStale(now time.Time) {
+	if now.Sub(e.lastSweep) < e.intervalDuration {
+		return
+	}
+	e.lastSweep = now
+	horizon := e.bucketDuration * time.Duration(e.bucketHistorySize)
+	for model, s := range e.state {
+		if s.Requests == 0 && !s.lastTouched.IsZero() && now.Sub(s.lastTouched) > horizon {
+			delete(e.state, model)
+		}
+	}
 }
 
 func (e *TTFTPercentileExtractor) getOrCreate(model string) *modelPercentileState {

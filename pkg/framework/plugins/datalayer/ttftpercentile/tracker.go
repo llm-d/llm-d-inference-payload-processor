@@ -114,6 +114,9 @@ func dropMinMax(sorted []float64) []float64 {
 // a value-sorted slice. Averaging a band rather than a single point stabilises the estimate.
 func bandInflight(sorted []observation, p float64) float64 {
 	n := len(sorted)
+	if n == 0 {
+		return 0
+	}
 	lo := int((p - 0.10) * float64(n-1))
 	if lo < 0 {
 		lo = 0
