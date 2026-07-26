@@ -53,8 +53,7 @@ const (
 	defaultFlushIntervalDuration = 5 * time.Second
 
 	// defaultWindowDuration is the epoch length after which each per-model
-	// t-digest is Reset(). Set to "0s" in config to disable windowing
-	// (monotonic growth).
+	// t-digest is Reset(). Set to "0s" in config to disable windowing.
 	defaultWindowDuration = 2 * time.Hour
 )
 
@@ -139,8 +138,10 @@ type RequestCostMetadataExtractor struct {
 	compression    float64
 	flushInterval  time.Duration
 	windowDuration time.Duration
-	// now is a test-only override for time.Now. Nil in production; assigned
-	// from _test.go files in-package. Reads go through clockNow().
+	// now, if non-nil, overrides time.Now. Left nil by
+	// NewRequestCostMetadataExtractor so production uses the real clock; may
+	// be assigned in-package to inject a deterministic clock for tests.
+	// Reads go through clockNow().
 	now func() time.Time
 }
 
@@ -160,8 +161,8 @@ func NewRequestCostMetadataExtractor(ds datalayer.Datastore, compression float64
 
 func (e *RequestCostMetadataExtractor) TypedName() plugin.TypedName { return e.typedName }
 
-// clockNow returns the current time, routed through the test-only override
-// when set. Callers should use this instead of time.Now() directly.
+// clockNow returns the current time, routed through the `now` override when
+// set. Callers should use this instead of time.Now() directly.
 func (e *RequestCostMetadataExtractor) clockNow() time.Time {
 	if e.now != nil {
 		return e.now()
