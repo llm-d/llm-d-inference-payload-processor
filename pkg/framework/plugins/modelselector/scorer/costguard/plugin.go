@@ -16,12 +16,10 @@ limitations under the License.
 
 // Package costguard implements a cost-minimising scorer for the ModelSelector
 // framework. It routes inference to the model with the lowest observed cost,
-// using a risk-aware rank that combines each model's body cost (trimmed
-// mean) and Conditional Tail Expectation of the cost distribution. The full
-// design targets an epsilon-Greedy Multi-Arm Bandit — the exploit branch
-// (rank + self-calibrating sigmoid) is implemented today; the explore
-// branch and per-epoch windowing land in follow-up PRs. See the package
-// README.md file for the full algorithm and configuration reference.
+// using an epsilon-greedy Multi-Arm Bandit strategy over a risk-aware rank
+// that combines each model's body cost (trimmed mean) and Conditional Tail
+// Expectation of the cost distribution. See the package README.md for the
+// full algorithm and configuration reference.
 package costguard
 
 import (
@@ -32,7 +30,6 @@ import (
 	"math/rand/v2"
 	"slices"
 	"sort"
-	"time"
 
 	"github.com/caio/go-tdigest/v5"
 
@@ -59,7 +56,6 @@ const (
 	defaultEpsilon               = 0.1
 	defaultAlpha                 = 0.95
 	defaultLambda                = 1.0
-	defaultWindowDuration        = "2h"
 	defaultPercentileMarginError = 0.03
 )
 
@@ -83,13 +79,6 @@ type Config struct {
 	// (Conditional Tail Expectation). Must be >= 0. Defaults to 1.0.
 	Lambda float64 `json:"lambda"`
 
-	// WindowDuration is the epoch length as a Go duration string (e.g. "2h").
-	// Must be > 0. Defaults to "2h".
-	//
-	// TODO(costguard-epoch): parsed today, not used at scoring; the
-	// requestcostmetadata extractor will own the window in a follow-up PR.
-	WindowDuration string `json:"windowDuration"`
-
 	// PercentileMarginError (w) controls how tightly the empirical alpha-
 	// percentile threshold captures the true probability mass. With the
 	// defaults (alpha=0.95, w=0.03), at 95% confidence the observed p95
@@ -112,7 +101,6 @@ type CostGuardScorer struct {
 	// +/-percentileMarginError at a 95% confidence level, derived from the
 	// Wald margin-of-error formula for a proportion.
 	sampleThreshold uint64
-	windowDuration  time.Duration
 }
 
 // ScorerFactory validates rawParameters into a Config and constructs a scorer.
@@ -121,7 +109,6 @@ func ScorerFactory(name string, rawParameters json.RawMessage, _ plugin.Handle) 
 		Epsilon:               defaultEpsilon,
 		Alpha:                 defaultAlpha,
 		Lambda:                defaultLambda,
-		WindowDuration:        defaultWindowDuration,
 		PercentileMarginError: defaultPercentileMarginError,
 	}
 	if len(rawParameters) > 0 {
@@ -142,26 +129,18 @@ func ScorerFactory(name string, rawParameters json.RawMessage, _ plugin.Handle) 
 	if config.PercentileMarginError <= 0 || config.PercentileMarginError >= 1 {
 		return nil, fmt.Errorf("costguard %q: percentileMarginError must be in (0, 1), got %f", name, config.PercentileMarginError)
 	}
-	windowDuration, err := time.ParseDuration(config.WindowDuration)
-	if err != nil {
-		return nil, fmt.Errorf("costguard %q: invalid windowDuration %q: %w", name, config.WindowDuration, err)
-	}
-	if windowDuration <= 0 {
-		return nil, fmt.Errorf("costguard %q: windowDuration must be > 0, got %s", name, windowDuration)
-	}
 
 	return NewCostGuardScorer(
 		config.Epsilon,
 		config.Alpha,
 		config.Lambda,
-		windowDuration,
 		config.PercentileMarginError,
 	).WithName(name), nil
 }
 
 // NewCostGuardScorer constructs a scorer with the given parameters. No
 // validation — prefer ScorerFactory for JSON-configured construction.
-func NewCostGuardScorer(epsilon, alpha, lambda float64, windowDuration time.Duration, percentileMarginError float64) *CostGuardScorer {
+func NewCostGuardScorer(epsilon, alpha, lambda, percentileMarginError float64) *CostGuardScorer {
 	// Wald CI sample-size formula
 	threshold := uint64(math.Ceil(z95 * z95 * alpha * (1 - alpha) / (percentileMarginError * percentileMarginError)))
 	return &CostGuardScorer{
@@ -170,7 +149,6 @@ func NewCostGuardScorer(epsilon, alpha, lambda float64, windowDuration time.Dura
 		alpha:           alpha,
 		lambda:          lambda,
 		sampleThreshold: threshold,
-		windowDuration:  windowDuration,
 	}
 }
 
@@ -326,8 +304,8 @@ func stddevPop(ranks []float64) float64 {
 //
 // Note: a nil inner Digest is unreachable here because ReadAttributeKey
 // returns a Clone of the stored value, and CostDigest.Clone dereferences
-// its inner Digest. Thus any nil-inner state panics upstream before reaching
-// this function.
+// its inner Digest. Thus a nil inner Digest would panic in CostDigest.Clone
+// before this function is called.
 func lookupDigest(m datalayer.Model) *tdigest.TDigest {
 	cd, err := datalayer.ReadAttributeKey[*accumulator.CostDigest](m.GetAttributes(), accumulator.CostDigestAttributeKey)
 	if err != nil {

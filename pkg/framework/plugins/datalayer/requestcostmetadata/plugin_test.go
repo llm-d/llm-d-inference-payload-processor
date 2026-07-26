@@ -142,7 +142,7 @@ func readDigest(ds datalayer.Datastore, model string) *accumulator.CostDigest {
 func newTestExtractor(t *testing.T) (*RequestCostMetadataExtractor, datalayer.Datastore) {
 	t.Helper()
 	ds := datastore.NewFakeDataStore()
-	ext := NewRequestCostMetadataExtractor(ds, defaultCompression, 0)
+	ext := NewRequestCostMetadataExtractor(ds, defaultCompression, 0, 0)
 	return ext, ds
 }
 
@@ -150,7 +150,7 @@ func newTestExtractor(t *testing.T) (*RequestCostMetadataExtractor, datalayer.Da
 
 func TestExtractorFactory_HonorsConfig(t *testing.T) {
 	ds := datastore.NewFakeDataStore()
-	raw := json.RawMessage(`{"compression":50,"flushIntervalDuration":"1m"}`)
+	raw := json.RawMessage(`{"compression":50,"flushIntervalDuration":"1m","windowDuration":"30m"}`)
 	p, err := ExtractorFactory("x", raw, &fakeHandle{ds: ds})
 	if err != nil {
 		t.Fatalf("ExtractorFactory: %v", err)
@@ -162,15 +162,20 @@ func TestExtractorFactory_HonorsConfig(t *testing.T) {
 	if ext.flushInterval != time.Minute {
 		t.Errorf("flushInterval = %v, want 1m", ext.flushInterval)
 	}
+	if ext.windowDuration != 30*time.Minute {
+		t.Errorf("windowDuration = %v, want 30m", ext.windowDuration)
+	}
 }
 
-func TestExtractorFactory_RejectsInvalidFlushInterval(t *testing.T) {
+func TestExtractorFactory_RejectsInvalidDurations(t *testing.T) {
 	tests := []struct {
 		name string
 		raw  json.RawMessage
 	}{
-		{"malformed duration", json.RawMessage(`{"compression":200,"flushIntervalDuration":"not-a-duration"}`)},
-		{"negative duration", json.RawMessage(`{"compression":200,"flushIntervalDuration":"-1s"}`)},
+		{"flushIntervalDuration malformed", json.RawMessage(`{"compression":200,"flushIntervalDuration":"not-a-duration"}`)},
+		{"flushIntervalDuration negative", json.RawMessage(`{"compression":200,"flushIntervalDuration":"-1s"}`)},
+		{"windowDuration malformed", json.RawMessage(`{"compression":200,"windowDuration":"not-a-duration"}`)},
+		{"windowDuration negative", json.RawMessage(`{"compression":200,"windowDuration":"-1s"}`)},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -284,37 +289,46 @@ func TestExtract_SkipsMissingUsage(t *testing.T) {
 
 // TestExtract_SkipsNonPositiveTokens verifies that responses with missing,
 // zero, or negative token counts are skipped without publishing.
-func TestExtract_SkipsNonPositiveTokens(t *testing.T) {
-	ext, ds := newTestExtractor(t)
-	setTokenPrices(ds, "m1", 1e-6, 1e-6)
-
-	tests := []struct {
-		name string
-		ev   dlsrc.Event
+// TestExtract_MissingTokenFields verifies that extractTokenCounts rejects the
+// event and no digest is published when either token field is missing or the
+// usage block is omitted entirely. Covers all three supported response formats
+// (OpenAI, Anthropic, Google/Gemini) against the same missing-field matrix.
+func TestExtract_MissingTokenFields(t *testing.T) {
+	formats := []struct {
+		name     string
+		model    string
+		priceIn  float64
+		priceOut float64
+		build    func(model string, prompt, completion float64, omitUsage bool) dlsrc.Event
 	}{
-		{
-			name: "missing prompt_tokens",
-			ev:   makeResponseEvent("m1", 0, 50, false),
-		},
-		{
-			name: "missing completion_tokens",
-			ev:   makeResponseEvent("m1", 100, 0, false),
-		},
-		{
-			name: "both missing",
-			ev:   makeResponseEvent("m1", 0, 0, false),
-		},
+		{"openai", "m1", 1e-6, 1e-6, makeResponseEvent},
+		{"anthropic", "claude", 3e-6, 15e-6, makeAnthropicResponseEvent},
+		{"google", "gemini", 1.25e-6, 5e-6, makeGoogleResponseEvent},
 	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			if err := ext.Extract(context.Background(), []dlsrc.Event{tc.ev}); err != nil {
-				t.Fatalf("Extract: %v", err)
-			}
-			if readDigest(ds, "m1") != nil {
-				t.Errorf("expected no CostDigest attribute for %s", tc.name)
-			}
-		})
+	cases := []struct {
+		name              string
+		prompt, completion float64
+		omitUsage         bool
+	}{
+		{"missing prompt", 0, 50, false},
+		{"missing completion", 100, 0, false},
+		{"both missing", 0, 0, false},
+		{"no usage block", 0, 0, true},
+	}
+	for _, f := range formats {
+		for _, c := range cases {
+			t.Run(f.name+"/"+c.name, func(t *testing.T) {
+				ext, ds := newTestExtractor(t)
+				setTokenPrices(ds, f.model, f.priceIn, f.priceOut)
+				ev := f.build(f.model, c.prompt, c.completion, c.omitUsage)
+				if err := ext.Extract(context.Background(), []dlsrc.Event{ev}); err != nil {
+					t.Fatalf("Extract: %v", err)
+				}
+				if readDigest(ds, f.model) != nil {
+					t.Errorf("expected no CostDigest attribute")
+				}
+			})
+		}
 	}
 }
 
@@ -426,31 +440,6 @@ func TestExtract_AnthropicFormat(t *testing.T) {
 	}
 }
 
-func TestExtract_AnthropicMissingFields(t *testing.T) {
-	ext, ds := newTestExtractor(t)
-	setTokenPrices(ds, "claude", 3e-6, 15e-6)
-
-	tests := []struct {
-		name string
-		ev   dlsrc.Event
-	}{
-		{"missing input_tokens", makeAnthropicResponseEvent("claude", 0, 50, false)},
-		{"missing output_tokens", makeAnthropicResponseEvent("claude", 100, 0, false)},
-		{"both missing", makeAnthropicResponseEvent("claude", 0, 0, false)},
-		{"no usage block", makeAnthropicResponseEvent("claude", 0, 0, true)},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			if err := ext.Extract(context.Background(), []dlsrc.Event{tc.ev}); err != nil {
-				t.Fatalf("Extract: %v", err)
-			}
-			if readDigest(ds, "claude") != nil {
-				t.Errorf("expected no CostDigest attribute for %s", tc.name)
-			}
-		})
-	}
-}
-
 // --- Google format tests ---
 
 func TestExtract_GoogleFormat(t *testing.T) {
@@ -473,31 +462,6 @@ func TestExtract_GoogleFormat(t *testing.T) {
 	got := cd.Digest.Quantile(0.5)
 	if diff := got - wantCost; diff < -1e-10 || diff > 1e-10 {
 		t.Errorf("Quantile(0.5) = %f, want %f", got, wantCost)
-	}
-}
-
-func TestExtract_GoogleMissingFields(t *testing.T) {
-	ext, ds := newTestExtractor(t)
-	setTokenPrices(ds, "gemini", 1.25e-6, 5e-6)
-
-	tests := []struct {
-		name string
-		ev   dlsrc.Event
-	}{
-		{"missing promptTokenCount", makeGoogleResponseEvent("gemini", 0, 100, false)},
-		{"missing candidatesTokenCount", makeGoogleResponseEvent("gemini", 200, 0, false)},
-		{"both missing", makeGoogleResponseEvent("gemini", 0, 0, false)},
-		{"no usageMetadata block", makeGoogleResponseEvent("gemini", 0, 0, true)},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			if err := ext.Extract(context.Background(), []dlsrc.Event{tc.ev}); err != nil {
-				t.Fatalf("Extract: %v", err)
-			}
-			if readDigest(ds, "gemini") != nil {
-				t.Errorf("expected no CostDigest attribute for %s", tc.name)
-			}
-		})
 	}
 }
 
@@ -590,7 +554,7 @@ func TestExtract_UnknownFormatSkipped(t *testing.T) {
 func TestExtract_FlushIntervalGating(t *testing.T) {
 	ds := datastore.NewFakeDataStore()
 	// Create an extractor with a 10ms flush interval (short for testing)
-	ext := NewRequestCostMetadataExtractor(ds, defaultCompression, 10*time.Millisecond)
+	ext := NewRequestCostMetadataExtractor(ds, defaultCompression, 10*time.Millisecond, 0)
 	setTokenPrices(ds, "m1", 1e-6, 1e-6)
 
 	// First event: should not publish (first lastFlush is now, no interval elapsed)
@@ -620,4 +584,143 @@ func TestExtract_FlushIntervalGating(t *testing.T) {
 	if cd.Digest.Count() == 0 {
 		t.Errorf("expected published digest to have samples, got count=0")
 	}
+}
+
+// TestExtract_Window verifies the per-model t-digest reset that fires when
+// windowDuration > 0 and now.Sub(lastWindowStart) >= windowDuration. Uses
+// the extractor's unexported `now` test hook so the wall clock is
+// deterministic across all four subtests.
+//
+// All subtests use flushInterval=0 (publish on every event) so the live
+// state and the published snapshot coincide; assertions read the live
+// t-digest via ext.state[model].digest for clearest intent.
+func TestExtract_Window(t *testing.T) {
+	// Fixed anchor time so subtests can advance a local clock without wall-time flakes.
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	// newWindowExtractor builds an extractor with the specified windowDuration
+	// and installs a test clock initialized to base. Returns the extractor,
+	// datastore, and a *time.Time knob the test mutates to advance time.
+	newWindowExtractor := func(t *testing.T, windowDuration time.Duration) (*RequestCostMetadataExtractor, datalayer.Datastore, *time.Time) {
+		t.Helper()
+		ds := datastore.NewFakeDataStore()
+		ext := NewRequestCostMetadataExtractor(ds, defaultCompression, 0, windowDuration)
+		clock := base
+		ext.now = func() time.Time { return clock }
+		return ext, ds, &clock
+	}
+
+	// extract feeds one OpenAI-format event at the current clock time. Prices
+	// are 1 in / 1 out so cost is trivially N tokens; these tests care about
+	// count and reset semantics, not cost values.
+	extract := func(t *testing.T, ext *RequestCostMetadataExtractor, model string, prompt, completion float64) {
+		t.Helper()
+		if err := ext.Extract(context.Background(), []dlsrc.Event{
+			makeResponseEvent(model, prompt, completion, false),
+		}); err != nil {
+			t.Fatalf("Extract: %v", err)
+		}
+	}
+
+	t.Run("window-disabled", func(t *testing.T) {
+		ext, ds, clock := newWindowExtractor(t, 0)
+		setTokenPrices(ds, "m1", 1, 1)
+		// Feed 3 samples over 3 simulated hours; nothing should reset.
+		extract(t, ext, "m1", 10, 1)
+		*clock = base.Add(1 * time.Hour)
+		extract(t, ext, "m1", 20, 1)
+		*clock = base.Add(3 * time.Hour)
+		extract(t, ext, "m1", 30, 1)
+		if got := ext.state["m1"].digest.Count(); got != 3 {
+			t.Errorf("count = %d, want 3 (windowing disabled → no reset)", got)
+		}
+	})
+
+	t.Run("resets-across-boundary", func(t *testing.T) {
+		ext, ds, clock := newWindowExtractor(t, 1*time.Second)
+		setTokenPrices(ds, "m1", 1, 1)
+		// t=0: first sample.
+		extract(t, ext, "m1", 10, 1)
+		if got := ext.state["m1"].digest.Count(); got != 1 {
+			t.Fatalf("pre-reset count = %d, want 1", got)
+		}
+		// t=2s: >= windowDuration since lastWindowStart → reset fires,
+		// then this call's sample is added.
+		*clock = base.Add(2 * time.Second)
+		extract(t, ext, "m1", 20, 1)
+		if got := ext.state["m1"].digest.Count(); got != 1 {
+			t.Errorf("post-reset count = %d, want 1 (previous sample dropped)", got)
+		}
+		if got := ext.state["m1"].lastWindowStart; !got.Equal(base.Add(2 * time.Second)) {
+			t.Errorf("lastWindowStart = %v, want %v", got, base.Add(2*time.Second))
+		}
+	})
+
+	t.Run("boundary-exact", func(t *testing.T) {
+		// The guard is `now - lastWindowStart >= windowDuration`, so a sample
+		// arriving at *exactly* windowDuration must trigger the reset.
+		ext, ds, clock := newWindowExtractor(t, 1*time.Second)
+		setTokenPrices(ds, "m1", 1, 1)
+		extract(t, ext, "m1", 10, 1)
+		*clock = base.Add(1 * time.Second)
+		extract(t, ext, "m1", 20, 1)
+		if got := ext.state["m1"].digest.Count(); got != 1 {
+			t.Errorf("boundary-exact count = %d, want 1", got)
+		}
+	})
+
+	t.Run("multiple-models-independent", func(t *testing.T) {
+		// m1 crosses a boundary; m2 does not (its lastWindowStart is set
+		// later, so it never accumulates a full windowDuration in this test).
+		ext, ds, clock := newWindowExtractor(t, 1*time.Second)
+		setTokenPrices(ds, "m1", 1, 1)
+		setTokenPrices(ds, "m2", 1, 1)
+
+		// t=0: m1's first sample. m2 not yet seen.
+		extract(t, ext, "m1", 10, 1)
+
+		// t=500ms: m2's first sample. m2.lastWindowStart = 500ms.
+		*clock = base.Add(500 * time.Millisecond)
+		extract(t, ext, "m2", 100, 1)
+
+		// t=1.2s: m1 has been alive 1.2s (>= 1s → reset); m2 has been
+		// alive 0.7s (< 1s → no reset).
+		*clock = base.Add(1200 * time.Millisecond)
+		extract(t, ext, "m1", 20, 1)
+		extract(t, ext, "m2", 200, 1)
+
+		if got := ext.state["m1"].digest.Count(); got != 1 {
+			t.Errorf("m1 count = %d, want 1 (reset dropped first sample)", got)
+		}
+		if got := ext.state["m2"].digest.Count(); got != 2 {
+			t.Errorf("m2 count = %d, want 2 (no reset, both samples retained)", got)
+		}
+	})
+
+	t.Run("batch-spans-boundary", func(t *testing.T) {
+		// `now := e.clockNow()` is captured once at the top of Extract, so
+		// every event in a single batch sees the same clock. When that batch
+		// arrives past a window boundary, the reset fires once, and every
+		// event in the batch lands in the fresh digest.
+		ext, ds, clock := newWindowExtractor(t, 1*time.Second)
+		setTokenPrices(ds, "m1", 1, 1)
+
+		// t=0: seed a pre-boundary sample so the reset has something to drop.
+		extract(t, ext, "m1", 10, 1)
+		if got := ext.state["m1"].digest.Count(); got != 1 {
+			t.Fatalf("pre-batch count = %d, want 1", got)
+		}
+
+		// t=2s: batch of two events arrives after the boundary. The reset
+		// fires once for m1, then both events are added — count becomes 2.
+		*clock = base.Add(2 * time.Second)
+		ev1 := makeResponseEvent("m1", 20, 1, false)
+		ev2 := makeResponseEvent("m1", 30, 1, false)
+		if err := ext.Extract(context.Background(), []dlsrc.Event{ev1, ev2}); err != nil {
+			t.Fatalf("Extract: %v", err)
+		}
+		if got := ext.state["m1"].digest.Count(); got != 2 {
+			t.Errorf("post-batch count = %d, want 2 (reset once, both new samples retained)", got)
+		}
+	})
 }

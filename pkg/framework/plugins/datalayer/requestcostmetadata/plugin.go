@@ -51,6 +51,11 @@ const (
 	// digest snapshot is published to the AttributeMap. Mirrors the pattern in
 	// the requestmetadata extractor.
 	defaultFlushIntervalDuration = 5 * time.Second
+
+	// defaultWindowDuration is the epoch length after which each per-model
+	// t-digest is Reset(). Set to "0s" in config to disable windowing
+	// (monotonic growth).
+	defaultWindowDuration = 2 * time.Hour
 )
 
 // compile-time interface assertion
@@ -67,6 +72,15 @@ type RequestCostMetadataExtractorConfig struct {
 	// snapshot is published to the AttributeMap (e.g. "5s", "1m"). Set to "0s"
 	// to publish on every event (used in unit tests). Defaults to "5s".
 	FlushIntervalDuration string `json:"flushIntervalDuration,omitempty"`
+
+	// WindowDuration is the epoch length as a Go duration string (e.g. "2h").
+	// At each window boundary the per-model t-digest is Reset() so that
+	// published snapshots reflect only the current epoch. Set to "0s" to
+	// disable windowing (monotonic growth). Defaults to "2h".
+	//
+	// The CostGuard scorer consumes the published snapshot; this field
+	// controls its adaptation window.
+	WindowDuration string `json:"windowDuration,omitempty"`
 }
 
 // ExtractorFactory creates a RequestCostMetadataExtractor wired to the shared Datastore.
@@ -74,6 +88,7 @@ func ExtractorFactory(name string, parameters json.RawMessage, h plugin.Handle) 
 	config := RequestCostMetadataExtractorConfig{
 		Compression:           defaultCompression,
 		FlushIntervalDuration: defaultFlushIntervalDuration.String(),
+		WindowDuration:        defaultWindowDuration.String(),
 	}
 	if len(parameters) > 0 {
 		if err := json.Unmarshal(parameters, &config); err != nil {
@@ -89,17 +104,26 @@ func ExtractorFactory(name string, parameters json.RawMessage, h plugin.Handle) 
 		return nil, fmt.Errorf("invalid flushIntervalDuration %q for plugin %q: must be >= 0", config.FlushIntervalDuration, name)
 	}
 
-	ext := NewRequestCostMetadataExtractor(h.Datastore(), config.Compression, flushInterval)
+	windowDuration, err := time.ParseDuration(config.WindowDuration)
+	if err != nil {
+		return nil, fmt.Errorf("invalid windowDuration %q for plugin %q: %w", config.WindowDuration, name, err)
+	}
+	if windowDuration < 0 {
+		return nil, fmt.Errorf("invalid windowDuration %q for plugin %q: must be >= 0", config.WindowDuration, name)
+	}
+	ext := NewRequestCostMetadataExtractor(h.Datastore(), config.Compression, flushInterval, windowDuration)
 	ext.typedName.Name = name
 	return ext, nil
 }
 
-// modelCostAccumulator holds the running t-digest for a single model and the
-// timestamp of its last flush, so the extractor can decide when to publish a
-// snapshot to the AttributeMap.
+// modelCostAccumulator holds the running t-digest for a single model, the
+// timestamp of its last flush (so the extractor can decide when to publish a
+// snapshot to the AttributeMap), and the timestamp of the current epoch's
+// start (so the extractor can Reset() the digest at each window boundary).
 type modelCostAccumulator struct {
-	digest    *tdigest.TDigest
-	lastFlush time.Time
+	digest          *tdigest.TDigest
+	lastFlush       time.Time
+	lastWindowStart time.Time
 }
 
 // RequestCostMetadataExtractor accumulates per-model cost samples derived from
@@ -109,26 +133,41 @@ type modelCostAccumulator struct {
 // Extract is assumed to be called from a single goroutine (the
 // NotificationSource event loop).
 type RequestCostMetadataExtractor struct {
-	typedName     plugin.TypedName
-	ds            datalayer.Datastore
-	state         map[string]*modelCostAccumulator
-	compression   float64
-	flushInterval time.Duration
+	typedName      plugin.TypedName
+	ds             datalayer.Datastore
+	state          map[string]*modelCostAccumulator
+	compression    float64
+	flushInterval  time.Duration
+	windowDuration time.Duration
+	// now is a test-only override for time.Now. Nil in production; assigned
+	// from _test.go files in-package. Reads go through clockNow().
+	now func() time.Time
 }
 
 // NewRequestCostMetadataExtractor constructs an extractor wired to ds with
-// the specified compression and flush interval.
-func NewRequestCostMetadataExtractor(ds datalayer.Datastore, compression float64, flushInterval time.Duration) *RequestCostMetadataExtractor {
+// the specified compression, flush interval, and window duration. Passing
+// windowDuration=0 disables per-epoch t-digest resets (monotonic growth).
+func NewRequestCostMetadataExtractor(ds datalayer.Datastore, compression float64, flushInterval, windowDuration time.Duration) *RequestCostMetadataExtractor {
 	return &RequestCostMetadataExtractor{
-		typedName:     plugin.TypedName{Type: PluginType, Name: PluginType},
-		ds:            ds,
-		state:         make(map[string]*modelCostAccumulator),
-		compression:   compression,
-		flushInterval: flushInterval,
+		typedName:      plugin.TypedName{Type: PluginType, Name: PluginType},
+		ds:             ds,
+		state:          make(map[string]*modelCostAccumulator),
+		compression:    compression,
+		flushInterval:  flushInterval,
+		windowDuration: windowDuration,
 	}
 }
 
 func (e *RequestCostMetadataExtractor) TypedName() plugin.TypedName { return e.typedName }
+
+// clockNow returns the current time, routed through the test-only override
+// when set. Callers should use this instead of time.Now() directly.
+func (e *RequestCostMetadataExtractor) clockNow() time.Time {
+	if e.now != nil {
+		return e.now()
+	}
+	return time.Now()
+}
 
 // Extract processes a batch of events. RequestEventType events are ignored;
 // each ResponseEventType produces (at most) one cost sample, which is added
@@ -137,7 +176,7 @@ func (e *RequestCostMetadataExtractor) TypedName() plugin.TypedName { return e.t
 func (e *RequestCostMetadataExtractor) Extract(ctx context.Context, events []dlsrc.Event) error {
 	debugLogger := log.FromContext(ctx).V(logutil.DEBUG)
 
-	now := time.Now()
+	now := e.clockNow()
 	updated := make(map[string]*modelCostAccumulator)
 	// Cache token prices per-model to avoid repeated lookups within this batch
 	tokenPricesCache := make(map[string]*pricing.TokenPrices)
@@ -195,6 +234,14 @@ func (e *RequestCostMetadataExtractor) Extract(ctx context.Context, events []dls
 		if err != nil {
 			debugLogger.Info("failed to create tdigest accumulator, skipping sample", "model", model, "err", err)
 			continue
+		}
+		if e.windowDuration > 0 && now.Sub(acc.lastWindowStart) >= e.windowDuration {
+			acc.digest.Reset()
+			acc.lastWindowStart = now
+			debugLogger.Info("request-cost-metadata reset per-model digest at window boundary",
+				"model", model,
+				"windowDuration", e.windowDuration,
+			)
 		}
 		if err := acc.digest.Add(cost); err != nil {
 			debugLogger.Info("tdigest.Add returned an unexpected error, skipping sample", "model", model, "err", err)
@@ -295,8 +342,7 @@ func extractGoogle(usageMetadata map[string]any) (prompt, completion float64, ok
 // for an unconfigured model (no pricing), the extractor skips the cost sample
 // but the empty model remains in Datastore.Models(), which may cause
 // operator confusion when querying the model registry. This is harmless
-// functionally but is a known side-effect; a follow-up PR will add a
-// read-only GetModel method to avoid this.
+// functionally but is a known side-effect.
 func lookupTokenPrices(ds datalayer.Datastore, model string) (*pricing.TokenPrices, bool) {
 	v, ok := ds.GetOrCreateModel(model).GetAttributes().Get(pricing.TokenPricesAttributeKey)
 	if !ok {
@@ -320,7 +366,7 @@ func (e *RequestCostMetadataExtractor) getOrCreateAccumulator(model string, now 
 	if err != nil {
 		return nil, err
 	}
-	acc := &modelCostAccumulator{digest: d, lastFlush: now}
+	acc := &modelCostAccumulator{digest: d, lastFlush: now, lastWindowStart: now}
 	e.state[model] = acc
 	return acc, nil
 }

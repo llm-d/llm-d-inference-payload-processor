@@ -1,7 +1,5 @@
 # CostGuard Scorer
 
-**Status:** coming soon — this folder is a placeholder for the upcoming feature implementation to address [Issue 214](https://github.com/llm-d/llm-d-inference-payload-processor/issues/214).
-
 ## Overview
 
 CostGuard is a model scorer for the [ModelSelector framework](https://github.com/llm-d/llm-d-inference-payload-processor/tree/main/docs/proposals/043-model-selection-framework). The scorer minimises the **actual** end-to-end cost of inference, not just the input-token price.
@@ -15,7 +13,7 @@ This is the successor to the [`costaware`](../costaware) scorer, which ranks mod
 CostGuard treats each candidate model as an arm in a Multi-Arm Bandit problem. It applies an $\epsilon$-Greedy exploration-exploitation strategy:
 
 - **Exploitation** (most of the time): route to the model with the lowest observed cost rank.
-- **Exploration** (with probability $\epsilon$): route to a randomly chosen model to gather additional cost observations and make sure the scorer does not stale.
+- **Exploration** (with probability $\epsilon$): route to a randomly chosen model to gather additional cost observations and make sure the scorer does not go stale.
 
 ### Per-model cost rank
 
@@ -52,40 +50,35 @@ CostGuard operates in a **time window (epoch)**. Within each epoch:
 1. **Exploration** — with probability $\epsilon$ a random under-explored model is selected (score = 1); all others score 0.5. A model is under-explored if it does not have a minimal number of actual inference cost samples to calculate the $\alpha$-percentile with sufficient statistical fidelity (i.e., a sufficiently narrow confidence interval).
 2. **Exploitation** — for all models that have been explored, the rank-based sigmoid scoring applies with probability $1-\epsilon$, ties broken arbitrarily.
 
-At the end of each epoch the t-digests are frozen and a new one is started for the next epoch.
+At the end of each epoch the t-digests are frozen and a new one is started for the next epoch. Epoch length is controlled by the `windowDuration` parameter on the [`requestcostmetadata`](../../../datalayer/requestcostmetadata) extractor.
 
 ### Cost data flow
 
 CostGuard relies on two supporting components that feed it observed costs:
 
 1. **`modelconfigcollector`** — collects input and output token prices per model from the data layer.
-2. **`requestcostdata` extractor** — reads `usage.prompt_tokens` and `usage.completion_tokens` from each completed response, converts them to a USD cost using the token prices, and stores the result in the data layer in the model's t-digest. This path is non-blocking.
+2. **`requestcostmetadata` extractor** — reads `usage.prompt_tokens` and `usage.completion_tokens` from each completed response, converts them to a USD cost using the token prices, and stores the result in the data layer in the model's t-digest. This path is non-blocking.
 
-CostGuard reads the t-digest cost inference costs from the data layer's `AttributeMap` and computes ranks and scores on the fly at scoring time.
+CostGuard reads the t-digest of inference costs from the data layer's `AttributeMap` and computes ranks and scores on the fly at scoring time.
 
 ## Configuration
 
-CostGuard exposes five main knobs and two advanced knobs. All have sensible defaults, and the scorer works out of the box without any configuration.
+CostGuard exposes three main knobs and one advanced knob. All have sensible defaults, and the scorer works out of the box without any configuration.
 
 | Parameter | Type | Default | Description |
 | --- | --- | --- | --- |
 | `epsilon` | float, [0, 1] | `0.1` | Probability of random exploration on each request. Setting it to `1.0` forces full random behavior (with replacement). |
 | `alpha` | float, (0, 1) | `0.95` | Quantile that separates the body of the cost distribution from the tail. For example, `0.95` means the top 5 % of observed costs are treated as the tail. |
 | `lambda` | float, >= 0 | `1.0` | Penalty weight applied to the tail cost (CTE). Increase the penalty to penalise models with expensive outlier responses more aggressively. |
-| `windowDuration` | duration string, > 0 | `"2h"` | Length of each epoch. The t-digest is reset at the end of each window. |
 | `percentileMarginError` | float, (0, 1) | `0.03` | Quantile margin of error. The true $\alpha$-percentile of the cost distribution of the model is between $[X - \text{percentileMarginError}, X + \text{percentileMarginError}]$. In other words, if $\alpha = 0.95$ and $\text{percentileMarginError} = 0.03$, then at a $95\%$ confidence level, the true percentile `95` lies between `P92` and `P98` of the *observed* values. Always calculated at the $95\%$ confidence level. |
 
-The scorer automatically determines the minimal number of samples required for exploring the model given the above parameters. A user should be careful in setting `percentileMarginError` and `windowDuration`.
+The scorer automatically determines the minimal number of samples required for exploring the model given the above parameters. A user should be careful in setting `percentileMarginError`.
 
 Making `percentileMarginError` too small will require too many observations to explore a model, because the number of observations is inversely proportional to the square of `percentileMarginError`. Concretely, the minimum sample count is derived from the Wald confidence interval for a proportion:
 
 $$n = \left\lceil \frac{z_{95}^2 \cdot \alpha \cdot (1 - \alpha)}{\text{percentileMarginError}^2} \right\rceil$$
 
 where $z_{95} = 1.96$ is the standard normal quantile for a two-sided $95\%$ confidence interval. In the above example ($\alpha = 0.95$, $\text{percentileMarginError} = 0.03$), this gives around `200` observations.
-
-Making the `windowDuration`. Too short or too long might hurt the quality of scoring.
-
-**TODO**: add a guide on parameter tuning.  
 
 ### Example
 
@@ -97,7 +90,6 @@ scorers:
       epsilon: 0.05                # 5 % exploration probability
       alpha: 0.95                  # 95th-percentile tail boundary
       lambda: 1.5                  # penalise tail costs 50 % more
-      windowDuration: "30m"        # reset cost history every 30 minutes
       percentileMarginError: 0.05  # the confidence interval width
 ```
 
