@@ -89,7 +89,7 @@ func BenchmarkFlush(b *testing.B) {
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
 				s.bucketStart = now.Add(-time.Minute) // force a bucket rollover this call
-				s.flush(now, 3*time.Minute, time.Minute, 100, 720)
+				s.flush(now, 3*time.Minute, time.Minute, 100, 1000)
 			}
 		})
 	}

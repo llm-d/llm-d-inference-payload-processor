@@ -26,7 +26,7 @@ age-bounded snapshot of recent observations. It yields `P25`, `P50`, `P10`, and 
 inflight averages. Averaging inflight over a percentile band rather than a single observation
 stabilises the operating-point estimate.
 
-**Bucket history** (long horizon) — produces the floor.
+**Bucket history** (long-term) — produces the floor.
 
 ## The floor (`P10Low`)
 
@@ -41,7 +41,7 @@ depth, so a low percentile of TTFT recovers the hardware-bound prefill floor. Co
 
 Because the history spans both idle and busy buckets, taking a low percentile of it locks onto the
 idle buckets (the true floor) instead of drifting up with recent load — it is load-invariant.
-`bucketDuration * bucketHistorySize` sets the horizon (default 1m × 720 = 12h).
+The `bucketHistorySize` entries are evicted by value (min/max), not by age, which favours a stable floor over fast adaptation.
 
 ### Sample guard
 
@@ -64,7 +64,7 @@ pool that has already calibrated does not re-cold-start when it briefly goes idl
 | `minRequests` | 10 | Minimum observations before the floor and operating point are trusted |
 | `windowSize` | 5000 | Ring buffer capacity (~200 KB per model) |
 | `bucketDuration` | 1m | Window for each floor-history entry's P10; keep `<= maxObservationAge` |
-| `bucketHistorySize` | 720 | Per-bucket P10s kept for the floor (horizon = `bucketDuration × bucketHistorySize`, 12h); min/max evicted when full |
+| `bucketHistorySize` | 1000 | Per-bucket P10s kept for the floor; smallest/largest evicted by value when full (bounds memory, smooths the floor — not an age horizon) |
 
 ## Configuration
 
@@ -79,7 +79,7 @@ The extractor is wired under `datalayer.extractors`:
     maxRequests: 100
     minRequests: 20
     bucketDuration: 1m
-    bucketHistorySize: 720
+    bucketHistorySize: 1000
 ```
 
 See the [scorer README](../../modelselector/scorer/ttftaware/README.md) for an end-to-end pipeline

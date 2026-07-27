@@ -60,12 +60,12 @@ const (
 	defaultMinRequests = 10
 
 	// Floor (P10Low) is the P10 of a bounded history of per-bucket P10s; when the history is
-	// full, the smallest and largest entries are evicted.
+	// full, the smallest and largest entries are evicted (by value, not by age).
 	//
 	// how much time makes up one floor sample - the floor takes one P10 per bucket
 	defaultBucketDuration = 1 * time.Minute
-	// how many bucket-floors to remember - at 1 minute each, 720 = 12 hours
-	defaultBucketHistorySize = 720
+	// how many per-bucket P10s to remember for the floor
+	defaultBucketHistorySize = 1000
 )
 
 var _ dlsrc.Extractor = &TTFTPercentileExtractor{}
@@ -84,9 +84,9 @@ type TTFTPercentileExtractorConfig struct {
 	// BucketDuration is the window over which each floor-history entry's P10 is computed.
 	// Defaults to 1m. Keep it <= maxObservationAge so the tracker retains a full bucket.
 	BucketDuration string `json:"bucketDuration,omitempty"`
-	// BucketHistorySize caps the number of per-bucket P10s kept for the floor. The effective
-	// floor horizon is bucketDuration * bucketHistorySize (default 1m * 720 = 12h). When the
-	// history is full, the smallest and largest entries are dropped to make room.
+	// BucketHistorySize caps the number of per-bucket P10s kept for the floor. Entries are evicted
+	// by value (smallest and largest) when full, not by age, so this bounds memory and smooths the
+	// floor rather than setting a fixed time horizon; a permanent shift works in gradually. Default 1000.
 	BucketHistorySize int `json:"bucketHistorySize,omitempty"`
 }
 
@@ -356,18 +356,20 @@ func (e *TTFTPercentileExtractor) Extract(ctx context.Context, events []dlsrc.Ev
 	return nil
 }
 
-// evictStale reclaims state for models not seen within the floor horizon (bucketDuration *
+// evictStale reclaims state for models not seen within the idle window (bucketDuration *
 // bucketHistorySize), so churned or decommissioned model names do not leak. It is throttled to
-// once per interval, and keeps any model with inflight requests. A model that later reappears is
-// re-created cold and re-calibrates — correct, since a floor older than its whole horizon is stale.
+// once per interval. Eviction keys on lastTouched (any request or response event), NOT the inflight
+// counter: a request whose response never arrives (client disconnect, upstream error, dropped
+// Notify) leaves Requests > 0 forever, which would otherwise pin the model permanently. A model
+// that later reappears is re-created cold and re-calibrates.
 func (e *TTFTPercentileExtractor) evictStale(now time.Time) {
 	if now.Sub(e.lastSweep) < e.intervalDuration {
 		return
 	}
 	e.lastSweep = now
-	horizon := e.bucketDuration * time.Duration(e.bucketHistorySize)
+	idleWindow := e.bucketDuration * time.Duration(e.bucketHistorySize)
 	for model, s := range e.state {
-		if s.Requests == 0 && !s.lastTouched.IsZero() && now.Sub(s.lastTouched) > horizon {
+		if !s.lastTouched.IsZero() && now.Sub(s.lastTouched) > idleWindow {
 			delete(e.state, model)
 		}
 	}
