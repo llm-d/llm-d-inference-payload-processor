@@ -55,6 +55,10 @@ const (
 	// defaultWindowDuration is the epoch length after which each per-model
 	// t-digest is Reset(). Set to "0s" in config to disable windowing.
 	defaultWindowDuration = 2 * time.Hour
+
+	// requestIDHeaderKey is the request header carrying the correlation ID
+	// logged alongside each per-response observation.
+	requestIDHeaderKey = "x-request-id"
 )
 
 // compile-time interface assertion
@@ -113,6 +117,14 @@ func ExtractorFactory(name string, parameters json.RawMessage, h plugin.Handle) 
 	ext := NewRequestCostMetadataExtractor(h.Datastore(), config.Compression, flushInterval, windowDuration)
 	ext.typedName.Name = name
 	return ext, nil
+}
+
+// centroidLog is the log-friendly representation of a single t-digest
+// centroid. Emitted at each epoch-end so downstream tools can reconstruct
+// the CDF from log records without importing the tdigest library.
+type centroidLog struct {
+	Mean  float64 `json:"mean"`
+	Count uint64  `json:"count"`
 }
 
 // modelCostAccumulator holds the running t-digest for a single model, the
@@ -237,6 +249,21 @@ func (e *RequestCostMetadataExtractor) Extract(ctx context.Context, events []dls
 			continue
 		}
 		if e.windowDuration > 0 && now.Sub(acc.lastWindowStart) >= e.windowDuration {
+			if debugLogger.Enabled() && acc.digest.Count() > 0 {
+				centroids := make([]centroidLog, 0, 100)
+				acc.digest.ForEachCentroid(func(mean float64, count uint64) bool {
+					centroids = append(centroids, centroidLog{Mean: mean, Count: count})
+					return true
+				})
+				debugLogger.Info("request-cost-metadata epoch-end digest",
+					"model", model,
+					"epoch_end", now,
+					"windowDuration", e.windowDuration,
+					"count", acc.digest.Count(),
+					"compression", e.compression,
+					"centroids", centroids,
+				)
+			}
 			acc.digest.Reset()
 			acc.lastWindowStart = now
 			debugLogger.Info("request-cost-metadata reset per-model digest at window boundary",
@@ -247,6 +274,22 @@ func (e *RequestCostMetadataExtractor) Extract(ctx context.Context, events []dls
 		if err := acc.digest.Add(cost); err != nil {
 			debugLogger.Info("tdigest.Add returned an unexpected error, skipping sample", "model", model, "err", err)
 			continue
+		}
+		if debugLogger.Enabled() {
+			debugLogger.Info("request-cost-metadata observation",
+				"x-request-id", p.Request.Headers[requestIDHeaderKey],
+				"model", model,
+				"response_ts", now,
+				"cost", cost,
+				"prompt_tokens", promptTokens,
+				"completion_tokens", completionTokens,
+				"digest_count", acc.digest.Count(),
+				"p50", acc.digest.Quantile(0.5),
+				"p95", acc.digest.Quantile(0.95),
+				"p99", acc.digest.Quantile(0.99),
+				"trimmed_mean_body", acc.digest.TrimmedMean(0, 0.95),
+				"trimmed_mean_tail", acc.digest.TrimmedMean(0.95, 1),
+			)
 		}
 		updated[model] = acc
 	}
