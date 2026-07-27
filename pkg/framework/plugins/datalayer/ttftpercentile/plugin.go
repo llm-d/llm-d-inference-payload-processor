@@ -358,8 +358,9 @@ func (e *TTFTPercentileExtractor) Extract(ctx context.Context, events []dlsrc.Ev
 }
 
 // evictStale reclaims state for models not seen within the idle window (bucketDuration *
-// bucketHistorySize), so churned or decommissioned model names do not leak. It is throttled to
-// once per interval. Eviction keys on lastTouched (any request or response event), NOT the inflight
+// bucketHistorySize) and clears their published attribute, so churned or decommissioned model names
+// do not leak and no scorer keeps reading a stale snapshot. It is throttled to once per interval.
+// Eviction keys on lastTouched (any request or response event), NOT the inflight
 // counter: a request whose response never arrives (client disconnect, upstream error, dropped
 // Notify) leaves Requests > 0 forever, which would otherwise pin the model permanently. A model
 // that later reappears is re-created cold and re-calibrates.
@@ -371,6 +372,10 @@ func (e *TTFTPercentileExtractor) evictStale(now time.Time) {
 	idleWindow := e.bucketDuration * time.Duration(e.bucketHistorySize)
 	for model, s := range e.state {
 		if !s.lastTouched.IsZero() && now.Sub(s.lastTouched) > idleWindow {
+			// Clear our published attribute alongside the state, so a scorer stops reading a stale
+			// floor/operating point for a model we've given up on — it reads cold instead. Delete
+			// only our own key, not the whole model: other plugins own their attributes on it.
+			e.ds.GetOrCreateModel(model).GetAttributes().Delete(AttributeKey)
 			delete(e.state, model)
 		}
 	}
