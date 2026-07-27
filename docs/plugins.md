@@ -24,6 +24,7 @@
   - [Collectors](#collectors-1)
   - [Extractors](#extractors)
     - [`request-metadata-extractor`](#request-metadata-extractor)
+    - [`ttft-percentile-extractor`](#ttft-percentile-extractor)
   - [Datasources](#datasources)
     - [`model-config-datasource`](#model-config-datasource)
 - [Response Handling Plugins](#response-handling-plugins)
@@ -299,6 +300,32 @@ models for that event set and writes the result to each model's `request-metadat
 
 **Source:** [`pkg/framework/plugins/datalayer/requestmetadata/`][src-requestmetadata]
 
+#### `ttft-percentile-extractor`
+
+An **extractor** that observes each model's actual time-to-first-token (TTFT) and publishes a
+`ttft-percentile` attribute summarising its recent TTFT distribution: a load-invariant service floor
+(`P10Low`), the `P25`/`P50` operating points, and the average in-flight count at each
+(`InflightAtP25`/`InflightAtP50`). It correlates each request's in-flight-at-dispatch (stashed in
+`CycleState` on the request event) with the TTFT reported on the matching response event. The
+companion `ttft-aware-scorer` (added separately) consumes this to predict TTFT under load. Reference
+it under `datalayer.extractors`.
+
+**How it runs:** The data layer calls [`TTFTPercentileExtractor.Extract()`](pkg/framework/plugins/datalayer/ttftpercentile/plugin.go) whenever request/response events arrive. It maintains a per-model sliding window of recent observations plus a bounded history of per-bucket P10s, and re-publishes the snapshot each `intervalDuration`.
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `intervalDuration` | duration | no | How often the snapshot is recomputed and published (default `5s`). |
+| `windowSize` | int | no | Ring-buffer capacity of recent observations per model (default `5000`); also bounds retention under load. |
+| `maxObservationAge` | duration | no | Age bound for the short window feeding P25 / P50 / P10 (default `3m`). |
+| `maxRequests` | int | no | Cap the short window to the newest N observations; must be `<= windowSize` (default `100`). |
+| `minRequests` | int | no | Minimum observations before the floor and operating point are trusted (default `10`). |
+| `bucketDuration` | duration | no | Window over which each floor-history entry's P10 is computed (default `1m`). |
+| `bucketHistorySize` | int | no | Per-bucket P10s kept for the floor; must be `>= 2` (default `1000`). |
+
+**Source:** [`pkg/framework/plugins/datalayer/ttftpercentile/`][src-ttftpercentile]
+
 ### Datasources
 
 Datasources import state from an external source into the shared datastore. The data layer starts them
@@ -465,6 +492,7 @@ For the full schema, Helm values, ConfigMaps, and proxy integration, see [Config
 [src-costscorer]: https://github.com/llm-d/llm-d-inference-payload-processor/tree/main/pkg/framework/plugins/modelselector/scorer/costaware
 [src-inflightscorer]: https://github.com/llm-d/llm-d-inference-payload-processor/tree/main/pkg/framework/plugins/modelselector/scorer/inflightrequests
 [src-requestmetadata]: https://github.com/llm-d/llm-d-inference-payload-processor/tree/main/pkg/framework/plugins/datalayer/requestmetadata
+[src-ttftpercentile]: https://github.com/llm-d/llm-d-inference-payload-processor/tree/main/pkg/framework/plugins/datalayer/ttftpercentile
 [src-modelconfig]: https://github.com/llm-d/llm-d-inference-payload-processor/tree/main/pkg/framework/plugins/datalayer/modelconfigcollector
 [src-modelnametoheader]: https://github.com/llm-d/llm-d-inference-payload-processor/tree/main/pkg/framework/plugins/responsehandling/modelnametoheader
 [readme-single]: https://github.com/llm-d/llm-d-inference-payload-processor/blob/main/pkg/framework/plugins/requesthandling/profilepicker/single/README.md

@@ -60,7 +60,7 @@ const (
 	defaultMinRequests = 10
 
 	// Floor (P10Low) is the P10 of a bounded history of per-bucket P10s; when the history is
-	// full, the smallest and largest entries are evicted (by value, not by age).
+	// full, the smallest and largest entries are evicted.
 	//
 	// how much time makes up one floor sample - the floor takes one P10 per bucket
 	defaultBucketDuration = 1 * time.Minute
@@ -98,11 +98,10 @@ type TTFTPercentileMetrics struct {
 	P10LowTTFT     float64 // P10 of the per-bucket P10 history; load-invariant floor estimate
 	P10TTFT        float64 // P10 from capped short window
 	P25TTFT        float64 // P25 from capped short window
-	P50TTFT        float64 // P50 from capped short window
-	LastObservedAt int64
-	RecentN        int   // count of observations in the capped short window
-	Observations   int64 // cumulative observations feeding the floor; gates Floor until >= MinRequests
-	MinRequests    int   // scorer threshold — copied from config so the scorer needs no separate param
+	P50TTFT       float64 // P50 from capped short window
+	RecentN       int     // count of observations in the capped short window
+	Observations  int64   // cumulative observations feeding the floor; gates Floor until >= MinRequests
+	MinRequests   int     // scorer threshold — copied from config so the scorer needs no separate param
 }
 
 func (m TTFTPercentileMetrics) Clone() datalayer.Cloneable { return m }
@@ -141,7 +140,6 @@ func (s *modelPercentileState) flush(now time.Time, maxObservationAge, bucketDur
 		s.P50TTFT = percentileOf(short, 0.50)
 		s.InflightAtP25 = bandInflight(short, 0.25)
 		s.InflightAtP50 = bandInflight(short, 0.50)
-		s.LastObservedAt = now.UnixNano()
 	}
 	s.intervalStart = now
 
@@ -199,6 +197,9 @@ func ExtractorFactory(name string, parameters json.RawMessage, h plugin.Handle) 
 	}
 	if cfg.MaxRequests <= 0 {
 		return nil, fmt.Errorf("maxRequests must be > 0 for plugin %q", name)
+	}
+	if cfg.MaxRequests > cfg.WindowSize {
+		return nil, fmt.Errorf("maxRequests (%d) must be <= windowSize (%d) for plugin %q", cfg.MaxRequests, cfg.WindowSize, name)
 	}
 	if cfg.MinRequests <= 0 {
 		return nil, fmt.Errorf("minRequests must be > 0 for plugin %q", name)
