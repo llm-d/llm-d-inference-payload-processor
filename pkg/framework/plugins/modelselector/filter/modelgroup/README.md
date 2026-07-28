@@ -19,9 +19,9 @@ candidate model's group attribute and keeps only the candidates that belong to t
 ## What it does
 
 1. Reads the `model` field from the request body.
-3. If the field is absent, an empty string or `auto`, all incoming candidates are kept.
+2. If the field is absent, an empty string or `auto`, all incoming candidates are kept.
 3. If the `model` field is formatted as `auto/group-name`, with the prefix `auto` and separator `/`, it extracts `group-name` and keeps the candidate models whose `modelgroups.GroupsAttributeKey` attribute lists that group name.
-4. If the `model` field is a valid non-empty string that does not start with the prefix `auto`, the model name is considered the only one that should be in the candidate list and kept.
+4. If the `model` field is a non-empty string that is not `auto` and does not start with `auto/`, it is treated as an explicit model name and the single matching candidate is kept.
 5. If the intersection is empty or the field is malformed (not a string), the filter returns no candidates and the pipeline rejects the request with HTTP 429.
 
 ## Inputs consumed
@@ -51,6 +51,5 @@ alongside them, a `groups` section mapping a group name to the model names that 
 
 With this configuration snippet, a request with `model` set to `auto/fast` is filtered to the candidates `qwen3-8b` and
 `gpt-oss-20b`; `auto/planning` is filtered to `gpt-oss-120b` and `gemma4`. A model can appear in more than
-one group's `models` list. A group with an empty `name` or an empty `models` list is skipped (logged as a
-warning) by `model-config-datasource`, as is a group entry naming a model not present in the top-level
+one group's `models` list. A group with an empty `name` or an empty `models` list is skipped (and logged) by `model-config-datasource`, as is a group entry naming a model not present in the top-level
 `models` list.

@@ -51,10 +51,10 @@ import (
 	requestcostmetadata "github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/plugins/datalayer/requestcostmetadata"
 	requestmetadata "github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/plugins/datalayer/requestmetadata"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/plugins/modelselector/filter/modelgroup"
-	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/plugins/modelselector/filter/modelname"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/plugins/modelselector/picker/maxscore"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/plugins/modelselector/picker/random"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/plugins/modelselector/picker/weightedrandom"
+	costguardscorer "github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/plugins/modelselector/scorer/costguard"
 	inflightrequestsscorer "github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/plugins/modelselector/scorer/inflightrequests"
 	sessionaffinity "github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/plugins/modelselector/scorer/sessionaffinity"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/plugins/requesthandling/basemodelextractor"
@@ -298,7 +298,6 @@ func (r *Runner) registerInTreePlugins() {
 	plugin.Register(requestcostmetadata.PluginType, requestcostmetadata.ExtractorFactory)
 	plugin.Register(modelconfigcollector.PluginType, modelconfigcollector.DatasourceFactory)
 	// register model selector plugins
-	plugin.Register(modelname.ModelNameFilterType, modelname.ModelNameFilterFactory)
 	plugin.Register(modelgroup.ModelGroupFilterType, modelgroup.ModelGroupFilterFactory)
 	plugin.Register(random.RandomPickerType, random.RandomPickerFactory)
 	plugin.Register(maxscore.MaxScorePickerType, maxscore.MaxScorePickerFactory)
@@ -306,6 +305,7 @@ func (r *Runner) registerInTreePlugins() {
 	plugin.Register(modelselectorplugin.ModelSelectorPluginType, modelselectorplugin.ModelSelectorPluginFactory)
 	plugin.Register(inflightrequestsscorer.PluginType, inflightrequestsscorer.ScorerFactory)
 	plugin.Register(sessionaffinity.PluginType, sessionaffinity.ScorerFactory)
+	plugin.Register(costguardscorer.PluginType, costguardscorer.ScorerFactory)
 	plugin.Register(modelnametoheader.PluginType, modelnametoheader.PluginFactory)
 }
 

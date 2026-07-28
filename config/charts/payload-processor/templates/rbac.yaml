@@ -21,7 +21,7 @@ roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
   name: payload-processor-configmap-reader
-{{- else }} ## if payload-processor is set in a single namespace
+{{- else }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role

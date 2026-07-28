@@ -13,6 +13,7 @@
   - [`single-profile-picker`](#single-profile-picker)
 - [Model Selector Plugins](#model-selector-plugins)
   - [Filters](#filters)
+    - [`model-group-name-filter`](#model-group-name-filter)
   - [Scorers](#scorers)
     - [`cost-scorer`](#cost-scorer)
     - [`inflight-requests-scorer`](#inflight-requests-scorer)
@@ -179,8 +180,30 @@ by interface. See the [ModelSelector proposal][ModelSelector proposal] for the f
 Filters remove candidate models that cannot serve a request; if filtering leaves zero candidates the
 framework returns an error to the client.
 
-**There are no in-tree filter plugins.** Filtering is a framework extension point — implement the
-`Filter` interface and register it to add one (see [Creating a Plugin][Creating a Plugin]).
+#### `model-group-name-filter`
+
+Restricts the candidate models based on the request body's `model` field. Supports explicit model
+selection by name, `auto` (or an absent/empty field) to keep all candidates, and `auto/<group-name>`
+to select the models belonging to a named group.
+
+- Absent, empty, or exactly `auto`: all incoming candidates are kept.
+- `auto/<group-name>`: each candidate model is checked for `<group-name>` in its own
+  `modelgroups.GroupsAttributeKey` attribute; only candidates that list that group are kept.
+- Any other non-empty string: the single candidate whose name matches that string is kept.
+- An unknown group, an empty intersection, or a malformed (non-string) `model` field: no candidates
+  are returned, and the pipeline rejects the request with HTTP 429.
+
+**Parameters:** None.
+
+```yaml
+plugins:
+- type: model-group-name-filter
+```
+
+**Source:** [`pkg/framework/plugins/modelselector/filter/modelgroup/`][src-modelgroupfilter]
+
+To add additional filters, implement the `Filter` interface and register it (see
+[Creating a Plugin][Creating a Plugin]).
 
 ### Scorers
 
@@ -462,6 +485,7 @@ For the full schema, Helm values, ConfigMaps, and proxy integration, see [Config
 [src-bodyfieldtoheader]: https://github.com/llm-d/llm-d-inference-payload-processor/tree/main/pkg/framework/plugins/requesthandling/bodyfieldtoheader
 [src-basemodelextractor]: https://github.com/llm-d/llm-d-inference-payload-processor/tree/main/pkg/framework/plugins/requesthandling/basemodelextractor
 [src-modelselector]: https://github.com/llm-d/llm-d-inference-payload-processor/tree/main/pkg/framework/plugins/requesthandling/modelselector
+[src-modelgroupfilter]: https://github.com/llm-d/llm-d-inference-payload-processor/tree/main/pkg/framework/plugins/modelselector/filter/modelgroup
 [src-costscorer]: https://github.com/llm-d/llm-d-inference-payload-processor/tree/main/pkg/framework/plugins/modelselector/scorer/costaware
 [src-inflightscorer]: https://github.com/llm-d/llm-d-inference-payload-processor/tree/main/pkg/framework/plugins/modelselector/scorer/inflightrequests
 [src-requestmetadata]: https://github.com/llm-d/llm-d-inference-payload-processor/tree/main/pkg/framework/plugins/datalayer/requestmetadata

@@ -92,6 +92,16 @@ func writeTempRaw(t *testing.T, content string) string {
 	return f.Name()
 }
 
+// readFile reads path and fails the test on error, for tests calling syncModels directly.
+func readFile(t *testing.T, path string) []byte {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read file: %v", err)
+	}
+	return data
+}
+
 func overwriteFile(t *testing.T, path string, cfg ModelsConfig) {
 	t.Helper()
 	data, err := json.Marshal(cfg)
@@ -271,20 +281,68 @@ func TestSyncModels_FileChange_RemovesModel(t *testing.T) {
 		Models: []ModelConfiguration{{Name: "m1"}, {Name: "m2"}},
 	})
 	c := useFactory(t, path, ds)
-	if err := c.syncModels(context.Background()); err != nil {
+	if err := c.syncModels(context.Background(), readFile(t, path)); err != nil {
 		t.Fatalf("syncModels: %v", err)
 	}
 
 	overwriteFile(t, path, ModelsConfig{
 		Models: []ModelConfiguration{{Name: "m1"}},
 	})
-	if err := c.syncModels(context.Background()); err != nil {
+	if err := c.syncModels(context.Background(), readFile(t, path)); err != nil {
 		t.Fatalf("syncModels: %v", err)
 	}
 
 	models := ds.GetModels(datalayer.AllModelsPredicate)
 	if len(models) != 1 || models[0].GetName() != "m1" {
 		t.Errorf("expected only [m1] after resync, got %v", models)
+	}
+}
+
+// TestStart_WatcherClearsModelsOnRemove verifies that removing the config file after
+// Start causes the fsnotify watcher to clear every model from the datastore, treating
+// the now-missing file as an empty config rather than leaving stale entries in place.
+func TestStart_WatcherClearsModelsOnRemove(t *testing.T) {
+	ds := datastore.NewFakeDataStore()
+	path := writeTempModelsConfig(t, ModelsConfig{
+		Models: []ModelConfiguration{{Name: "m1"}, {Name: "m2"}},
+	})
+	startFactory(t, path, ds)
+
+	if models := ds.GetModels(datalayer.AllModelsPredicate); len(models) != 2 {
+		t.Fatalf("expected 2 models before removal, got %d: %v", len(models), models)
+	}
+
+	if err := os.Remove(path); err != nil {
+		t.Fatalf("remove config file: %v", err)
+	}
+
+	models := waitForUpdatedConfig(t, ds, 0, 2*time.Second)
+	if len(models) != 0 {
+		t.Errorf("expected 0 models after config file removal, got %d: %v", len(models), models)
+	}
+}
+
+// TestStart_WatcherClearsModelsOnRename verifies that renaming the config file away
+// (e.g. an atomic ConfigMap-style replacement that doesn't immediately re-create the
+// original path) causes the fsnotify watcher to clear every model from the datastore.
+func TestStart_WatcherClearsModelsOnRename(t *testing.T) {
+	ds := datastore.NewFakeDataStore()
+	path := writeTempModelsConfig(t, ModelsConfig{
+		Models: []ModelConfiguration{{Name: "m1"}, {Name: "m2"}},
+	})
+	startFactory(t, path, ds)
+
+	if models := ds.GetModels(datalayer.AllModelsPredicate); len(models) != 2 {
+		t.Fatalf("expected 2 models before rename, got %d: %v", len(models), models)
+	}
+
+	if err := os.Rename(path, path+".bak"); err != nil {
+		t.Fatalf("rename config file: %v", err)
+	}
+
+	models := waitForUpdatedConfig(t, ds, 0, 2*time.Second)
+	if len(models) != 0 {
+		t.Errorf("expected 0 models after config file rename, got %d: %v", len(models), models)
 	}
 }
 
@@ -589,7 +647,7 @@ func TestSyncModels_FileChange_GroupMembershipRemoved(t *testing.T) {
 		Groups: []ModelGroupConfig{{Name: "g1", Models: []string{"m1"}}},
 	})
 	c := useFactory(t, path, ds)
-	if err := c.syncModels(context.Background()); err != nil {
+	if err := c.syncModels(context.Background(), readFile(t, path)); err != nil {
 		t.Fatalf("syncModels: %v", err)
 	}
 	if _, ok := readGroups(t, ds, "m1"); !ok {
@@ -599,11 +657,38 @@ func TestSyncModels_FileChange_GroupMembershipRemoved(t *testing.T) {
 	overwriteFile(t, path, ModelsConfig{
 		Models: []ModelConfiguration{{Name: "m1"}},
 	})
-	if err := c.syncModels(context.Background()); err != nil {
+	if err := c.syncModels(context.Background(), readFile(t, path)); err != nil {
 		t.Fatalf("syncModels: %v", err)
 	}
 
 	if _, ok := readGroups(t, ds, "m1"); ok {
 		t.Error("expected m1's groups attribute to be cleared after group removed from config")
+	}
+}
+
+// TestSyncModels_EmptyData_ClearsModels verifies that calling syncModels with nil/empty
+// data (as happens when the config file is missing, deleted, or renamed away) clears
+// every model already in the datastore, treating the absence of content as an empty
+// config rather than an error.
+func TestSyncModels_EmptyData_ClearsModels(t *testing.T) {
+	ds := datastore.NewFakeDataStore()
+	path := writeTempModelsConfig(t, ModelsConfig{
+		Models: []ModelConfiguration{{Name: "m1"}, {Name: "m2"}},
+	})
+	c := useFactory(t, path, ds)
+	if err := c.syncModels(context.Background(), readFile(t, path)); err != nil {
+		t.Fatalf("syncModels: %v", err)
+	}
+	if models := ds.GetModels(datalayer.AllModelsPredicate); len(models) != 2 {
+		t.Fatalf("expected 2 models before clearing, got %d: %v", len(models), models)
+	}
+
+	if err := c.syncModels(context.Background(), nil); err != nil {
+		t.Fatalf("syncModels with nil data: %v", err)
+	}
+
+	models := ds.GetModels(datalayer.AllModelsPredicate)
+	if len(models) != 0 {
+		t.Errorf("expected 0 models after syncModels with nil data, got %d: %v", len(models), models)
 	}
 }

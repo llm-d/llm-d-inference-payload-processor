@@ -26,6 +26,8 @@ import (
 	extProcPb "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
 	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/protobuf/testing/protocmp"
 
@@ -41,6 +43,82 @@ import (
 )
 
 const testProfileName = "default"
+
+const (
+	testTraceID = "0af7651916cd43dd8448eb211c80319c"
+	testSpanID  = "b7ad6b7169203331"
+)
+
+// withTraceContextPropagator installs the W3C trace context propagator for the
+// duration of the test and restores the previous global propagator afterwards.
+func withTraceContextPropagator(t *testing.T) {
+	t.Helper()
+	prev := otel.GetTextMapPropagator()
+	otel.SetTextMapPropagator(propagation.TraceContext{})
+	t.Cleanup(func() { otel.SetTextMapPropagator(prev) })
+}
+
+func TestExtractTraceContext(t *testing.T) {
+	withTraceContextPropagator(t)
+
+	tests := []struct {
+		name      string
+		headers   *extProcPb.HttpHeaders
+		wantValid bool
+	}{
+		{
+			name: "extracts upstream traceparent",
+			headers: &extProcPb.HttpHeaders{
+				Headers: &basepb.HeaderMap{
+					Headers: []*basepb.HeaderValue{
+						{Key: "traceparent", RawValue: []byte("00-" + testTraceID + "-" + testSpanID + "-01")},
+					},
+				},
+			},
+			wantValid: true,
+		},
+		{
+			name: "header key lookup is case-insensitive",
+			headers: &extProcPb.HttpHeaders{
+				Headers: &basepb.HeaderMap{
+					Headers: []*basepb.HeaderValue{
+						{Key: "Traceparent", RawValue: []byte("00-" + testTraceID + "-" + testSpanID + "-01")},
+					},
+				},
+			},
+			wantValid: true,
+		},
+		{
+			name:      "no traceparent leaves context untouched",
+			headers:   &extProcPb.HttpHeaders{Headers: &basepb.HeaderMap{}},
+			wantValid: false,
+		},
+		{
+			name:      "nil headers leaves context untouched",
+			headers:   nil,
+			wantValid: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := extractTraceContext(context.Background(), tc.headers)
+			sc := trace.SpanContextFromContext(ctx)
+			if sc.IsValid() != tc.wantValid {
+				t.Fatalf("extracted span context validity = %v, want %v", sc.IsValid(), tc.wantValid)
+			}
+			if !tc.wantValid {
+				return
+			}
+			if got := sc.TraceID().String(); got != testTraceID {
+				t.Errorf("trace ID = %s, want %s", got, testTraceID)
+			}
+			if got := sc.SpanID().String(); got != testSpanID {
+				t.Errorf("span ID = %s, want %s", got, testSpanID)
+			}
+		})
+	}
+}
 
 func TestHandleRequestBody(t *testing.T) {
 	ctx := logutil.NewTestLoggerIntoContext(context.Background())

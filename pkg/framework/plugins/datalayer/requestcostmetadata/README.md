@@ -50,6 +50,13 @@ Example inference response (OpenAI):
 | --- | --- | --- | --- |
 | `compression` | float | 200.0 | T-digest compression factor; higher values trade memory for accuracy. Must be > 0. |
 | `flushIntervalDuration` | string | `"5s"` | Aggregation window before publishing a cost snapshot. Use `"0s"` to publish on every event. |
+| `windowDuration` | string | `"2h"` | Epoch length. At each window boundary the per-model t-digest is `Reset()` so that published snapshots reflect only the current epoch. Use `"0s"` to disable windowing (monotonic growth). |
+
+### Interaction with CostGuard
+
+This extractor is the data producer for the [`costguard`](../../modelselector/scorer/costguard/README.md) scorer, which reads the published `CostDigest` snapshot to rank models. Because CostGuard scores off the current-epoch distribution, `windowDuration` here controls CostGuard's adaptation window: shorter values sharpen sensitivity to recent price/latency shifts at the cost of noisier tails; longer values smooth the distribution but adapt slowly. Set `windowDuration: "0s"` here to disable windowing entirely.
+
+Setting `windowDuration` on the CostGuard scorer's own config has no effect; the field must be set here.
 
 ## Deployment
 
