@@ -137,6 +137,13 @@ func NewProfile() *Profile {
 	return &Profile{}
 }
 
+// SkipResponseBufferingKey is a CycleState key that request-processing plugins
+// can set to true to skip response buffering for the current request. When set,
+// the framework streams response chunks directly instead of accumulating the
+// full body for ResponseProcessor plugins. Ignored when global post-processors
+// are configured (they always require the full body).
+const SkipResponseBufferingKey = "framework/skip-response-buffering"
+
 // Profile specifies a pipeline profile, a named set of request and response plugins
 type Profile struct {
 	// RequestPlugins are the request processing plugin instances executed by the request handler,

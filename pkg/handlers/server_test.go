@@ -527,3 +527,172 @@ func addRequestPlugins(p map[string]*requesthandling.Profile, plugins ...request
 func withResponsePlugins(p map[string]*requesthandling.Profile, plugins ...requesthandling.ResponseProcessor) {
 	p[testProfileName].ResponsePlugins = plugins
 }
+
+func newServerWithPostProcessors(profiles map[string]*requesthandling.Profile, postProcessors []requesthandling.ResponseProcessor) *Server {
+	return NewServer([]requesthandling.RequestProcessor{}, single.NewSingleProfilePicker(), profiles,
+		postProcessors, []requesthandling.ResponseHeadersProcessor{}).WithEventNotifier(noopNotifier{})
+}
+
+func TestSkipBufferingRequested(t *testing.T) {
+	tests := []struct {
+		name           string
+		skipKey        bool
+		postProcessors []requesthandling.ResponseProcessor
+		want           bool
+	}{
+		{
+			name:    "skip key set, no post-processors",
+			skipKey: true,
+			want:    true,
+		},
+		{
+			name:    "skip key not set",
+			skipKey: false,
+			want:    false,
+		},
+		{
+			name:           "skip key set but post-processors present",
+			skipKey:        true,
+			postProcessors: []requesthandling.ResponseProcessor{&fakeResponsePlugin{}},
+			want:           false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			profiles := newTestProfiles()
+			profiles[testProfileName].NeedsResponseBuffering = true
+
+			var srv *Server
+			if len(tc.postProcessors) > 0 {
+				srv = newServerWithPostProcessors(profiles, tc.postProcessors)
+			} else {
+				srv = newServerForTest(profiles)
+			}
+
+			reqCtx := &RequestContext{
+				Profile:    profiles[testProfileName],
+				CycleState: plugin.NewCycleState(),
+				Request:    requesthandling.NewInferenceRequest(),
+				Response:   requesthandling.NewInferenceResponse(),
+			}
+
+			if tc.skipKey {
+				reqCtx.CycleState.Write(requesthandling.SkipResponseBufferingKey, true)
+			}
+
+			got := srv.skipBufferingRequested(reqCtx)
+			if got != tc.want {
+				t.Errorf("skipBufferingRequested() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestProcess_SkipBufferingStreamsChunks(t *testing.T) {
+	streamCtx, cancel := context.WithCancel(logutil.NewTestLoggerIntoContext(context.Background()))
+	profiles := newTestProfiles()
+	profiles[testProfileName].NeedsResponseBuffering = true
+
+	preProc := &skipBufferingPreProcessor{}
+	srv := NewServer(
+		[]requesthandling.RequestProcessor{preProc},
+		single.NewSingleProfilePicker(),
+		profiles,
+		[]requesthandling.ResponseProcessor{},
+		[]requesthandling.ResponseHeadersProcessor{},
+	).WithEventNotifier(noopNotifier{})
+
+	testListener, errChan := utils.SetupTestStreamingServer(t, streamCtx, srv)
+	process, conn := utils.GetStreamingServerClient(streamCtx, t)
+	defer conn.Close()
+	defer func() {
+		cancel()
+		<-errChan
+		testListener.Close()
+	}()
+
+	if err := process.Send(&extProcPb.ProcessingRequest{
+		Request: &extProcPb.ProcessingRequest_RequestHeaders{},
+	}); err != nil {
+		t.Fatalf("send request headers: %v", err)
+	}
+
+	if err := process.Send(&extProcPb.ProcessingRequest{
+		Request: &extProcPb.ProcessingRequest_RequestBody{
+			RequestBody: &extProcPb.HttpBody{
+				Body:        []byte(`{"model":"testing"}`),
+				EndOfStream: true,
+			},
+		},
+	}); err != nil {
+		t.Fatalf("send request body: %v", err)
+	}
+
+	for _, phase := range []string{"request headers", "request body"} {
+		msg, err := process.Recv()
+		if err != nil {
+			t.Fatalf("recv %s response: %v", phase, err)
+		}
+		if msg.GetImmediateResponse() != nil {
+			t.Fatalf("unexpected immediate response in %s phase", phase)
+		}
+	}
+
+	if err := process.Send(&extProcPb.ProcessingRequest{
+		Request: &extProcPb.ProcessingRequest_ResponseHeaders{
+			ResponseHeaders: utils.BuildEnvoyGRPCHeaders(map[string]string{
+				":method":      "POST",
+				"content-type": "application/json",
+			}, true),
+		},
+	}); err != nil {
+		t.Fatalf("send response headers: %v", err)
+	}
+
+	chunk1 := []byte(`{"choices":[{"te`)
+	chunk2 := []byte(`xt":"Hello!"}]}`)
+
+	if err := process.Send(&extProcPb.ProcessingRequest{
+		Request: &extProcPb.ProcessingRequest_ResponseBody{
+			ResponseBody: &extProcPb.HttpBody{Body: chunk1, EndOfStream: false},
+		},
+	}); err != nil {
+		t.Fatalf("send chunk 1: %v", err)
+	}
+
+	msg, err := process.Recv()
+	if err != nil {
+		t.Fatalf("recv after chunk 1: %v", err)
+	}
+	if msg.GetResponseHeaders() == nil && msg.GetResponseBody() == nil {
+		t.Fatalf("expected response headers or body after chunk 1, got: %v", msg)
+	}
+
+	if err := process.Send(&extProcPb.ProcessingRequest{
+		Request: &extProcPb.ProcessingRequest_ResponseBody{
+			ResponseBody: &extProcPb.HttpBody{Body: chunk2, EndOfStream: true},
+		},
+	}); err != nil {
+		t.Fatalf("send chunk 2: %v", err)
+	}
+
+	msg, err = process.Recv()
+	if err != nil {
+		t.Fatalf("recv after chunk 2: %v", err)
+	}
+	if msg.GetImmediateResponse() != nil {
+		t.Fatalf("unexpected immediate response after chunk 2: %v", msg)
+	}
+}
+
+type skipBufferingPreProcessor struct{}
+
+func (s *skipBufferingPreProcessor) TypedName() plugin.TypedName {
+	return plugin.TypedName{Type: "skip-buffering", Name: "skip-buffering"}
+}
+
+func (s *skipBufferingPreProcessor) ProcessRequest(_ context.Context, cycleState *plugin.CycleState, _ *requesthandling.InferenceRequest) error {
+	cycleState.Write(requesthandling.SkipResponseBufferingKey, true)
+	return nil
+}

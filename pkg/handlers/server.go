@@ -70,6 +70,14 @@ func (s *Server) WithEventNotifier(n datasource.EventNotifier) *Server {
 	return s
 }
 
+func (s *Server) skipBufferingRequested(reqCtx *RequestContext) bool {
+	if len(s.postProcessors) > 0 {
+		return false
+	}
+	skip, err := plugin.ReadCycleStateKey[bool](reqCtx.CycleState, requesthandling.SkipResponseBufferingKey)
+	return err == nil && skip
+}
+
 // Server implements the Envoy external processing server.
 // https://www.envoyproxy.io/docs/envoy/latest/api-v3/service/ext_proc/v3/external_processor.proto
 type Server struct {
@@ -230,7 +238,7 @@ func (s *Server) Process(srv extProcPb.ExternalProcessor_ProcessServer) error {
 				reqCtx.ResponseFirstChunkTimestamp = time.Now()
 			}
 
-			if reqCtx.Profile.NeedsResponseBuffering {
+			if reqCtx.Profile.NeedsResponseBuffering && !s.skipBufferingRequested(reqCtx) {
 				responseBody = append(responseBody, v.ResponseBody.Body...)
 				if !v.ResponseBody.EndOfStream {
 					// Keep accumulating — don't send responses or record metrics yet.
