@@ -12,9 +12,10 @@ carries no prediction formula of its own.
 |---|---|
 | `Requests` | current inflight request count for the model |
 | `P10LowTTFT` | load-invariant service floor (see below) |
-| `P10TTFT`, `P25TTFT`, `P50TTFT` | 10th / 25th / 50th percentile TTFT over the short window |
-| `InflightAtP25` | average `inflight_at_dispatch` of observations in the P15–P35 band |
-| `InflightAtP50` | average `inflight_at_dispatch` of observations in the P40–P60 band |
+| `P10TTFT` | 10th percentile TTFT over the short window (floor fallback) |
+| `LowTTFT`, `HighTTFT` | TTFT at the low / high operating percentiles (default P25 / P50) — the scorer's two anchors |
+| `InflightAtLow` | average `inflight_at_dispatch` in the band around `lowPercentile` |
+| `InflightAtHigh` | average `inflight_at_dispatch` in the band around `highPercentile` |
 | `RecentN` | observation count in the capped short window |
 | `Observations` | cumulative observations that have fed the floor (gates `Floor()`) |
 | `MinRequests` | trust threshold, copied from config so the scorer needs no separate param |
@@ -62,6 +63,8 @@ pool that has already calibrated does not re-cold-start when it briefly goes idl
 | `maxObservationAge` | 3m | Time bound for the short window (P25 / P50 / P10) |
 | `maxRequests` | 100 | Cap the short window to the most recent N observations |
 | `minRequests` | 10 | Minimum observations before the floor and operating point are trusted |
+| `lowPercentile` | 25 | Low operating-anchor percentile (published as `LowTTFT` / `InflightAtLow`) |
+| `highPercentile` | 50 | High operating-anchor percentile (`HighTTFT` / `InflightAtHigh`); must satisfy `0 < low < high < 100` |
 | `windowSize` | 5000 | Ring buffer capacity (~200 KB per model) |
 | `bucketDuration` | 1m | Window for each floor-history entry's P10; keep `<= maxObservationAge` |
 | `bucketHistorySize` | 1000 | Per-bucket P10s kept for the floor; smallest/largest evicted by value when full (bounds memory, smooths the floor — not an age horizon) |

@@ -15,7 +15,7 @@ limitations under the License.
 */
 
 // Package ttftpercentile observes per-model TTFTs and publishes a TTFTPercentileMetrics snapshot
-// (the service floor P10Low, the P25/P50 operating points and their inflight anchors) to each
+// (the service floor P10Low, the low/high operating points (default P25/P50) and their inflight anchors) to each
 // model's attribute store for the ttft-aware scorer to consume.
 package ttftpercentile
 
@@ -58,6 +58,9 @@ const (
 	defaultMaxRequests = 100
 	// how much evidence before we trust a pool's operating point - the "do I trust this yet?" threshold
 	defaultMinRequests = 10
+	// the two operating-point percentiles the scorer anchors its TTFT-vs-inflight secant on
+	defaultLowPercentile  = 25
+	defaultHighPercentile = 50
 
 	// Floor (P10Low) is the P10 of a bounded history of per-bucket P10s; when the history is
 	// full, the smallest and largest entries are evicted.
@@ -74,13 +77,18 @@ type TTFTPercentileExtractorConfig struct {
 	IntervalDuration string `json:"intervalDuration,omitempty"`
 	WindowSize       int    `json:"windowSize,omitempty"`
 	// MaxObservationAge caps how far back the short window looks.
-	// Observations older than this are never used for P50 or short-window P10.
+	// Observations older than this are never used for the operating anchors or short-window P10.
 	MaxObservationAge string `json:"maxObservationAge,omitempty"`
 	// MaxRequests caps the short window to the most recent N observations regardless of age.
 	MaxRequests int `json:"maxRequests,omitempty"`
 	// MinRequests is the minimum capped-window count for the scorer to use the trusted
 	// operating point. Below this the scorer falls back to the optimistic seed (floor only).
 	MinRequests int `json:"minRequests,omitempty"`
+	// LowPercentile and HighPercentile are the two operating-point percentiles the scorer anchors
+	// its TTFT-vs-inflight secant on (published as LowTTFT / HighTTFT and InflightAtLow /
+	// InflightAtHigh). Must satisfy 0 < low < high < 100. Defaults 25 and 50.
+	LowPercentile  int `json:"lowPercentile,omitempty"`
+	HighPercentile int `json:"highPercentile,omitempty"`
 	// BucketDuration is the window over which each floor-history entry's P10 is computed.
 	// Defaults to 1m. Keep it <= maxObservationAge so the tracker retains a full bucket.
 	BucketDuration string `json:"bucketDuration,omitempty"`
@@ -93,15 +101,15 @@ type TTFTPercentileExtractorConfig struct {
 // TTFTPercentileMetrics is written to each model's attribute store every intervalDuration.
 type TTFTPercentileMetrics struct {
 	Requests       int64
-	InflightAtP25  float64 // avg inflight_at_dispatch of observations in the P15-P35 band
-	InflightAtP50  float64 // avg inflight_at_dispatch of observations in the P40-P60 band
+	InflightAtLow  float64 // avg inflight_at_dispatch in the band around lowPercentile (default P25)
+	InflightAtHigh float64 // avg inflight_at_dispatch in the band around highPercentile (default P50)
 	P10LowTTFT     float64 // P10 of the per-bucket P10 history; load-invariant floor estimate
-	P10TTFT        float64 // P10 from capped short window
-	P25TTFT        float64 // P25 from capped short window
-	P50TTFT       float64 // P50 from capped short window
-	RecentN       int     // count of observations in the capped short window
-	Observations  int64   // cumulative observations feeding the floor; gates Floor until >= MinRequests
-	MinRequests   int     // scorer threshold — copied from config so the scorer needs no separate param
+	P10TTFT        float64 // P10 from capped short window (floor fallback)
+	LowTTFT        float64 // TTFT at lowPercentile (default P25) — low operating anchor
+	HighTTFT       float64 // TTFT at highPercentile (default P50) — high operating anchor
+	RecentN        int     // count of observations in the capped short window
+	Observations   int64   // cumulative observations feeding the floor; gates Floor until >= MinRequests
+	MinRequests    int     // scorer threshold — copied from config so the scorer needs no separate param
 }
 
 func (m TTFTPercentileMetrics) Clone() datalayer.Cloneable { return m }
@@ -129,17 +137,17 @@ type modelPercentileState struct {
 	tracker       *slidingWindowTracker
 }
 
-func (s *modelPercentileState) flush(now time.Time, maxObservationAge, bucketDuration time.Duration, maxRequests, bucketHistorySize int) {
-	// Short window (value-sorted, capped): one snapshot feeds P10, P50 and inflightAtP50.
-	// Recomputed every interval to keep the operating point fresh.
+func (s *modelPercentileState) flush(now time.Time, maxObservationAge, bucketDuration time.Duration, maxRequests, bucketHistorySize int, lowPct, highPct float64) {
+	// Short window (value-sorted, capped): one snapshot feeds the floor fallback P10 and the two
+	// operating anchors (low/high percentiles). Recomputed every interval to stay fresh.
 	short := s.tracker.window(now, maxObservationAge, maxRequests)
 	s.RecentN = len(short)
 	if len(short) > 0 {
 		s.P10TTFT = percentileOf(short, 0.10)
-		s.P25TTFT = percentileOf(short, 0.25)
-		s.P50TTFT = percentileOf(short, 0.50)
-		s.InflightAtP25 = bandInflight(short, 0.25)
-		s.InflightAtP50 = bandInflight(short, 0.50)
+		s.LowTTFT = percentileOf(short, lowPct)
+		s.HighTTFT = percentileOf(short, highPct)
+		s.InflightAtLow = bandInflight(short, lowPct)
+		s.InflightAtHigh = bandInflight(short, highPct)
 	}
 	s.intervalStart = now
 
@@ -174,6 +182,8 @@ type TTFTPercentileExtractor struct {
 	minRequests       int
 	bucketDuration    time.Duration
 	bucketHistorySize int
+	lowPercentile     float64   // operating low-anchor percentile, as a fraction (e.g. 0.25)
+	highPercentile    float64   // operating high-anchor percentile, as a fraction (e.g. 0.50)
 	lastSweep         time.Time // last stale-state eviction pass; throttles the sweep
 }
 
@@ -186,6 +196,8 @@ func ExtractorFactory(name string, parameters json.RawMessage, h plugin.Handle) 
 		MinRequests:       defaultMinRequests,
 		BucketDuration:    defaultBucketDuration.String(),
 		BucketHistorySize: defaultBucketHistorySize,
+		LowPercentile:     defaultLowPercentile,
+		HighPercentile:    defaultHighPercentile,
 	}
 	if len(parameters) > 0 {
 		if err := json.Unmarshal(parameters, &cfg); err != nil {
@@ -206,6 +218,10 @@ func ExtractorFactory(name string, parameters json.RawMessage, h plugin.Handle) 
 	}
 	if cfg.BucketHistorySize < 2 {
 		return nil, fmt.Errorf("bucketHistorySize must be >= 2 for plugin %q", name)
+	}
+	if cfg.LowPercentile <= 0 || cfg.HighPercentile >= 100 || cfg.LowPercentile >= cfg.HighPercentile {
+		return nil, fmt.Errorf("percentiles must satisfy 0 < lowPercentile (%d) < highPercentile (%d) < 100 for plugin %q",
+			cfg.LowPercentile, cfg.HighPercentile, name)
 	}
 	interval, err := time.ParseDuration(cfg.IntervalDuration)
 	if err != nil {
@@ -233,7 +249,8 @@ func ExtractorFactory(name string, parameters json.RawMessage, h plugin.Handle) 
 		WithIntervalDuration(interval).
 		WithWindow(cfg.WindowSize, maxObsAge).
 		WithRequestBounds(cfg.MaxRequests, cfg.MinRequests).
-		WithFloorBuckets(bucketDur, cfg.BucketHistorySize), nil
+		WithFloorBuckets(bucketDur, cfg.BucketHistorySize).
+		WithPercentiles(float64(cfg.LowPercentile)/100, float64(cfg.HighPercentile)/100), nil
 }
 
 func NewTTFTPercentileExtractor(ds datalayer.Datastore) *TTFTPercentileExtractor {
@@ -248,6 +265,8 @@ func NewTTFTPercentileExtractor(ds datalayer.Datastore) *TTFTPercentileExtractor
 		minRequests:       defaultMinRequests,
 		bucketDuration:    defaultBucketDuration,
 		bucketHistorySize: defaultBucketHistorySize,
+		lowPercentile:     float64(defaultLowPercentile) / 100,
+		highPercentile:    float64(defaultHighPercentile) / 100,
 	}
 }
 
@@ -270,6 +289,10 @@ func (e *TTFTPercentileExtractor) WithRequestBounds(maxN, minN int) *TTFTPercent
 }
 func (e *TTFTPercentileExtractor) WithFloorBuckets(dur time.Duration, historySize int) *TTFTPercentileExtractor {
 	e.bucketDuration, e.bucketHistorySize = dur, historySize
+	return e
+}
+func (e *TTFTPercentileExtractor) WithPercentiles(low, high float64) *TTFTPercentileExtractor {
+	e.lowPercentile, e.highPercentile = low, high
 	return e
 }
 
@@ -313,7 +336,7 @@ func (e *TTFTPercentileExtractor) Extract(ctx context.Context, events []dlsrc.Ev
 			}
 			if p.TTFT > 0 && p.CycleState != nil {
 				// Record the observation only when its inflight-at-dispatch resolves. A missing
-				// CycleState or key would default to 0, dragging inflightAtP25/P50 downward and
+				// CycleState or key would default to 0, dragging the inflight anchors downward and
 				// making the model look less loaded than it was — so skip it rather than record a 0.
 				if inflightAtDispatch, err := plugin.ReadCycleStateKey[int64](p.CycleState, inflightAtDispatchKey); err == nil {
 					ttft := p.TTFT.Seconds()
@@ -328,7 +351,7 @@ func (e *TTFTPercentileExtractor) Extract(ctx context.Context, events []dlsrc.Ev
 				}
 			}
 			if now.Sub(s.intervalStart) >= e.intervalDuration {
-				s.flush(now, e.maxObservationAge, e.bucketDuration, e.maxRequests, e.bucketHistorySize)
+				s.flush(now, e.maxObservationAge, e.bucketDuration, e.maxRequests, e.bucketHistorySize, e.lowPercentile, e.highPercentile)
 			}
 			updated[model] = true
 		}
@@ -346,9 +369,9 @@ func (e *TTFTPercentileExtractor) Extract(ctx context.Context, events []dlsrc.Ev
 			// job and is logged there; the extractor must not carry a second, divergent formula.
 			debugLogger.Info("ttft-percentile wrote attribute",
 				"model", model, "Requests", m.Requests,
-				"InflightAtP25", m.InflightAtP25, "InflightAtP50", m.InflightAtP50,
-				"P10Low_s", m.P10LowTTFT, "P10_s", m.P10TTFT, "P25_s", m.P25TTFT,
-				"P50_s", m.P50TTFT,
+				"InflightAtLow", m.InflightAtLow, "InflightAtHigh", m.InflightAtHigh,
+				"P10Low_s", m.P10LowTTFT, "P10_s", m.P10TTFT, "Low_s", m.LowTTFT,
+				"High_s", m.HighTTFT,
 				"RecentN", m.RecentN, "Observations", m.Observations, "MinRequests", m.MinRequests,
 			)
 		}

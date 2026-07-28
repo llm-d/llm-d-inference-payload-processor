@@ -321,6 +321,7 @@ it under `datalayer.extractors`.
 | `maxObservationAge` | duration | no | Age bound for the short window feeding P25 / P50 / P10 (default `3m`). |
 | `maxRequests` | int | no | Cap the short window to the newest N observations; must be `<= windowSize` (default `100`). |
 | `minRequests` | int | no | Minimum observations before the floor and operating point are trusted (default `10`). |
+| `lowPercentile` / `highPercentile` | int | no | The two operating-anchor percentiles the scorer reads (defaults `25` / `50`); must satisfy `0 < low < high < 100`. |
 | `bucketDuration` | duration | no | Window over which each floor-history entry's P10 is computed (default `1m`). |
 | `bucketHistorySize` | int | no | Per-bucket P10s kept for the floor; must be `>= 2` (default `1000`). |
 

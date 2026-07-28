@@ -49,7 +49,8 @@ func fillTracker(n int) *slidingWindowTracker {
 }
 
 // BenchmarkWindow isolates the buffer scan + value sort for the short (capped) window that
-// feeds P10/P50/inflightAtP50 and the bucket (uncapped) window whose P10 feeds the floor.
+// feeds P10 and the low/high operating anchors, and the bucket (uncapped) window whose P10 feeds
+// the floor.
 //
 //	go test -run='^$' -bench=. -benchmem -count=5 \
 //	    ./pkg/framework/plugins/datalayer/ttftpercentile/ | tee bench.out
@@ -75,8 +76,8 @@ func BenchmarkWindow(b *testing.B) {
 	}
 }
 
-// BenchmarkFlush measures the periodic percentile recompute — the short window (P10/P50/
-// inflightAtP50) plus the bucketed floor (bucket-window scan, per-bucket P10, history sort
+// BenchmarkFlush measures the periodic percentile recompute — the short window (P10 + the
+// low/high operating anchors) plus the bucketed floor (bucket-window scan, per-bucket P10, history sort
 // and min/max evict). This is the extractor's heaviest path (runs once per bucketDuration
 // per model). bucketStart is reset each iteration to force a bucket rollover so the floor
 // path runs every time; the history fills to bucketHistorySize and then holds there.
@@ -89,7 +90,7 @@ func BenchmarkFlush(b *testing.B) {
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
 				s.bucketStart = now.Add(-time.Minute) // force a bucket rollover this call
-				s.flush(now, 3*time.Minute, time.Minute, 100, 1000)
+				s.flush(now, 3*time.Minute, time.Minute, 100, 1000, 0.25, 0.50)
 			}
 		})
 	}
