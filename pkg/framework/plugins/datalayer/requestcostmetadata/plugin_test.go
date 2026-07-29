@@ -306,9 +306,9 @@ func TestExtract_MissingTokenFields(t *testing.T) {
 		{"google", "gemini", 1.25e-6, 5e-6, makeGoogleResponseEvent},
 	}
 	cases := []struct {
-		name              string
+		name               string
 		prompt, completion float64
-		omitUsage         bool
+		omitUsage          bool
 	}{
 		{"missing prompt", 0, 50, false},
 		{"missing completion", 100, 0, false},
