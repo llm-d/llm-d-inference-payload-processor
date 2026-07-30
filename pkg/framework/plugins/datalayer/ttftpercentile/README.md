@@ -6,6 +6,15 @@ publishes a small `TTFTPercentileMetrics` snapshot to the model's attribute stor
 consumes that snapshot to predict TTFT under load; this package only measures and summarises — it
 carries no prediction formula of its own.
 
+## Motivation
+
+Our [TTFT-aware scorer](../../modelselector/scorer/ttftaware/README.md) routes each request to
+whichever model pool is predicted to give the best TTFT under its *current* load (e.g. offloading
+from a saturated small model to an idle larger one). To predict TTFT at an arbitrary load, it
+interpolates between a handful of anchor points: an estimated load-invariant floor, plus TTFT/inflight
+pairs at two operating percentiles. This extractor exists to measure and publish exactly those anchor
+points, so measurement and prediction stay in separate packages.
+
 ## Published metrics
 
 | Field | Meaning |
