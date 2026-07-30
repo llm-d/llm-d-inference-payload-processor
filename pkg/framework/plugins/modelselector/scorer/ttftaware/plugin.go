@@ -15,8 +15,9 @@ limitations under the License.
 */
 
 // Package ttftaware routes each request to the model with the lowest predicted TTFT under
-// current load. Prediction is a line through (inflightAtP50, P50) and a low anchor blended
-// between the in-cloud point (inflightAtP25, P25) and the floor (0, P10Low). See README.md
+// current load. Prediction is a two-segment line: an in-cloud secant to (inflightAtP50, P50) at and
+// above the low anchor, and a segment from the floor (0, P10Low) up to the low anchor below it. The
+// low anchor blends between the in-cloud point (inflightAtP25, P25) and the floor. See README.md
 // for the equations and rationale.
 package ttftaware
 
@@ -198,20 +199,30 @@ func (s *TTFTAwareScorer) predict(m ttftpercentile.TTFTPercentileMetrics) (eff f
 	if floor == 0 {
 		return 0, false, false
 	}
-	if !(m.RecentN >= m.MinRequests && m.InflightAtP50 > 0 && m.P50TTFT > floor) {
+	if !(m.RecentN >= m.MinRequests && m.InflightAtHigh > 0 && m.HighTTFT > floor) {
 		return floor, false, true // optimistic seed at the floor
 	}
 
 	// Blend the low anchor between (iP25, P25) and (0, floor) by the anchor separation; w→1
 	// under load gives the in-cloud secant, w→0 at low load gives the floor chord.
-	w := max(0, min(1, (m.InflightAtP50-m.InflightAtP25)/s.anchorGapScale))
-	lowInflight := w * m.InflightAtP25
-	lowTTFT := w*m.P25TTFT + (1-w)*floor
+	w := max(0, min(1, (m.InflightAtHigh-m.InflightAtLow)/s.anchorGapScale))
+	lowInflight := w * m.InflightAtLow
+	lowTTFT := w*m.LowTTFT + (1-w)*floor
 
 	cur := float64(m.Requests)
-	eff = lowTTFT + (cur-lowInflight)*(m.P50TTFT-lowTTFT)/(m.InflightAtP50-lowInflight)
+	if cur < lowInflight && lowInflight > 0 {
+		// Below the low anchor, interpolate the low segment (0, floor) -> (lowInflight, lowTTFT)
+		// instead of extrapolating the steep queueing secant. The secant's slope was measured in the
+		// high-load region and, run backwards, dives below the floor within a few requests — pinning a
+		// draining-but-still-loaded pool at its idle latency. TTFT flattens toward the floor as the
+		// queue drains, so this segment tracks that.
+		eff = floor + cur*(lowTTFT-floor)/lowInflight
+	} else {
+		// At/above the low anchor: the in-cloud secant (lowInflight, lowTTFT) -> (InflightAtHigh, P50).
+		eff = lowTTFT + (cur-lowInflight)*(m.HighTTFT-lowTTFT)/(m.InflightAtHigh-lowInflight)
+	}
 	if eff < floor {
-		eff = floor
+		eff = floor // mathematically redundant now; kept as a defensive guard
 	}
 	return eff, true, true
 }

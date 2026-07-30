@@ -4,24 +4,39 @@ Routes each request to the model with the lowest predicted TTFT under current lo
 
 It consumes the per-model snapshot published by the
 [TTFT percentile extractor](../../../datalayer/ttftpercentile/README.md) — the service floor
-`P10Low`, the operating points `P25` / `P50`, and their banded inflight averages `inflightAtP25` /
-`inflightAtP50` — and turns them into a prediction and a score. See the extractor README for how
+`P10Low`, the low/high operating points `LowTTFT` / `HighTTFT`, and their banded inflight averages
+`InflightAtLow` / `InflightAtHigh` — and turns them into a prediction and a score. The two operating
+percentiles default to **P25 / P50** and are configured on the extractor (`lowPercentile` /
+`highPercentile`); this README uses P25 / P50 for the defaults. See the extractor README for how
 those inputs are measured.
 
 ## Prediction — `effectiveTTFT`
 
-The predicted TTFT for a request arriving now is a line through the high operating point
-`(inflightAtP50, P50)` and a low anchor that blends between the in-cloud point
-`(inflightAtP25, P25)` and the load-free floor `(0, P10Low)`:
+The predicted TTFT for a request arriving now is a **two-segment** piecewise line. The upper segment
+is the in-cloud secant through the low anchor and the high operating point `(inflightAtP50, P50)`; the
+low anchor itself blends between the in-cloud point `(inflightAtP25, P25)` and the load-free floor
+`(0, P10Low)`:
 
 ```
-w             = clamp((inflightAtP50 - inflightAtP25) / anchorGapScale, 0, 1)
-lowInflight   = w * inflightAtP25
-lowTTFT       = w * P25 + (1 - w) * P10Low
-effectiveTTFT = lowTTFT + (inflight - lowInflight) * (P50 - lowTTFT) / (inflightAtP50 - lowInflight)
+w           = clamp((inflightAtP50 - inflightAtP25) / anchorGapScale, 0, 1)
+lowInflight = w * inflightAtP25
+lowTTFT     = w * P25 + (1 - w) * P10Low
+
+if inflight >= lowInflight:   # upper segment: in-cloud secant (unchanged)
+    effectiveTTFT = lowTTFT + (inflight - lowInflight) * (P50 - lowTTFT) / (inflightAtP50 - lowInflight)
+else:                         # lower segment: (0, P10Low) -> (lowInflight, lowTTFT)
+    effectiveTTFT = P10Low + inflight * (lowTTFT - P10Low) / lowInflight
 ```
 
-Clamped to `>= P10Low`.
+Clamped to `>= P10Low` (now redundant, kept as a guard). The two segments meet at `lowInflight`
+(both give `lowTTFT`), and the lower one hits `P10Low` at zero load.
+
+**Why two segments:** the secant's slope is measured *between* the anchors — in the high-load region
+where TTFT is dominated by queueing, so it is steep. Extrapolating it **backwards** below the low
+anchor (when the current inflight drops below `lowInflight`) makes TTFT fall far too fast, dive below
+the floor within a few requests, and pin a draining-but-still-loaded pool at its idle prefill time —
+which then wins the route, refills, and oscillates. The lower segment instead rises from the floor at
+zero load up to the low anchor, matching how TTFT flattens toward the floor as the queue drains.
 
 ### Model states
 
