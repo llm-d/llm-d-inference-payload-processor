@@ -4,55 +4,80 @@ Routes each request to the model with the lowest predicted TTFT under current lo
 
 It consumes the per-model snapshot published by the
 [TTFT percentile extractor](../../../datalayer/ttftpercentile/README.md) — the service floor
-`P10Low`, the low/high operating points `LowTTFT` / `HighTTFT`, and their banded inflight averages
-`InflightAtLow` / `InflightAtHigh` — and turns them into a prediction and a score. The two operating
-percentiles default to **P25 / P50** and are configured on the extractor (`lowPercentile` /
-`highPercentile`); this README uses P25 / P50 for the defaults. See the extractor README for how
-those inputs are measured.
+`P10Low`, the operating points `LowTTFT` / `HighTTFT` (default P25 / P50, configured on the
+extractor) and their banded inflight averages `InflightAtLow` / `InflightAtHigh` — and turns them
+into a prediction and a score.
 
-## Prediction — `effectiveTTFT`
+## Prediction — `predictedTTFT`
 
-The predicted TTFT for a request arriving now is a **two-segment** piecewise line. The upper segment
-is the in-cloud secant through the low anchor and the high operating point `(inflightAtP50, P50)`; the
-low anchor itself blends between the in-cloud point `(inflightAtP25, P25)` and the load-free floor
-`(0, P10Low)`:
+Every pool has a latency curve: how long a new request waits as a function of how many requests are
+already in flight. We measure three points on it and interpolate.
+
+| point | coordinates | meaning |
+|---|---|---|
+| **A** | `(0, P10Low)` | queue-free service time |
+| **B** | `(InflightAtLow, LowTTFT)` | low operating point (default P25) |
+| **C** | `(InflightAtHigh, HighTTFT)` | high operating point (default P50) |
+
+**A** and **C** always define the curve. **B** is inserted between them only when
+[admissible](#when-the-low-point-is-used), splitting it into two segments. Any single prediction
+reads one segment, so it uses two of the three points. Every point is something the extractor observed.
 
 ```
-w           = clamp((inflightAtP50 - inflightAtP25) / anchorGapScale, 0, 1)
-lowInflight = w * inflightAtP25
-lowTTFT     = w * P25 + (1 - w) * P10Low
-
-if inflight >= lowInflight:   # upper segment: in-cloud secant (unchanged)
-    effectiveTTFT = lowTTFT + (inflight - lowInflight) * (P50 - lowTTFT) / (inflightAtP50 - lowInflight)
-else:                         # lower segment: (0, P10Low) -> (lowInflight, lowTTFT)
-    effectiveTTFT = P10Low + inflight * (lowTTFT - P10Low) / lowInflight
+if B admissible:
+    if inflight < InflightAtLow:                 # segment A->B
+        predictedTTFT = P10Low + inflight * (LowTTFT - P10Low) / InflightAtLow
+    else:                                        # segment B->C, extended past C
+        predictedTTFT = LowTTFT + (inflight - InflightAtLow) *
+                        (HighTTFT - LowTTFT) / (InflightAtHigh - InflightAtLow)
+else:                                            # segment A->C, extended past C
+    predictedTTFT = P10Low + inflight * (HighTTFT - P10Low) / InflightAtHigh
 ```
 
-Clamped to `>= P10Low` (now redundant, kept as a guard). The two segments meet at `lowInflight`
-(both give `lowTTFT`), and the lower one hits `P10Low` at zero load.
+The curve is continuous (both branches give `LowTTFT` at `InflightAtLow`), equals `P10Low` at zero
+load, and is monotone non-decreasing given `P10Low < LowTTFT < HighTTFT` — which the admissibility
+checks enforce. `predictedTTFT` is clamped to `>= P10Low` as a defensive guard.
 
-**Why two segments:** the secant's slope is measured *between* the anchors — in the high-load region
-where TTFT is dominated by queueing, so it is steep. Extrapolating it **backwards** below the low
-anchor (when the current inflight drops below `lowInflight`) makes TTFT fall far too fast, dive below
-the floor within a few requests, and pin a draining-but-still-loaded pool at its idle prefill time —
-which then wins the route, refills, and oscillates. The lower segment instead rises from the floor at
-zero load up to the low anchor, matching how TTFT flattens toward the floor as the queue drains.
+**Why three points and not two.** TTFT rises *faster than linearly* with inflight as a pool
+approaches saturation. A single chord from the floor to **C** cuts across that convex curve and
+under-predicts in between; **B** lets the curve bend so the loaded segment follows the local slope
+where the pool is actually operating.
+
+**Why A→B is a segment of its own.** The B→C slope is measured where queueing dominates, so it is
+steep. Running it backwards below **B** makes TTFT cross below the floor within a handful of
+requests — a draining-but-still-loaded pool would be predicted at its idle latency and win every
+decision it appeared in. Interpolating from `(0, floor)` matches how TTFT flattens as the queue
+drains.
+
+### When the low point is used
+
+**B** is admissible only when all of these hold. They are conditions on a measured point, not
+tuning knobs:
+
+| check | condition | why |
+|---|---|---|
+| separated in load | `InflightAtHigh - InflightAtLow >= minInflightGap` | the B→C slope is `ΔTTFT / Δinflight`; if both points sit at the same load that denominator is noise and the slope is meaningless |
+| ordered in latency | `HighTTFT > LowTTFT` | TTFT must rise with the percentile. If noise inverts them the slope goes negative and the *most* loaded pool scores best, feeding a saturated pool |
+| above the floor | `LowTTFT > P10Low` | `P10Low` is a long-window statistic and `LowTTFT` a recent one, so after a drain the recent P25 can fall below it — which would tilt the A→B segment downwards |
+| positive inflight | `InflightAtLow > 0` | keeps the A→B divisor safe; the gap check alone does not imply it |
+
+When **B** is dropped the curve is the single floor chord **A → C**, which is well defined at any
+load.
+
 
 ### Model states
 
-Each candidate is in one of three states, from its published metrics:
-
-- **cold** — `Floor() == 0` (never observed, or fewer than `minRequests` observations, so the floor
-  is not yet trustworthy). No operating point; seeded optimistically at the best observed TTFT.
-- **seed** — has a floor but is not yet calibrated (`RecentN < minRequests`, or no inflight
-  operating point). Predicts at the floor.
-- **trusted** — calibrated: `RecentN >= minRequests`, `inflightAtP50 > 0`, `P50 > floor`. Uses the
-  full blended prediction above.
+- **cold** — `Floor() == 0` (never observed, or fewer than `minRequests` observations so the floor
+  is not yet trustworthy). Seeded optimistically at the best observed TTFT.
+- **seed** — has a floor but is not calibrated (`RecentN < minRequests`, or no inflight operating
+  point). Predicts at the floor.
+- **trusted** — `RecentN >= minRequests`, `InflightAtHigh > 0`, `HighTTFT > floor`. Uses the curve
+  above.
 
 ## Score
 
 ```
-score = (maxTTFT - effectiveTTFT) / (maxTTFT - minTTFT)
+score = (maxTTFT - predictedTTFT) / (maxTTFT - minTTFT)
 ```
 
 Lowest predicted TTFT scores highest. Cold models seed at `minTTFT`; if every model is cold, all
@@ -60,120 +85,35 @@ score 1.0.
 
 ### Exploration
 
-An under-observed pool can be starved: competing against a calibrated pool it may score low and
-never win the traffic it needs to calibrate, so it stays under-observed forever. `explorationRate`
-breaks that loop. Each under-observed pool is flipped **independently** per request:
+An under-observed pool can be starved: competing against a calibrated pool it may never win the
+traffic it needs to calibrate. `explorationRate` breaks that loop — each under-observed pool is
+flipped independently per request, and with probability `explorationRate` its final score is forced
+to `1.0` so the picker sends it a probe; otherwise it is suppressed to `0`, but only when a
+calibrated pool exists to take the traffic. The override applies to the **final score only**, so a
+probe never distorts the trusted pools' normalisation.
 
-- **heads** (probability `explorationRate`): that pool's final score is forced to `1.0` — the top —
-  so the picker sends it a guaranteed calibration probe.
-- **tails** (probability `1 - explorationRate`): that pool is suppressed to `0` so only calibrated
-  pools compete — but only when a calibrated pool exists to take the traffic.
-
-`explorationRate == 0` disables exploration (every request goes to the winner). The override is
-applied to the **final score only** — it never feeds the min/max normalisation, so a probe cannot
-distort the trusted pools' scores.
-
-Because each under-observed pool is flipped independently, every cold pool is probed at its own
-`explorationRate` regardless of how many others are cold — so the fraction of requests that explore
-*something* grows with the number of cold pools.
-This trades a larger exploration budget for guaranteed per-pool probe coverage.
-
-Together with the extractor's floor sample guard, this reproduces automatically what a manual warmup
-would do by hand: a brand-new pool reads as cold → receives probes → accumulates observations →
-crosses `minRequests` → competes on its true latency.
-
-## Why the blend works physically
-
-When more requests are in flight, a new request waits longer in the queue, so TTFT rises with
-inflight — and it rises *faster than linearly* as the server approaches saturation (queueing).
-
-The scorer draws a line through two points it has actually observed:
-
-- fast requests ran at lower load: `(inflightAtP25, P25)`
-- median requests at higher load: `(inflightAtP50, P50)`
-
-Because both anchors sit *inside* the observed load cloud, the line follows the **local slope** of
-that convex curve — so it does not systematically under-predict the way a single chord from a
-synthetic zero-load floor does.
-
-At low load the two anchors collapse together (every request sees similar, low inflight), so their
-slope is ill-defined. The blend weight `w` handles this smoothly: as the inflight gap shrinks,
-`w → 0` slides the low anchor down to `(0, P10Low)`, recovering the stable floor chord. There is no
-threshold and no discontinuity, and the denominator `inflightAtP50 - w*inflightAtP25` can never
-collapse. The only knob, `anchorGapScale`, is a numerical-conditioning scale (how much inflight
-separation counts as "well separated"), not a fitted parameter.
+Together with the extractor's floor sample guard this reproduces what a manual warmup would do: a
+new pool reads as cold → receives probes → crosses `minRequests` → competes on its true latency.
 
 ## Parameters
 
 | Parameter | Default | Description |
 |---|---|---|
-| `explorationRate` | 0.0 | Per-pool probability that an under-observed pool is probed on a given request (flipped independently per pool). 0 = all traffic to the trusted winner; 0.1 = each cold pool probed on ~10% of requests. |
-| `anchorGapScale` | 2.0 | Inflight separation (`inflightAtP50 - inflightAtP25`) at which the prediction fully trusts the in-cloud secant; below it the low anchor blends toward the floor chord. Must be > 0. |
+| `explorationRate` | 0.0 | Per-pool probability that an under-observed pool is probed on a given request. 0 = all traffic to the trusted winner. |
+| `minInflightGap` | 2.0 | Minimum inflight separation between the operating points for the low one to be used as an anchor. Must be > 0. |
+| `roundTTFTStep` | 0.0 | Quantize each prediction to a multiple of this many seconds before ranking (e.g. `0.01` = 10 ms). Pools landing in the same bucket tie and the picker splits them, instead of one winning on a difference too small to be meaningful. `0` = disabled. Must be >= 0. |
 
-The scorer also reads `minRequests` from the extractor's published metrics; it is configured on the
-[extractor](../../../datalayer/ttftpercentile/README.md), not here.
+`minRequests` is read from the extractor's published metrics and configured
+[there](../../../datalayer/ttftpercentile/README.md), not here.
 
-## Example configuration
-
-An end-to-end Helm values override wiring the scorer together with the TTFT extractor, the
-model-config datasource, and a picker:
+## Configuration
 
 ```yaml
-payloadProcessor:
-  customConfig:
-    plugins:
-    - type: body-field-to-header
-      parameters:
-        fieldName: model
-        headerName: X-Gateway-Model-Name
-    - type: base-model-to-header
-    - type: model-selector
-    - type: ttft-aware-scorer
-      parameters:
-        explorationRate: 0.1          # 10% of requests probe under-observed models; 0 = disabled
-        anchorGapScale: 2.0           # inflight separation at which the in-cloud secant is fully trusted
-    - type: max-score-picker
-    - type: ttft-percentile-extractor
-      parameters:
-        intervalDuration: 1s
-        windowSize: 5000
-        maxObservationAge: 3m
-        maxRequests: 100
-        minRequests: 20
-        bucketDuration: 1m
-        bucketHistorySize: 720
-    - type: model-config-datasource
-      parameters:
-        modelsPath: /config/models.json
-    profiles:
-    - name: default
-      plugins:
-        request:
-        - pluginRef: model-selector
-        - pluginRef: ttft-aware-scorer
-          weight: 1.0
-        - pluginRef: max-score-picker
-        - pluginRef: body-field-to-header
-        - pluginRef: base-model-to-header
-    datalayer:
-      extractors:
-      - pluginRef: ttft-percentile-extractor
-      datasources:
-      - pluginRef: model-config-datasource
+- type: ttft-aware-scorer
+  parameters:
+    explorationRate: 0.1
+    minInflightGap: 2.0
 ```
 
-The scorer requires the `ttft-percentile-extractor` in `datalayer.extractors`, and a model list
-(here via `model-config-datasource`) so model selection has candidates.
-
-## Possible enhancement — score-proportional picker
-
-`max-score-picker` sends 100% of traffic to the single winner, turning every small score difference
-into a full traffic flip. This causes oscillation: the best model overloads, all traffic switches to
-the other, the first model drains and wins again. `score-proportional-picker` eliminates this by
-routing probabilistically:
-
-```
-P(model i) proportional to score_i^(1/T)    # T = temperature, default 1.0
-```
-
-At T = 1.0, a model scoring 0.8 vs 0.2 receives ~80% vs 20% of requests.
+The scorer requires `ttft-percentile-extractor` in `datalayer.extractors`, a model list (e.g. via
+`model-config-datasource`) so model selection has candidates, and a picker.

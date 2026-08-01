@@ -14,11 +14,9 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Package ttftaware routes each request to the model with the lowest predicted TTFT under
-// current load. Prediction is a two-segment line: an in-cloud secant to (inflightAtP50, P50) at and
-// above the low anchor, and a segment from the floor (0, P10Low) up to the low anchor below it. The
-// low anchor blends between the in-cloud point (inflightAtP25, P25) and the floor. See README.md
-// for the equations and rationale.
+// Package ttftaware routes each request to the model with the lowest predicted TTFT under current
+// load. The prediction is a piecewise-linear curve through the model's measured points, evaluated
+// at its current inflight count. See README.md for the model, the equations and the rationale.
 package ttftaware
 
 import (
@@ -41,35 +39,39 @@ import (
 const (
 	PluginType = "ttft-aware-scorer"
 
-	defaultExplorationRate = 0.0 // off by default; set e.g. 0.1 for 10% exploration
-	defaultAnchorGapScale  = 2.0 // inflight separation at which the blend fully trusts the secant
+	defaultExplorationRate = 0.0 // disabled; 0.1 probes each under-observed model on ~10% of requests
+	defaultMinInflightGap  = 2.0 // inflight separation the operating points need to define a slope
+	defaultRoundTTFTStep   = 0.0 // disabled; e.g. 0.01 quantizes predictions to 10ms
 )
 
 var _ modelselector.Scorer = &TTFTAwareScorer{}
 
-// TTFTAwareScorerConfig holds optional parameters for the scorer plugin.
+// TTFTAwareScorerConfig holds optional parameters for the scorer plugin. See README.md.
 type TTFTAwareScorerConfig struct {
-	// ExplorationRate controls the probability of routing a request to an under-observed
-	// model (UNOBSERVED or SEED state) instead of the trusted best model. A value of 0.1
-	// means ~10% of requests probe the under-observed model, preventing a burst of traffic
-	// before the first responses return and P50 is calibrated.
-	// Range [0, 1]. Default 0 (disabled — every request goes to the winner).
+	// ExplorationRate is the per-model probability that an under-observed model is forced to the
+	// top score, so it gets the traffic it needs to calibrate. Range [0, 1]. Default 0 (disabled).
 	ExplorationRate float64 `json:"explorationRate,omitempty"`
-	// AnchorGapScale is the inflight separation at which the prediction fully trusts the in-cloud
-	// secant; below it the low anchor blends toward the floor chord. Must be > 0. Default 2.
-	AnchorGapScale float64 `json:"anchorGapScale,omitempty"`
+	// MinInflightGap is the minimum inflight separation between the two operating points for the
+	// low one to be usable as a curve anchor. Below it their slope is noise. Must be > 0.
+	MinInflightGap float64 `json:"minInflightGap,omitempty"`
+	// RoundTTFTStep quantizes each prediction to a multiple of this many seconds before ranking
+	// (e.g. 0.01 = 10ms), so models closer together than the step tie and the picker splits them
+	// instead of one winning on a difference too small to be meaningful. Must be >= 0. Default 0.
+	RoundTTFTStep float64 `json:"roundTTFTStep,omitempty"`
 }
 
 type TTFTAwareScorer struct {
 	typedName       plugin.TypedName
 	explorationRate float64
-	anchorGapScale  float64
+	minInflightGap  float64
+	roundTTFTStep   float64
 }
 
 func ScorerFactory(name string, parameters json.RawMessage, _ plugin.Handle) (plugin.Plugin, error) {
 	cfg := TTFTAwareScorerConfig{
 		ExplorationRate: defaultExplorationRate,
-		AnchorGapScale:  defaultAnchorGapScale,
+		MinInflightGap:  defaultMinInflightGap,
+		RoundTTFTStep:   defaultRoundTTFTStep,
 	}
 	if len(parameters) > 0 {
 		if err := json.Unmarshal(parameters, &cfg); err != nil {
@@ -79,20 +81,25 @@ func ScorerFactory(name string, parameters json.RawMessage, _ plugin.Handle) (pl
 	if cfg.ExplorationRate < 0 || cfg.ExplorationRate > 1 {
 		return nil, fmt.Errorf("explorationRate must be in [0, 1] for plugin %q", name)
 	}
-	if cfg.AnchorGapScale <= 0 {
-		return nil, fmt.Errorf("anchorGapScale must be > 0 for plugin %q", name)
+	if cfg.MinInflightGap <= 0 {
+		return nil, fmt.Errorf("minInflightGap must be > 0 for plugin %q", name)
+	}
+	if cfg.RoundTTFTStep < 0 {
+		return nil, fmt.Errorf("roundTTFTStep must be >= 0 for plugin %q", name)
 	}
 	return NewTTFTAwareScorer().
 		WithName(name).
 		WithExplorationRate(cfg.ExplorationRate).
-		WithAnchorGapScale(cfg.AnchorGapScale), nil
+		WithMinInflightGap(cfg.MinInflightGap).
+		WithRoundTTFTStep(cfg.RoundTTFTStep), nil
 }
 
 func NewTTFTAwareScorer() *TTFTAwareScorer {
 	return &TTFTAwareScorer{
 		typedName:       plugin.TypedName{Type: PluginType, Name: PluginType},
 		explorationRate: defaultExplorationRate,
-		anchorGapScale:  defaultAnchorGapScale,
+		minInflightGap:  defaultMinInflightGap,
+		roundTTFTStep:   defaultRoundTTFTStep,
 	}
 }
 
@@ -108,36 +115,43 @@ func (s *TTFTAwareScorer) WithExplorationRate(r float64) *TTFTAwareScorer {
 	return s
 }
 
-func (s *TTFTAwareScorer) WithAnchorGapScale(g float64) *TTFTAwareScorer {
-	s.anchorGapScale = g
+func (s *TTFTAwareScorer) WithMinInflightGap(g float64) *TTFTAwareScorer {
+	s.minInflightGap = g
+	return s
+}
+
+func (s *TTFTAwareScorer) WithRoundTTFTStep(step float64) *TTFTAwareScorer {
+	s.roundTTFTStep = step
 	return s
 }
 
 // modelEval is the scorer's per-model working state for one Score call.
 type modelEval struct {
-	eff      float64
+	pred     float64
 	trusted  bool // calibrated operating point
 	observed bool // has a service floor (not truly cold)
 }
 
-// Score ranks models by predicted TTFT: score = (maxTTFT - effectiveTTFT) / (maxTTFT - minTTFT).
-// Cold models (no floor) are seeded at the best observed TTFT; if every model is cold, all score
-// 1.0. With explorationRate > 0 each under-observed model is independently explored (forced to the
-// top) or suppressed — see the scoring loop below and README.md.
+// Score ranks models by predicted TTFT: score = (maxTTFT - predictedTTFT) / (maxTTFT - minTTFT).
+// Cold models are seeded at the best observed TTFT; if every model is cold, all score 1.0.
 func (s *TTFTAwareScorer) Score(ctx context.Context, _ *plugin.CycleState, _ *requesthandling.InferenceRequest, models []datalayer.Model) map[datalayer.Model]float64 {
 	evals := make([]modelEval, len(models))
-	minEff := math.MaxFloat64
-	maxEff := 0.0
+	minPred := math.MaxFloat64
+	maxPred := 0.0
 	anyObserved := false
 	anyTrusted := false
 
 	for i, model := range models {
-		eff, trusted, observed := s.predict(metricsFor(model))
-		evals[i] = modelEval{eff: eff, trusted: trusted, observed: observed}
+		pred, trusted, observed := s.predict(metricsFor(model))
+		if s.roundTTFTStep > 0 {
+			// Quantize before ranking so predictions closer together than the step tie.
+			pred = math.Round(pred/s.roundTTFTStep) * s.roundTTFTStep
+		}
+		evals[i] = modelEval{pred: pred, trusted: trusted, observed: observed}
 		if observed {
 			anyObserved = true
-			minEff = min(minEff, eff)
-			maxEff = max(maxEff, eff) // cold models seed to minEff, so they can never be the max
+			minPred = min(minPred, pred)
+			maxPred = max(maxPred, pred) // cold models seed to minPred, so they can never be the max
 		}
 		if trusted {
 			anyTrusted = true
@@ -146,7 +160,7 @@ func (s *TTFTAwareScorer) Score(ctx context.Context, _ *plugin.CycleState, _ *re
 
 	scores := make(map[datalayer.Model]float64, len(models))
 
-	// No model has a floor yet → nothing to rank; explore all equally.
+	// No model has a floor yet -> nothing to rank; explore all equally.
 	if !anyObserved {
 		for _, model := range models {
 			scores[model] = 1.0
@@ -154,77 +168,71 @@ func (s *TTFTAwareScorer) Score(ctx context.Context, _ *plugin.CycleState, _ *re
 		return scores
 	}
 
-	// Independent coin per under-observed model (explorationRate == 0 disables exploration). Heads
-	// forces that model to the top so the picker sends it a calibration probe; tails suppresses it to
-	// 0 so only calibrated models compete, but only when a calibrated model exists to take over. Each
-	// under-observed model is flipped independently, so the fraction of requests that explore grows
-	// with the number of under-observed models (~1-(1-rate)^k) — a larger budget in exchange for
-	// guaranteed per-model probe coverage. The override sets the final score only — eff and the
-	// min/max normalization above are untouched.
 	for i, model := range models {
 		e := &evals[i]
 		if !e.observed {
-			e.eff = minEff // seed cold models at the best observed TTFT (optimistic)
+			e.pred = minPred // seed cold models at the best observed TTFT (optimistic)
 		}
-		if maxEff == minEff {
+		if maxPred == minPred {
 			scores[model] = 1.0
 		} else {
-			scores[model] = (maxEff - e.eff) / (maxEff - minEff)
+			scores[model] = (maxPred - e.pred) / (maxPred - minPred)
 		}
+		// Independent coin per under-observed model: heads forces a calibration probe, tails
+		// suppresses it so calibrated models take the traffic. Final score only — never feeds the
+		// normalization above, so a probe cannot distort the trusted models' scores.
 		if s.explorationRate > 0 && !e.trusted {
 			if rand.Float64() < s.explorationRate {
-				scores[model] = 1.0 // explore: probe this under-observed model
+				scores[model] = 1.0
 			} else if anyTrusted {
-				scores[model] = 0 // exploit: a calibrated model takes the traffic
+				scores[model] = 0
 			}
 		}
 	}
 
 	if dl := log.FromContext(ctx).V(logutil.DEBUG); dl.Enabled() {
 		for i, model := range models {
-			e := evals[i]
 			dl.Info("ttft-aware score", "model", model.GetName(),
-				"effectiveTTFT", e.eff, "score", scores[model], "trusted", e.trusted)
+				"predictedTTFT", evals[i].pred, "score", scores[model], "trusted", evals[i].trusted)
 		}
 	}
 
 	return scores
 }
 
-// predict returns the model's effective TTFT and whether its operating point is trusted
-// (calibrated) and observed (has a floor). Cold models return (0, false, false); observed but
-// uncalibrated models seed at the floor. See README.md for the blended-secant equation.
-func (s *TTFTAwareScorer) predict(m ttftpercentile.TTFTPercentileMetrics) (eff float64, trusted, observed bool) {
+// predict returns the model's predicted TTFT at its current inflight, and whether it is trusted
+// (calibrated) and observed (has a floor). Cold -> (0, false, false); observed but uncalibrated ->
+// the floor as an optimistic seed. See README.md for the curve and the admissibility checks.
+func (s *TTFTAwareScorer) predict(m ttftpercentile.TTFTPercentileMetrics) (pred float64, trusted, observed bool) {
 	floor := m.Floor()
 	if floor == 0 {
 		return 0, false, false
 	}
 	if !(m.RecentN >= m.MinRequests && m.InflightAtHigh > 0 && m.HighTTFT > floor) {
-		return floor, false, true // optimistic seed at the floor
+		return floor, false, true
 	}
 
-	// Blend the low anchor between (iP25, P25) and (0, floor) by the anchor separation; w→1
-	// under load gives the in-cloud secant, w→0 at low load gives the floor chord.
-	w := max(0, min(1, (m.InflightAtHigh-m.InflightAtLow)/s.anchorGapScale))
-	lowInflight := w * m.InflightAtLow
-	lowTTFT := w*m.LowTTFT + (1-w)*floor
+	// The low point is admissible only if the two operating points are separated in load, ordered
+	// in latency, and above the floor — otherwise its segment slopes on noise or downwards.
+	useLow := m.InflightAtHigh-m.InflightAtLow >= s.minInflightGap &&
+		m.HighTTFT > m.LowTTFT &&
+		m.LowTTFT > floor &&
+		m.InflightAtLow > 0
 
 	cur := float64(m.Requests)
-	if cur < lowInflight && lowInflight > 0 {
-		// Below the low anchor, interpolate the low segment (0, floor) -> (lowInflight, lowTTFT)
-		// instead of extrapolating the steep queueing secant. The secant's slope was measured in the
-		// high-load region and, run backwards, dives below the floor within a few requests — pinning a
-		// draining-but-still-loaded pool at its idle latency. TTFT flattens toward the floor as the
-		// queue drains, so this segment tracks that.
-		eff = floor + cur*(lowTTFT-floor)/lowInflight
-	} else {
-		// At/above the low anchor: the in-cloud secant (lowInflight, lowTTFT) -> (InflightAtHigh, P50).
-		eff = lowTTFT + (cur-lowInflight)*(m.HighTTFT-lowTTFT)/(m.InflightAtHigh-lowInflight)
+	switch {
+	case useLow && cur < m.InflightAtLow:
+		// (0, floor) -> low point. Extending the steeper high-load slope backwards instead would
+		// predict a draining-but-loaded pool at its idle latency.
+		pred = floor + cur*(m.LowTTFT-floor)/m.InflightAtLow
+	case useLow:
+		// low -> high point, extended beyond it.
+		pred = m.LowTTFT + (cur-m.InflightAtLow)*(m.HighTTFT-m.LowTTFT)/(m.InflightAtHigh-m.InflightAtLow)
+	default:
+		// Low point inadmissible: floor chord (0, floor) -> high point, extended beyond it.
+		pred = floor + cur*(m.HighTTFT-floor)/m.InflightAtHigh
 	}
-	if eff < floor {
-		eff = floor // mathematically redundant now; kept as a defensive guard
-	}
-	return eff, true, true
+	return max(pred, floor), true, true
 }
 
 // metricsFor reads the TTFT percentile metrics an extractor published for the model.
