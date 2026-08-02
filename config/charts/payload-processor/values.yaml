@@ -36,6 +36,33 @@ payloadProcessor:
   #       request:
   #       - pluginRef: body-field-to-header
 
+  # models.json content, rendered into /config/models.json inside the pod. Consumed by the
+  # `model-config-datasource` plugin; set `modelsPath: /config/models.json` in customConfig
+  # when you use it. Left empty nothing is rendered, and that plugin fails to start because
+  # modelsPath does not exist -- so only set this when customConfig configures the plugin.
+  #
+  # Schema mirrors the plugin's config file format (see its README):
+  #   models[]                   each entry needs a non-empty `name`.
+  #     name                     required.
+  #     pricing.inputPerMillion  optional; USD per 1M input tokens; defaults to 0.
+  #     pricing.outputPerMillion optional; USD per 1M output tokens; defaults to 0.
+  #   groups[]                   optional; each entry needs a non-empty `name` + `models`.
+  #     name                     required.
+  #     models                   required; model names, which must appear in `models[]`.
+  #
+  # Example:
+  #   models:
+  #     models:
+  #       - name: facebook/opt-125m
+  #         pricing:
+  #           inputPerMillion: 0.5
+  #           outputPerMillion: 1.5
+  #       - name: facebook/opt-350m
+  #     groups:
+  #       - name: fast
+  #         models: [facebook/opt-125m, facebook/opt-350m]
+  models: {}
+
   tracing:
     enabled: false
     otelServiceName: "inference.llm-d.ai/inference-payload-processor"

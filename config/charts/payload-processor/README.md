@@ -58,6 +58,33 @@ payloadProcessor:
     - type: ...
 ```
 
+### Install with a `models.json` for `model-config-datasource`
+
+The `model-config-datasource` plugin reads a JSON file at `modelsPath` listing your models and
+their pricing and group membership. Set `payloadProcessor.models` and the chart renders that file
+into the ConfigMap it already mounts at `/config`:
+
+```yaml
+payloadProcessor:
+  customConfig:
+    plugins:
+    - type: model-config-datasource
+      parameters:
+        modelsPath: /config/models.json
+    ## ... other plugins ...
+  models:
+    models:
+    - name: my-model
+      pricing:
+        inputPerMillion: 2.5
+        outputPerMillion: 7.5
+    groups:
+    - name: fast
+      models: [my-model]
+```
+
+`pricing` and `groups` are optional; omitted pricing registers the model as free.
+
 ### Configure ext_proc Events
 
 By default, the payload processor receives all HTTP lifecycle events (request and response headers, body, trailers). If your plugins only need specific events, you can disable the others to reduce latency:
@@ -112,6 +139,7 @@ The following table list the configurable parameters of the chart.
 | `payloadProcessor.env`                    | Additional environment variables for the container. Standard Kubernetes env array format: `[{name: "KEY", value: "val"}]`. Defaults to `[]`.                                                                                                                                                     |
 | `payloadProcessor.flags`                  | map of flags which are passed through to the payload processor. Refer to [runner.go](https://github.com/llm-d/llm-d-inference-payload-processor/blob/main/cmd/payload-processor/runner/runner.go) for complete list.                                                                                                     |
 | `payloadProcessor.plugins`   | Custom ordered plugins array to set for the payload processor. Each plugin has fields: type, name and optionally json (which represents parameters of the plugin). If not specified, the payload processor will use by default the `body-field-to-header` to extract the `model` field, and `base-model-to-header` (in that order). |
+| `payloadProcessor.models`    | Content of `models.json`, rendered to `/config/models.json` for the `model-config-datasource` plugin. Holds `models` (each with a `name` and optional `pricing`) and optional `groups`. Nothing is rendered when unset. |
 | `provider.name`              | Name of the Inference Gateway implementation being used. Possible values: `istio`, `gke`. Defaults to `none`.                                                                                                                                                                                    |
 | `provider.supportedEvents.requestHeaders` | Enable Request Headers event. Defaults to `true`. |
 | `provider.supportedEvents.requestBody` | Enable Request Body event. Defaults to `true`. |
