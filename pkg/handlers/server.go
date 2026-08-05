@@ -240,8 +240,7 @@ func (s *Server) Process(srv extProcPb.ExternalProcessor_ProcessServer) error {
 				responses, err = s.HandleResponseBody(ctx, reqCtx, responseBody)
 				loggerVerbose.Info("processing response body complete")
 			} else {
-				// Accumulate so Response.Body can be parsed at EndOfStream below.
-				// HandleResponseChunk runs per chunk and cannot parse partial bodies.
+				// Accumulate  Response.Body, so that it can be parsed on EndOfStream
 				responseBody = append(responseBody, v.ResponseBody.Body...)
 				responses, err = s.HandleResponseChunk(ctx, reqCtx, v.ResponseBody.Body, v.ResponseBody.EndOfStream)
 				loggerVerbose.Info("response chunk processing complete")
@@ -253,10 +252,7 @@ func (s *Server) Process(srv extProcPb.ExternalProcessor_ProcessServer) error {
 				model, _ := reqCtx.Request.Body["model"].(string)
 				metrics.RecordRequestTTFT(model, reqCtx.ResponseFirstChunkTimestamp.Sub(reqCtx.RequestReceivedTimestamp))
 
-				// The data layer event contract expects a parsed Response.Body. The
-				// buffering branch fills it in HandleResponseBody; the streaming
-				// branch has no other place to do it. Left empty on parse failure,
-				// same as the buffering branch.
+				// The data layer event contract expects a parsed Response.Body.
 				if len(reqCtx.Response.Body) == 0 && len(responseBody) > 0 {
 					if err := json.Unmarshal(responseBody, &reqCtx.Response.Body); err != nil {
 						if sseBody := parseSSEResponseBody(responseBody); sseBody != nil {
