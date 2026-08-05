@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"strconv"
 	"testing"
+	"time"
 
 	basepb "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	extProcPb "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
@@ -421,6 +422,119 @@ func TestProcess_DuplicateEndOfStreamIgnored(t *testing.T) {
 	}
 	if msg.GetImmediateResponse() != nil {
 		t.Fatalf("response phase failed after duplicate request EoS chunk: %v", msg)
+	}
+}
+
+// captureNotifier hands the response event to the test as it is fired, so
+// assertions see Response.Body exactly as the data layer receives it.
+type captureNotifier struct {
+	events chan datasource.Event
+}
+
+func (c *captureNotifier) Notify(e datasource.Event) {
+	if e.Type == datasource.ResponseEventType {
+		c.events <- e
+	}
+}
+
+// TestProcess_ResponseBodyPopulatedAtEndOfStream covers issue #278: on the
+// streaming path the response body was never parsed, so the data layer event
+// fired with an empty Response.Body and extractors (e.g. request-cost-metadata
+// reading usage.prompt_tokens) silently dropped every streaming request.
+func TestProcess_ResponseBodyPopulatedAtEndOfStream(t *testing.T) {
+	tests := []struct {
+		name      string
+		buffering bool
+		chunks    [][]byte
+		want      map[string]any
+	}{
+		{
+			name:   "streaming JSON",
+			chunks: [][]byte{[]byte(`{"model":"m","usage":{"prompt_tokens":9,"completion_tokens":2}}`)},
+			want:   map[string]any{"prompt_tokens": float64(9), "completion_tokens": float64(2)},
+		},
+		{
+			name: "streaming SSE across chunks",
+			chunks: [][]byte{
+				[]byte("data: {\"model\":\"m\",\"choices\":[{\"delta\":{\"content\":\"hi\"}}]}\n\n"),
+				[]byte("data: {\"model\":\"m\",\"usage\":{\"prompt_tokens\":9,\"completion_tokens\":2}}\n\ndata: [DONE]\n\n"),
+			},
+			want: map[string]any{"prompt_tokens": float64(9), "completion_tokens": float64(2)},
+		},
+		{
+			name:   "streaming unparsable body",
+			chunks: [][]byte{[]byte("not a body")},
+			want:   nil,
+		},
+		{
+			name:      "buffered body is not clobbered",
+			buffering: true,
+			chunks:    [][]byte{[]byte(`{"model":"m","usage":{"prompt_tokens":9,"completion_tokens":2}}`)},
+			want:      map[string]any{"prompt_tokens": float64(9), "completion_tokens": float64(2), "mutated": true},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			streamCtx, cancel := context.WithCancel(logutil.NewTestLoggerIntoContext(context.Background()))
+			profiles := newTestProfiles()
+			if tc.buffering {
+				profiles[testProfileName].NeedsResponseBuffering = true
+				withResponsePlugins(profiles, &fakeResponsePlugin{
+					name: "usage-mutator",
+					mutateFn: func(_ context.Context, _ *plugin.CycleState, response *requesthandling.InferenceResponse) error {
+						usage, _ := response.Body["usage"].(map[string]any)
+						usage["mutated"] = true
+						return nil
+					},
+				})
+			}
+			notifier := &captureNotifier{events: make(chan datasource.Event, 1)}
+			srv := newServerForTest(profiles).WithEventNotifier(notifier)
+			testListener, errChan := utils.SetupTestStreamingServer(t, streamCtx, srv)
+			process, conn := utils.GetStreamingServerClient(streamCtx, t)
+			defer conn.Close()
+			defer func() {
+				cancel()
+				<-errChan
+				testListener.Close()
+			}()
+
+			if err := process.Send(&extProcPb.ProcessingRequest{
+				Request: &extProcPb.ProcessingRequest_RequestHeaders{},
+			}); err != nil {
+				t.Fatalf("send request headers: %v", err)
+			}
+			if err := process.Send(&extProcPb.ProcessingRequest{
+				Request: &extProcPb.ProcessingRequest_RequestBody{
+					RequestBody: &extProcPb.HttpBody{Body: []byte(`{"model":"m"}`), EndOfStream: true},
+				},
+			}); err != nil {
+				t.Fatalf("send request body: %v", err)
+			}
+			for i, chunk := range tc.chunks {
+				if err := process.Send(&extProcPb.ProcessingRequest{
+					Request: &extProcPb.ProcessingRequest_ResponseBody{
+						ResponseBody: &extProcPb.HttpBody{Body: chunk, EndOfStream: i == len(tc.chunks)-1},
+					},
+				}); err != nil {
+					t.Fatalf("send response body chunk: %v", err)
+				}
+			}
+
+			var event datasource.Event
+			select {
+			case event = <-notifier.events:
+			case <-time.After(10 * time.Second):
+				t.Fatal("no response event fired")
+			}
+
+			body := event.Payload.(datasource.ResponsePayload).Response.Body
+			usage, _ := body["usage"].(map[string]any)
+			if diff := cmp.Diff(tc.want, usage); diff != "" {
+				t.Errorf("usage in notified response body, diff(-want, +got): %v", diff)
+			}
+		})
 	}
 }
 
