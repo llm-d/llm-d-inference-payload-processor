@@ -16,7 +16,11 @@ limitations under the License.
 
 package datalayer
 
-import "testing"
+import (
+	"bytes"
+	"encoding/json"
+	"testing"
+)
 
 // Verifies non-nil model
 // Verifies name is preserved
@@ -32,5 +36,46 @@ func TestNewModel(t *testing.T) {
 	}
 	if m.GetAttributes() == nil {
 		t.Fatal("expected model attributes to be initialized")
+	}
+}
+
+// TestModel_MarshalJSON pins the load-bearing contract: a Model value
+// must serialize to a JSON object exposing its name, not {}. Regression
+// guard for the observability bug where every picker/pipeline log line
+// rendered TargetModel as {} because encoding/json cannot see unexported
+// fields.
+func TestModel_MarshalJSON(t *testing.T) {
+	m := NewModel("test-model")
+
+	b, err := json.Marshal(m)
+	if err != nil {
+		t.Fatalf("json.Marshal(model): %v", err)
+	}
+
+	const want = `{"name":"test-model"}`
+	if string(b) != want {
+		t.Fatalf("got %s, want %s", b, want)
+	}
+}
+
+// TestModel_MarshalJSON_NestedInStruct exercises the actual failure
+// mode from the field: the Model nested inside a larger struct (as it
+// appears in PipelineRunResult / ScoredModel logs). Asserts the nested
+// object is not {}.
+func TestModel_MarshalJSON_NestedInStruct(t *testing.T) {
+	wrapper := struct {
+		TargetModel Model `json:"TargetModel"`
+	}{TargetModel: NewModel("nested-model")}
+
+	b, err := json.Marshal(wrapper)
+	if err != nil {
+		t.Fatalf("json.Marshal(wrapper): %v", err)
+	}
+
+	if bytes.Contains(b, []byte(`"TargetModel":{}`)) {
+		t.Fatalf("Model rendered as {} when nested in a struct — MarshalJSON not being called; raw=%s", b)
+	}
+	if !bytes.Contains(b, []byte(`"name":"nested-model"`)) {
+		t.Fatalf("expected name %q in nested JSON, raw=%s", "nested-model", b)
 	}
 }
