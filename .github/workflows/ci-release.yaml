@@ -1,0 +1,49 @@
+name: CI - Release - Docker Container Image
+
+on:
+  push:
+    tags:
+      - 'v*'
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+  packages: write
+  security-events: write
+
+jobs:
+  set-params:
+    runs-on: ubuntu-latest
+    outputs:
+      image_name: ${{ steps.version.outputs.image_name }}
+      tag: ${{ steps.tag.outputs.tag }}
+      prerelease: ${{ steps.tag.outputs.prerelease }}
+    steps:
+      - name: Set image name
+        id: version
+        run: |
+          repo="${GITHUB_REPOSITORY##*/}"
+          echo "image_name=${repo}" >> "$GITHUB_OUTPUT"
+
+      - name: Determine tag name
+        id: tag
+        run: |
+          if [[ "${GITHUB_EVENT_NAME}" == "release" ]]; then
+            echo "tag=${GITHUB_REF##refs/tags/}" >> "$GITHUB_OUTPUT"
+          elif [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            echo "tag=${GITHUB_REF##refs/tags/}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=latest" >> "$GITHUB_OUTPUT"
+          fi
+          PRE_RELEASE=${{ github.event_name != 'release' || github.event.release.prerelease }}
+          echo "prerelease=${PRE_RELEASE}" >> "$GITHUB_OUTPUT"
+        shell: bash
+
+  build-and-push:
+    needs: set-params
+    uses: ./.github/workflows/ci-build-images.yaml
+    with:
+      image-name: ${{ needs.set-params.outputs.image_name }}
+      tag: ${{ needs.set-params.outputs.tag }}
+      prerelease: ${{ fromJSON(needs.set-params.outputs.prerelease) }}

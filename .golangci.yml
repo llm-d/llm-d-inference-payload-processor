@@ -1,0 +1,68 @@
+version: "2"
+
+run:
+  timeout: 5m
+  allow-parallel-runners: true
+
+formatters:
+  enable:
+    - goimports
+    - gofmt
+
+linters:
+  enable:
+    - bodyclose
+    - copyloopvar
+    - dupword
+    - durationcheck
+    - errcheck
+    - fatcontext
+    - ginkgolinter
+    - goconst
+    - gocritic
+    - govet
+    - ineffassign
+    - loggercheck
+    - makezero
+    - misspell
+    - nakedret
+    - perfsprint
+    - prealloc
+    - revive
+    - staticcheck
+    - unparam
+    - unused
+    - unconvert
+  exclusions:
+    presets:
+      - comments        # suppress missing comment violations on packages and exported symbols
+      - std-error-handling  # suppress unchecked errors on well-known stdlib patterns (e.g. Close())
+    rules:
+      # Package names inherited from GAIE upstream (common, types, utils, http) are intentional
+      - linters: [revive]
+        text: "avoid meaningless package names"
+      - linters: [revive]
+        text: "avoid package names that conflict with Go standard library package names"
+      # goconst and prealloc findings in tests are low-value noise
+      - linters: [goconst, prealloc]
+        path: "_test\\.go"
+  settings:
+    revive: # see https://github.com/mgechev/revive#available-rules for all options
+      rules:
+        - name: blank-imports
+        - name: context-keys-type
+        - name: dot-imports
+        - name: error-return
+        - name: error-strings
+        - name: error-naming
+        - name: package-comments
+        - name: range
+        - name: time-naming
+        - name: errorf
+
+issues:
+  # do not limit the number of issues, ensure even identical are reported
+  max-issues-per-linter: 0
+  max-same-issues: 0
+  # Note: 'new' setting is controlled via Makefile LINT_NEW_ONLY variable
+  # Set to true to only check new code, false (default) to check all code

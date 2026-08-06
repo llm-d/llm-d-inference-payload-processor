@@ -1,0 +1,20 @@
+name: 'Helm Build and Push'
+description: 'Builds, packages, and pushes the payload-processor Helm chart using Makefile rules'
+inputs:
+  extra_tag:
+    description: 'Tag for the image and chart version (e.g., v0.1.0 or branch name)'
+    required: true
+  image_repository:
+    description: 'Image repository name (e.g. llm-d-inference-payload-processor)'
+    required: false
+    default: 'llm-d-inference-payload-processor'
+runs:
+  using: 'composite'
+  steps:
+    - name: Package and Push Chart
+      shell: bash
+      env:
+        EXTRA_TAG: "${{ inputs.extra_tag }}"
+        IMAGE_REPOSITORY: "${{ inputs.image_repository }}"
+      run: |
+        make helm-push

@@ -1,0 +1,85 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 430" font-family="Arial, Helvetica, sans-serif">
+  <defs>
+    <marker id="arr" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="#000000"/>
+    </marker>
+  </defs>
+
+  <!-- White Canvas with Purple Border (llm-d branding) -->
+  <rect x="2" y="2" width="756" height="426" rx="0" fill="#ffffff" stroke="#9f659f" stroke-width="3"/>
+
+  <!-- Title -->
+  <text x="380" y="28" text-anchor="middle" font-size="13" font-weight="bold" fill="#000000">Event-Driven Notifications</text>
+
+  <!-- ═══════════════════════════════════════════════════ -->
+  <!-- ROW 1: Request Handler, Response Handler, Plugin   -->
+  <!-- ═══════════════════════════════════════════════════ -->
+
+  <!-- Request Handler -->
+  <rect x="50" y="50" width="145" height="55" rx="3" fill="#e8f4e8" stroke="#82b366" stroke-width="1.5"/>
+  <text x="122" y="73" text-anchor="middle" font-size="11" font-weight="bold" fill="#000000">Request Handler</text>
+  <text x="122" y="91" text-anchor="middle" font-size="8" fill="#666666">processes request payload</text>
+
+  <!-- Response Handler -->
+  <rect x="303" y="50" width="154" height="55" rx="3" fill="#e8f4e8" stroke="#82b366" stroke-width="1.5"/>
+  <text x="380" y="73" text-anchor="middle" font-size="11" font-weight="bold" fill="#000000">Response Handler</text>
+  <text x="380" y="91" text-anchor="middle" font-size="8" fill="#666666">processes response payload</text>
+
+  <!-- Plugin -->
+  <rect x="565" y="50" width="145" height="55" rx="3" fill="#e6e6fa" stroke="#9f659f" stroke-width="1.5"/>
+  <text x="637" y="73" text-anchor="middle" font-size="11" font-weight="bold" fill="#000000">Plugin</text>
+  <text x="637" y="91" text-anchor="middle" font-size="8" fill="#666666">custom plugin logic</text>
+
+  <!-- ═══════════════════════════════════════════════════ -->
+  <!-- ROW 2: Data Layer Processor                        -->
+  <!-- ═══════════════════════════════════════════════════ -->
+
+  <!-- Data Layer Processor -->
+  <rect x="230" y="220" width="300" height="62" rx="3" fill="#e6e6fa" stroke="#9f659f" stroke-width="2"/>
+  <text x="380" y="246" text-anchor="middle" font-size="12" font-weight="bold" fill="#000000">Data Layer Processor</text>
+  <text x="380" y="265" text-anchor="middle" font-size="8" fill="#666666">dispatches events to registered extractors</text>
+
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <!-- ARROWS: Row 1 → Data Layer Processor                          -->
+  <!-- Request Handler (bottom-right corner) → DLP (top-left area)  -->
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+
+  <!-- Request Handler → Data Layer Processor -->
+  <line x1="155" y1="105" x2="278" y2="218" stroke="#000000" stroke-width="1.5" marker-end="url(#arr)"/>
+  <!-- Label: near midpoint of diagonal, just above the line -->
+  <text x="170" y="158" text-anchor="middle" font-size="9" font-weight="bold" fill="#000000">RequestEvent</text>
+
+  <!-- Response Handler → Data Layer Processor (straight down) -->
+  <line x1="380" y1="105" x2="380" y2="218" stroke="#000000" stroke-width="1.5" marker-end="url(#arr)"/>
+  <!-- Label to the right of the vertical arrow -->
+  <text x="385" y="158" text-anchor="start" font-size="9" font-weight="bold" fill="#000000">ResponseEvent</text>
+
+  <!-- Plugin → Data Layer Processor -->
+  <line x1="605" y1="105" x2="482" y2="218" stroke="#000000" stroke-width="1.5" marker-end="url(#arr)"/>
+  <!-- Label: aligned to same vertical position as RequestEvent and ResponseEvent -->
+  <text x="595" y="158" text-anchor="middle" font-size="9" font-weight="bold" fill="#000000">Your-own Event</text>
+
+  <!-- ═══════════════════════════════════════════════════ -->
+  <!-- ROW 3: Stacked Extractors                          -->
+  <!-- ═══════════════════════════════════════════════════ -->
+
+  <!-- Arrow: Data Layer Processor → Extractor stack -->
+  <line x1="380" y1="282" x2="380" y2="334" stroke="#000000" stroke-width="1.5" marker-end="url(#arr)"/>
+  <text x="394" y="313" text-anchor="start" font-size="9" fill="#444444">Extract(ctx, events)</text>
+
+  <!-- Extractor stack: 3 staggered boxes to give depth -->
+  <!-- Extractor 1 (bottom / back-most) -->
+  <rect x="291" y="351" width="178" height="44" rx="3" fill="#fff8e1" stroke="#e0aa40" stroke-width="1"/>
+  <text x="380" y="374" text-anchor="middle" font-size="10" font-weight="bold" fill="#555555">Extractor(s)</text>
+
+  <!-- Extractor 2 (middle) -->
+  <rect x="285" y="344" width="178" height="44" rx="3" fill="#fff8e1" stroke="#e0aa40" stroke-width="1"/>
+  <text x="374" y="367" text-anchor="middle" font-size="10" font-weight="bold" fill="#444444">Extractor(s)</text>
+
+  <!-- Extractor 3 (top / front-most) -->
+  <rect x="279" y="337" width="178" height="44" rx="3" fill="#fff8e1" stroke="#e0aa40" stroke-width="1.5"/>
+  <text x="368" y="362" text-anchor="middle" font-size="10" font-weight="bold" fill="#000000">Extractor(s)</text>
+
+  <!-- Caption -->
+  <text x="380" y="415" text-anchor="middle" font-size="9" fill="#888888">IPP request/response handlers and plugins emit events; the Data Layer Processor fans them out to all registered extractors</text>
+</svg>

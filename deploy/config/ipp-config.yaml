@@ -1,0 +1,14 @@
+# Sample IPP configuration file
+#
+apiVersion: llm-d.ai/v1alpha1
+kind: PayloadProcessorConfig
+plugins:
+- type: body-field-to-header
+  parameters:
+    fieldName: model
+    headerName: X-Gateway-Model-Name
+profiles:
+- name: default
+  plugins:
+    request:
+    - pluginRef: body-field-to-header

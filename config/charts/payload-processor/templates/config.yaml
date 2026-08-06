@@ -1,0 +1,61 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.payloadProcessor.name }}
+  namespace: {{ .Release.Namespace }}
+data:
+  default-ipp-config.yaml: |
+    apiVersion: llm-d.ai/v1alpha1
+    kind: PayloadProcessorConfig
+    plugins:
+    - type: body-field-to-header
+      parameters:
+        fieldName: model
+        headerName: X-Gateway-Model-Name
+    - type: base-model-to-header
+    profiles:
+    - name: default
+      plugins:
+        request:
+        - pluginRef: body-field-to-header
+        - pluginRef: base-model-to-header
+  {{- if .Values.payloadProcessor.customConfig }}
+  custom-ipp-config.yaml: |
+    apiVersion: llm-d.ai/v1alpha1
+    kind: PayloadProcessorConfig
+    {{- .Values.payloadProcessor.customConfig | toYaml | nindent 4 }}
+  {{- end }}
+  {{- if .Values.payloadProcessor.models }}
+  {{- with .Values.payloadProcessor.models }}
+  models.json: |
+    {
+      "models": [
+        {{- range $i, $m := .models }}
+        {{- if $i }},{{ end }}
+        {
+          "name": {{ $m.name | toJson }}
+          {{- if $m.pricing }},
+          "pricing": {
+            "input_per_million":  {{ default 0 $m.pricing.inputPerMillion }},
+            "output_per_million": {{ default 0 $m.pricing.outputPerMillion }}
+          }
+          {{- end }}
+        }
+        {{- end }}
+      ]
+      {{- if .groups }},
+      "groups": [
+        {{- range $i, $g := .groups }}
+        {{- if $i }},{{ end }}
+        {
+          "name":   {{ $g.name | toJson }},
+          "models": {{ $g.models | toJson }}
+        }
+        {{- end }}
+      ]
+      {{- end }}
+    }
+  {{- end }}
+  {{- end }}
+---

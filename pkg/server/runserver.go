@@ -1,0 +1,81 @@
+/*
+Copyright 2026 The llm-d Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package server
+
+import (
+	"context"
+	"crypto/tls"
+	"fmt"
+
+	extProcPb "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
+	"github.com/go-logr/logr"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
+
+	"github.com/llm-d/llm-d-inference-payload-processor/internal/runnable"
+	tlsutil "github.com/llm-d/llm-d-inference-payload-processor/internal/tls"
+	datasource "github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/datalayer/datasource"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/requesthandling"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/handlers"
+)
+
+// ExtProcServerRunner provides methods to manage an external process server.
+type ExtProcServerRunner struct {
+	GrpcPort                      int
+	SecureServing                 bool
+	PreProcessors                 []requesthandling.RequestProcessor
+	ProfilePicker                 requesthandling.ProfilePicker
+	Profiles                      map[string]*requesthandling.Profile
+	PostProcessors                []requesthandling.ResponseProcessor
+	ResponseHeadersPostProcessors []requesthandling.ResponseHeadersProcessor
+	EventNotifier                 datasource.EventNotifier
+}
+
+func NewDefaultExtProcServerRunner(port int) *ExtProcServerRunner {
+	return &ExtProcServerRunner{
+		GrpcPort:      port,
+		SecureServing: true,
+	}
+}
+
+// AsRunnable returns a Runnable that can be used to start the ext-proc gRPC server.
+// The runnable implements LeaderElectionRunnable with leader election disabled.
+func (r *ExtProcServerRunner) AsRunnable(logger logr.Logger) manager.Runnable {
+	return runnable.NoLeaderElection(manager.RunnableFunc(func(ctx context.Context) error {
+		var srv *grpc.Server
+		if r.SecureServing {
+			cert, err := tlsutil.CreateSelfSignedTLSCertificate(logger)
+			if err != nil {
+				return fmt.Errorf("failed to create self signed certificate - %w", err)
+			}
+			creds := credentials.NewTLS(&tls.Config{
+				Certificates: []tls.Certificate{cert},
+				NextProtos:   []string{"h2"},
+			})
+			srv = grpc.NewServer(grpc.Creds(creds))
+		} else {
+			srv = grpc.NewServer()
+		}
+
+		server := handlers.NewServer(r.PreProcessors, r.ProfilePicker, r.Profiles, r.PostProcessors, r.ResponseHeadersPostProcessors).WithEventNotifier(r.EventNotifier)
+		extProcPb.RegisterExternalProcessorServer(srv, server)
+
+		// Forward to the gRPC runnable.
+		return runnable.GRPCServer("ext-proc", srv, r.GrpcPort).Start(ctx)
+	}))
+}
