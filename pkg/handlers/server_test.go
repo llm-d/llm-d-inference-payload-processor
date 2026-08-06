@@ -440,7 +440,7 @@ func (c *captureNotifier) Notify(e datasource.Event) {
 // TestProcess_ResponseBodyPopulatedAtEndOfStream covers the
 // data layer event fired with an empty Response.Body.
 // The test pins the failure mode contract and no-panic contract.
-// The buffering mode leaves Body nil on unparseable input intentionally.
+// The buffering mode leaves Body nil on unparsable input intentionally.
 // If changed in the future to Body = map[string]any{} on parse failure,
 // it will break the extractor's nil check and the test will capture this regression.
 func TestProcess_ResponseBodyPopulatedAtEndOfStream(t *testing.T) {
