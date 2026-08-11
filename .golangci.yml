@@ -46,7 +46,11 @@ linters:
       # goconst and prealloc findings in tests are low-value noise
       - linters: [goconst, prealloc]
         path: "_test\\.go"
+      - linters: [goconst, prealloc]
+        path: "^test/"
   settings:
+    goconst:
+      min-occurrences: 5
     revive: # see https://github.com/mgechev/revive#available-rules for all options
       rules:
         - name: blank-imports
