@@ -16,9 +16,13 @@ limitations under the License.
 
 package plugin
 
-// Plugin defines the interface for a plugin.
-// This interface should be embedded in all plugins across the code.
-type Plugin interface {
-	// TypedName returns the type and name tuple of this plugin instance.
-	TypedName() TypedName
-}
+import eppplugin "github.com/llm-d/llm-d-router/pkg/epp/framework/interface/plugin"
+
+// Shared types imported from the EPP framework (llm-d-router).
+// These are the canonical definitions used across llm-d routing components.
+
+type Plugin = eppplugin.Plugin
+
+type TypedName = eppplugin.TypedName
+
+type HandlePlugins = eppplugin.HandlePlugins

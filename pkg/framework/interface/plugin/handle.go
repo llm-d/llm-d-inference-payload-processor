@@ -38,21 +38,6 @@ type Handle interface {
 	HandlePlugins
 }
 
-// HandlePlugins defines a set of APIs to work with instantiated plugins
-type HandlePlugins interface {
-	// Plugin returns the named plugin instance
-	Plugin(name string) Plugin
-
-	// AddPlugin adds a plugin to the set of known plugin instances
-	AddPlugin(name string, plugin Plugin)
-
-	// GetAllPlugins returns all of the known plugins
-	GetAllPlugins() []Plugin
-
-	// GetAllPluginsWithNames returns all of the known plugins with their names
-	GetAllPluginsWithNames() map[string]Plugin
-}
-
 // payloadProcessorHandle is an implementation of the Handle interface.
 type payloadProcessorHandle struct {
 	ctx      context.Context
