@@ -171,7 +171,7 @@ func (s *CostGuardScorer) WithName(name string) *CostGuardScorer {
 // Conditional Tail Expectation (tail mean above alpha). Under-explored,
 // missing, or malformed digests yield neutralScore. Ranks map to scores via
 // a sigmoid centred at the median.
-func (s *CostGuardScorer) Score(_ context.Context, _ *plugin.CycleState, _ *requesthandling.InferenceRequest, models []datalayer.Model) map[datalayer.Model]float64 {
+func (s *CostGuardScorer) Score(_ context.Context, _ *requesthandling.InferenceRequest, models []datalayer.Model) map[datalayer.Model]float64 {
 	if len(models) == 0 {
 		return map[datalayer.Model]float64{}
 	}

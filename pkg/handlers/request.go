@@ -33,7 +33,6 @@ import (
 	errcommon "github.com/llm-d/llm-d-inference-payload-processor/pkg/common/error"
 	logutil "github.com/llm-d/llm-d-inference-payload-processor/pkg/common/observability/logging"
 	datasource "github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/datalayer/datasource"
-	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/plugin"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/requesthandling"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/metrics"
 )
@@ -93,16 +92,16 @@ func (s *Server) HandleRequestBody(ctx context.Context, reqCtx *RequestContext, 
 		return nil, errcommon.Error{Code: errcommon.BadRequest, Msg: fmt.Sprintf("failed to parse request body: %v", err)}
 	}
 
-	if err := s.runRequestPlugins(ctx, reqCtx.CycleState, reqCtx.Request, s.preProcessors); err != nil {
+	if err := s.runRequestPlugins(ctx, reqCtx.Request, s.preProcessors); err != nil {
 		return nil, err
 	}
 
 	var err error
-	reqCtx.Profile, err = s.profilePicker.Pick(ctx, reqCtx.CycleState, reqCtx.Request, s.profiles)
+	reqCtx.Profile, err = s.profilePicker.Pick(ctx, reqCtx.Request, s.profiles)
 	if err != nil {
 		return nil, errcommon.Error{Code: errcommon.Internal, Msg: fmt.Sprintf("failed to pick a profile: %v", err)}
 	}
-	if err := s.runRequestPlugins(ctx, reqCtx.CycleState, reqCtx.Request, reqCtx.Profile.RequestPlugins); err != nil {
+	if err := s.runRequestPlugins(ctx, reqCtx.Request, reqCtx.Profile.RequestPlugins); err != nil {
 		return nil, err
 	}
 
@@ -123,7 +122,7 @@ func (s *Server) HandleRequestBody(ctx context.Context, reqCtx *RequestContext, 
 	// Notify the data layer of the incoming request after headers are fully formed.
 	s.eventNotifier.Notify(datasource.Event{
 		Type:    datasource.RequestEventType,
-		Payload: datasource.RequestPayload{Request: reqCtx.Request, CycleState: reqCtx.CycleState},
+		Payload: datasource.RequestPayload{Request: reqCtx.Request},
 	})
 
 	metrics.RecordSuccessCounter()
@@ -151,7 +150,7 @@ func (s *Server) HandleRequestBody(ctx context.Context, reqCtx *RequestContext, 
 }
 
 // runRequestPlugins executes request plugins in the order they were registered.
-func (s *Server) runRequestPlugins(ctx context.Context, cycleState *plugin.CycleState, request *requesthandling.InferenceRequest,
+func (s *Server) runRequestPlugins(ctx context.Context, request *requesthandling.InferenceRequest,
 	reqPlugins []requesthandling.RequestProcessor) error {
 	logger := log.FromContext(ctx).V(logutil.DEFAULT)
 
@@ -165,7 +164,7 @@ func (s *Server) runRequestPlugins(ctx context.Context, cycleState *plugin.Cycle
 			verboseLogger.Info("Executing request plugin", "plugin", reqPlugin.TypedName())
 		}
 		before := time.Now()
-		err := reqPlugin.ProcessRequest(ctx, cycleState, request)
+		err := reqPlugin.ProcessRequest(ctx, request)
 		metrics.RecordPluginProcessingLatency(requestPluginExtensionPoint, reqPlugin.TypedName().Type, reqPlugin.TypedName().Name, time.Since(before))
 		if err != nil {
 			logger.Error(err, "Failed to execute request plugin", "plugin", reqPlugin.TypedName())

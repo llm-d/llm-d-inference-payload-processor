@@ -38,7 +38,6 @@ import (
 	errcommon "github.com/llm-d/llm-d-inference-payload-processor/pkg/common/error"
 	logutil "github.com/llm-d/llm-d-inference-payload-processor/pkg/common/observability/logging"
 	datasource "github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/datalayer/datasource"
-	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/plugin"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/requesthandling"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/metrics"
 	"github.com/llm-d/llm-d-inference-payload-processor/version"
@@ -92,7 +91,6 @@ type RequestContext struct {
 	ResponseCompleteTimestamp   time.Time
 	ResponseHeadersSent         bool
 	Profile                     *requesthandling.Profile
-	CycleState                  *plugin.CycleState
 	Request                     *requesthandling.InferenceRequest
 	Response                    *requesthandling.InferenceResponse
 }
@@ -147,10 +145,9 @@ func (s *Server) Process(srv extProcPb.ExternalProcessor_ProcessServer) error {
 	loggerVerbose.Info("Processing")
 
 	reqCtx := &RequestContext{
-		Request:    requesthandling.NewInferenceRequest(),
-		Response:   requesthandling.NewInferenceResponse(),
-		Profile:    s.emptyProfile, // request is always initialized with an empty profile to avoid nil pointer
-		CycleState: plugin.NewCycleState(),
+		Request:  requesthandling.NewInferenceRequest(),
+		Response: requesthandling.NewInferenceResponse(),
+		Profile:  s.emptyProfile, // request is always initialized with an empty profile to avoid nil pointer
 	}
 	// TODO set a max cap on these.
 	// both requestBody and responseBody accumulate without an upper bound.
@@ -265,11 +262,10 @@ func (s *Server) Process(srv extProcPb.ExternalProcessor_ProcessServer) error {
 				s.eventNotifier.Notify(datasource.Event{
 					Type: datasource.ResponseEventType,
 					Payload: datasource.ResponsePayload{
-						Request:    reqCtx.Request,
-						Response:   reqCtx.Response,
-						CycleState: reqCtx.CycleState,
-						Duration:   reqCtx.ResponseCompleteTimestamp.Sub(reqCtx.RequestReceivedTimestamp),
-						TTFT:       reqCtx.ResponseFirstChunkTimestamp.Sub(reqCtx.RequestSentTimestamp),
+						Request:  reqCtx.Request,
+						Response: reqCtx.Response,
+						Duration: reqCtx.ResponseCompleteTimestamp.Sub(reqCtx.RequestReceivedTimestamp),
+						TTFT:     reqCtx.ResponseFirstChunkTimestamp.Sub(reqCtx.RequestSentTimestamp),
 					},
 				})
 			}

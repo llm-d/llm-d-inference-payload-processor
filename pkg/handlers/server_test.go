@@ -35,7 +35,6 @@ import (
 	envoytest "github.com/llm-d/llm-d-inference-payload-processor/pkg/common/envoy/test"
 	logutil "github.com/llm-d/llm-d-inference-payload-processor/pkg/common/observability/logging"
 	datasource "github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/datalayer/datasource"
-	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/plugin"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/requesthandling"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/plugins/requesthandling/basemodelextractor"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/plugins/requesthandling/bodyfieldtoheader"
@@ -184,8 +183,7 @@ func TestHandleRequestBody(t *testing.T) {
 	addRequestPlugins(profiles, modelToHeaderPlugin, baseModelToHeaderPlugin)
 	srv := newServerForTest(profiles)
 	reqCtx := &RequestContext{
-		CycleState: plugin.NewCycleState(),
-		Request:    requesthandling.NewInferenceRequest(),
+		Request: requesthandling.NewInferenceRequest(),
 	}
 	got, err := srv.HandleRequestBody(ctx, reqCtx, b)
 	if err != nil {
@@ -484,7 +482,7 @@ func TestProcess_ResponseBodyPopulatedAtEndOfStream(t *testing.T) {
 				profiles[testProfileName].NeedsResponseBuffering = true
 				withResponsePlugins(profiles, &fakeResponsePlugin{
 					name: "usage-mutator",
-					mutateFn: func(_ context.Context, _ *plugin.CycleState, response *requesthandling.InferenceResponse) error {
+					mutateFn: func(_ context.Context, _ *requesthandling.InferenceRequest, response *requesthandling.InferenceResponse) error {
 						usage, _ := response.Body["usage"].(map[string]any)
 						usage["mutated"] = true
 						return nil

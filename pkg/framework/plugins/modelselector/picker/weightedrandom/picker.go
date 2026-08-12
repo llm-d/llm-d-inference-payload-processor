@@ -92,7 +92,7 @@ func (p *WeightedRandomPicker) TypedName() plugin.TypedName {
 
 // Pick selects the model randomly from the list of candidates, where the probability of the model to get picked is derived
 // from its weighted score.
-func (p *WeightedRandomPicker) Pick(ctx context.Context, cycleState *plugin.CycleState, scoredModels []*modelselector.ScoredModel) *modelselector.PipelineRunResult {
+func (p *WeightedRandomPicker) Pick(ctx context.Context, scoredModels []*modelselector.ScoredModel) *modelselector.PipelineRunResult {
 	debugLogger := log.FromContext(ctx).V(logutil.DEBUG)
 	debugEnabled := debugLogger.Enabled()
 
@@ -101,7 +101,7 @@ func (p *WeightedRandomPicker) Pick(ctx context.Context, cycleState *plugin.Cycl
 		if debugEnabled {
 			debugLogger.Info("All scores are zero, delegating to RandomPicker for uniform selection")
 		}
-		return p.randomPicker.Pick(ctx, cycleState, scoredModels)
+		return p.randomPicker.Pick(ctx, scoredModels)
 	}
 
 	if debugEnabled {

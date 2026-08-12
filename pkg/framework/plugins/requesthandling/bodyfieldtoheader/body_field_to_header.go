@@ -102,7 +102,7 @@ func (p *BodyFieldToHeaderPlugin) WithName(name string) *BodyFieldToHeaderPlugin
 }
 
 // ProcessRequest extracts value from a given body field and sets it as HTTP header.
-func (p *BodyFieldToHeaderPlugin) ProcessRequest(ctx context.Context, _ *plugin.CycleState, request *requesthandling.InferenceRequest) error {
+func (p *BodyFieldToHeaderPlugin) ProcessRequest(ctx context.Context, request *requesthandling.InferenceRequest) error {
 	// extract raw field value from body
 	rawFieldValue, exists := request.Body[p.fieldName]
 	if !exists {
