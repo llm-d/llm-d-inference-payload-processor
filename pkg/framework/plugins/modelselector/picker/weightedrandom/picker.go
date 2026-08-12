@@ -47,7 +47,7 @@ type weightedScoredModel struct {
 }
 
 // WeightedRandomPickerFactory defines the factory function for WeightedRandomPicker.
-func WeightedRandomPickerFactory(name string, _ json.RawMessage, _ plugin.Handle) (plugin.Plugin, error) {
+func WeightedRandomPickerFactory(name string, _ *json.Decoder, _ plugin.Handle) (plugin.Plugin, error) {
 	return NewWeightedRandomPicker().WithName(name), nil
 }
 

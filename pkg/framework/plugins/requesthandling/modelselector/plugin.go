@@ -41,7 +41,7 @@ var _ requesthandling.RequestProcessor = &ModelSelectorPlugin{}
 
 // ModelSelectorPluginFactory is the factory function for the ModelSelector RequestProcessor plugin.
 // It creates a plugin with an empty pipeline; plugins are wired in by the configuration loader.
-func ModelSelectorPluginFactory(name string, _ json.RawMessage, handle plugin.Handle) (plugin.Plugin, error) {
+func ModelSelectorPluginFactory(name string, _ *json.Decoder, handle plugin.Handle) (plugin.Plugin, error) {
 	return NewModelSelectorPlugin(ms.NewModelSelectorPipeline(), handle.Datastore()).WithName(name), nil
 }
 

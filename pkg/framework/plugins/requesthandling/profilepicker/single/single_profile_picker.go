@@ -33,7 +33,7 @@ const (
 var _ requesthandling.ProfilePicker = &SingleProfilePicker{}
 
 // SingleProfilePickerFactory defines the factory function for SingleProfilePicker.
-func SingleProfilePickerFactory(name string, _ json.RawMessage, _ plugin.Handle) (plugin.Plugin, error) {
+func SingleProfilePickerFactory(name string, _ *json.Decoder, _ plugin.Handle) (plugin.Plugin, error) {
 	return NewSingleProfilePicker().WithName(name), nil
 }
 

@@ -59,7 +59,7 @@ var _ modelselector.Filter = &ModelGroupFilter{}
 // no parameters: group membership is resolved at filter time from each candidate
 // model's modelgroups.GroupsAttributeKey attribute, populated by the
 // model-config-datasource plugin from the shared config file's "groups" list.
-func ModelGroupFilterFactory(name string, _ json.RawMessage, _ plugin.Handle) (plugin.Plugin, error) {
+func ModelGroupFilterFactory(name string, _ *json.Decoder, _ plugin.Handle) (plugin.Plugin, error) {
 	return NewModelGroupFilter().WithName(name), nil
 }
 

@@ -77,13 +77,13 @@ func TestBaseModelToHeaderPluginFactory(t *testing.T) {
 	tests := []struct {
 		name       string
 		pluginName string
-		rawParams  json.RawMessage
+		rawParams  *json.Decoder
 		wantName   string
 	}{
 		{
 			name:       "valid empty config",
 			pluginName: "my-base-model-plugin",
-			rawParams:  json.RawMessage(`{}`),
+			rawParams:  plugin.StrictDecoder(json.RawMessage(`{}`)),
 			wantName:   "my-base-model-plugin",
 		},
 		{
@@ -95,13 +95,13 @@ func TestBaseModelToHeaderPluginFactory(t *testing.T) {
 		{
 			name:       "JSON null",
 			pluginName: "my-plugin",
-			rawParams:  json.RawMessage(`null`),
+			rawParams:  plugin.StrictDecoder(json.RawMessage(`null`)),
 			wantName:   "my-plugin",
 		},
 		{
 			name:       "empty parameters",
 			pluginName: "my-plugin",
-			rawParams:  json.RawMessage(``),
+			rawParams:  nil,
 			wantName:   "my-plugin",
 		},
 	}

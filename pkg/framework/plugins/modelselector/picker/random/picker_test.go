@@ -18,10 +18,12 @@ package random
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/datalayer"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/modelselector"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/plugin"
 )
 
 func TestRandomPicker_Pick(t *testing.T) {
@@ -183,7 +185,7 @@ func TestRandomPickerFactory(t *testing.T) {
 	})
 
 	t.Run("ignores config parameter", func(t *testing.T) {
-		_, err := RandomPickerFactory("test", []byte(`{"some": "config"}`), nil)
+		_, err := RandomPickerFactory("test", plugin.StrictDecoder(json.RawMessage(`{"some": "config"}`)), nil)
 		if err != nil {
 			t.Fatalf("config should be ignored, got error: %v", err)
 		}

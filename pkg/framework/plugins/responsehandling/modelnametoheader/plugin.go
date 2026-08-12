@@ -41,10 +41,10 @@ type modelNameToHeaderConfig struct {
 }
 
 // PluginFactory creates a new ModelNameToHeaderPlugin.
-func PluginFactory(name string, rawParameters json.RawMessage, _ plugin.Handle) (plugin.Plugin, error) {
+func PluginFactory(name string, parameters *json.Decoder, _ plugin.Handle) (plugin.Plugin, error) {
 	var cfg modelNameToHeaderConfig
-	if len(rawParameters) > 0 {
-		if err := json.Unmarshal(rawParameters, &cfg); err != nil {
+	if parameters != nil {
+		if err := parameters.Decode(&cfg); err != nil {
 			return nil, fmt.Errorf("failed to parse the parameters of the '%s' plugin - %w", PluginType, err)
 		}
 	}

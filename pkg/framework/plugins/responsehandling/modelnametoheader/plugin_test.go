@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/plugin"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/requesthandling"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/plugins/requesthandling/modelselector"
 )
@@ -106,7 +107,7 @@ func TestPluginFactory_DefaultHeaderName(t *testing.T) {
 }
 
 func TestPluginFactory_CustomHeaderName(t *testing.T) {
-	params := json.RawMessage(`{"headerName": "X-Custom-Model"}`)
+	params := plugin.StrictDecoder(json.RawMessage(`{"headerName": "X-Custom-Model"}`))
 	p, err := PluginFactory("custom", params, nil)
 	if err != nil {
 		t.Fatalf("PluginFactory failed: %v", err)
@@ -134,7 +135,7 @@ func TestPluginFactory_CustomHeaderName(t *testing.T) {
 }
 
 func TestPluginFactory_InvalidConfig(t *testing.T) {
-	params := json.RawMessage(`{invalid`)
+	params := plugin.StrictDecoder(json.RawMessage(`{invalid`))
 	_, err := PluginFactory("bad", params, nil)
 	if err == nil {
 		t.Fatal("expected error for invalid JSON config, got nil")

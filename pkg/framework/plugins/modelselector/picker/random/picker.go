@@ -41,7 +41,7 @@ const (
 var _ modelselector.Picker = &RandomPicker{}
 
 // RandomPickerFactory defines the factory function for RandomPicker.
-func RandomPickerFactory(name string, _ json.RawMessage, _ plugin.Handle) (plugin.Plugin, error) {
+func RandomPickerFactory(name string, _ *json.Decoder, _ plugin.Handle) (plugin.Plugin, error) {
 	return NewRandomPicker().WithName(name), nil
 }
 

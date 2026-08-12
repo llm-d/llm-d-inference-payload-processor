@@ -27,6 +27,7 @@ import (
 
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/datalayer"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/datalayer/accumulator"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/plugin"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/requesthandling"
 )
 
@@ -286,15 +287,15 @@ func TestScore_UnderExplored(t *testing.T) {
 // with an empty JSON object; both must produce the same defaulted scorer.
 func TestFactory_DefaultConfig(t *testing.T) {
 	tests := []struct {
-		name string
-		raw  json.RawMessage
+		name   string
+		params *json.Decoder
 	}{
 		{"nil parameters", nil},
-		{"empty object", json.RawMessage(`{}`)},
+		{"empty object", plugin.StrictDecoder(json.RawMessage(`{}`))},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			p, err := ScorerFactory("test-cg", tt.raw, nil)
+			p, err := ScorerFactory("test-cg", tt.params, nil)
 			require.NoError(t, err)
 			s, ok := p.(*CostGuardScorer)
 			require.True(t, ok)
@@ -311,8 +312,8 @@ func TestFactory_DefaultConfig(t *testing.T) {
 
 // TestFactory_CustomConfig verifies that custom parameters override defaults.
 func TestFactory_CustomConfig(t *testing.T) {
-	raw := json.RawMessage(`{"epsilon":0.2,"alpha":0.9,"lambda":2.0,"percentileMarginError":0.05}`)
-	p, err := ScorerFactory("custom", raw, nil)
+	params := plugin.StrictDecoder(json.RawMessage(`{"epsilon":0.2,"alpha":0.9,"lambda":2.0,"percentileMarginError":0.05}`))
+	p, err := ScorerFactory("custom", params, nil)
 	require.NoError(t, err)
 	s := p.(*CostGuardScorer)
 	assert.Equal(t, 0.2, s.epsilon)
@@ -341,7 +342,7 @@ func TestFactory_ValidationErrors(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := ScorerFactory("bad", json.RawMessage(tt.raw), nil)
+			_, err := ScorerFactory("bad", plugin.StrictDecoder(json.RawMessage(tt.raw)), nil)
 			require.Error(t, err)
 		})
 	}
@@ -387,7 +388,7 @@ func TestFactory_AcceptedBoundaries(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			p, err := ScorerFactory("boundary", json.RawMessage(tt.raw), nil)
+			p, err := ScorerFactory("boundary", plugin.StrictDecoder(json.RawMessage(tt.raw)), nil)
 			require.NoError(t, err)
 			tt.check(t, p.(*CostGuardScorer))
 		})

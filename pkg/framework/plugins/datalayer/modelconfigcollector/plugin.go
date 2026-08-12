@@ -80,9 +80,12 @@ type ModelConfigDataSource struct {
 
 // DatasourceFactory creates a ModelConfigDataSource from the plugin handle and raw JSON config.
 // It validates that modelsPath is set and that the file exists; content parsing happens in Start.
-func DatasourceFactory(name string, rawCfg json.RawMessage, h plugin.Handle) (plugin.Plugin, error) {
+func DatasourceFactory(name string, parameters *json.Decoder, h plugin.Handle) (plugin.Plugin, error) {
+	if parameters == nil {
+		return nil, errors.New("modelsPath is required")
+	}
 	var cfg PluginConfig
-	if err := json.Unmarshal(rawCfg, &cfg); err != nil {
+	if err := parameters.Decode(&cfg); err != nil {
 		return nil, err
 	}
 	if cfg.ModelsPath == "" {

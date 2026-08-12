@@ -38,7 +38,7 @@ const (
 var _ modelselector.Picker = &MaxScorePicker{}
 
 // MaxScorePickerFactory defines the factory function for MaxScorePicker.
-func MaxScorePickerFactory(name string, _ json.RawMessage, _ plugin.Handle) (plugin.Plugin, error) {
+func MaxScorePickerFactory(name string, _ *json.Decoder, _ plugin.Handle) (plugin.Plugin, error) {
 	return NewMaxScorePicker().WithName(name), nil
 }
 

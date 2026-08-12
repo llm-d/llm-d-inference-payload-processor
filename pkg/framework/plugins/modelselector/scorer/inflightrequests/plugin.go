@@ -42,7 +42,7 @@ type InflightRequestsScorer struct {
 }
 
 // ScorerFactory is the factory function for InflightRequestsScorer.
-func ScorerFactory(name string, _ json.RawMessage, _ plugin.Handle) (plugin.Plugin, error) {
+func ScorerFactory(name string, _ *json.Decoder, _ plugin.Handle) (plugin.Plugin, error) {
 	return NewInflightRequestsScorer().WithName(name), nil
 }
 

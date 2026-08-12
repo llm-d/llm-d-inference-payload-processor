@@ -23,6 +23,7 @@ import (
 
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/datalayer"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/datalayer/pricing"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/plugin"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/requesthandling"
 )
 
@@ -31,7 +32,7 @@ func TestFactory(t *testing.T) {
 	tests := []struct {
 		name          string
 		pluginName    string
-		rawParameters json.RawMessage
+		rawParameters *json.Decoder
 		expectError   bool
 	}{
 		{
@@ -43,7 +44,7 @@ func TestFactory(t *testing.T) {
 		{
 			name:          "factory with empty parameters",
 			pluginName:    "my-scorer",
-			rawParameters: json.RawMessage(`{}`),
+			rawParameters: plugin.StrictDecoder(json.RawMessage(`{}`)),
 			expectError:   false,
 		},
 	}

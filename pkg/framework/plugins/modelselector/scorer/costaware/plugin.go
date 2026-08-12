@@ -43,7 +43,7 @@ const CostScorerType = "cost-scorer"
 var _ modelselector.Scorer = &CostScorer{}
 
 // CostScorerFactory defines the factory function for the CostScorer scorer
-func CostScorerFactory(name string, _ json.RawMessage, _ plugin.Handle) (plugin.Plugin, error) {
+func CostScorerFactory(name string, _ *json.Decoder, _ plugin.Handle) (plugin.Plugin, error) {
 	return NewCostScorer().WithName(name), nil
 }
 

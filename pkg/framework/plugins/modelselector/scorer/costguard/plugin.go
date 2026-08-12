@@ -104,15 +104,15 @@ type CostGuardScorer struct {
 }
 
 // ScorerFactory validates rawParameters into a Config and constructs a scorer.
-func ScorerFactory(name string, rawParameters json.RawMessage, _ plugin.Handle) (plugin.Plugin, error) {
+func ScorerFactory(name string, parameters *json.Decoder, _ plugin.Handle) (plugin.Plugin, error) {
 	config := Config{
 		Epsilon:               defaultEpsilon,
 		Alpha:                 defaultAlpha,
 		Lambda:                defaultLambda,
 		PercentileMarginError: defaultPercentileMarginError,
 	}
-	if len(rawParameters) > 0 {
-		if err := json.Unmarshal(rawParameters, &config); err != nil {
+	if parameters != nil {
+		if err := parameters.Decode(&config); err != nil {
 			return nil, fmt.Errorf("costguard %q: failed to parse parameters: %w", name, err)
 		}
 	}

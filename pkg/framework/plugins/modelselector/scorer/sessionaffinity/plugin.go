@@ -113,11 +113,11 @@ type SessionAffinityScorerConfig struct {
 }
 
 // ScorerFactory creates a new SessionAffinityScorer from config.
-func ScorerFactory(name string, rawParameters json.RawMessage, _ plugin.Handle) (plugin.Plugin, error) {
+func ScorerFactory(name string, parameters *json.Decoder, _ plugin.Handle) (plugin.Plugin, error) {
 	var config SessionAffinityScorerConfig
 
-	if len(rawParameters) > 0 {
-		if err := json.Unmarshal(rawParameters, &config); err != nil {
+	if parameters != nil {
+		if err := parameters.Decode(&config); err != nil {
 			return nil, fmt.Errorf("failed to parse parameters for %q plugin: %w", PluginType, err)
 		}
 	}

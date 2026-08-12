@@ -18,7 +18,6 @@ package modelselector
 
 import (
 	"context"
-	"encoding/json"
 	"slices"
 	"testing"
 
@@ -80,7 +79,7 @@ func newFakeHandle(modelNames ...string) *fakeHandle {
 // mustFactory calls ModelSelectorPluginFactory and fails the test on error.
 func mustFactory(t *testing.T, handle *fakeHandle) *ModelSelectorPlugin {
 	t.Helper()
-	plug, err := ModelSelectorPluginFactory(ModelSelectorPluginType, json.RawMessage(`{}`), handle)
+	plug, err := ModelSelectorPluginFactory(ModelSelectorPluginType, nil, handle)
 	if err != nil {
 		t.Fatalf("ModelSelectorPluginFactory failed: %v", err)
 	}

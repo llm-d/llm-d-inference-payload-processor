@@ -46,11 +46,11 @@ type BodyFieldToHeaderConfig struct {
 }
 
 // BodyFieldToHeaderPluginFactory defines the factory function for NewBodyFieldToHeaderPlugin.
-func BodyFieldToHeaderPluginFactory(name string, rawParameters json.RawMessage, _ plugin.Handle) (plugin.Plugin, error) {
+func BodyFieldToHeaderPluginFactory(name string, parameters *json.Decoder, _ plugin.Handle) (plugin.Plugin, error) {
 	var config BodyFieldToHeaderConfig
 
-	if len(rawParameters) > 0 {
-		if err := json.Unmarshal(rawParameters, &config); err != nil {
+	if parameters != nil {
+		if err := parameters.Decode(&config); err != nil {
 			return nil, fmt.Errorf("failed to parse the parameters of the '%s' plugin - %w", BodyFieldToHeaderPluginType, err)
 		}
 	}

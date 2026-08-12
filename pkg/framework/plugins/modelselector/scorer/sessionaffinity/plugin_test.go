@@ -27,6 +27,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/datalayer"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/plugin"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/requesthandling"
 )
 
@@ -60,8 +61,8 @@ func TestFactory_DefaultConfig(t *testing.T) {
 
 // Verify custom parameters override defaults.
 func TestFactory_CustomConfig(t *testing.T) {
-	raw := json.RawMessage(`{"sessionIdKey":"x-custom-id","maxSessions":500,"ttlSeconds":300}`)
-	p, err := ScorerFactory("custom", raw, nil)
+	params := plugin.StrictDecoder(json.RawMessage(`{"sessionIdKey":"x-custom-id","maxSessions":500,"ttlSeconds":300}`))
+	p, err := ScorerFactory("custom", params, nil)
 	require.NoError(t, err)
 	s := p.(*SessionAffinityScorer)
 	assert.Equal(t, "x-custom-id", s.sessionIDKey)
@@ -70,8 +71,8 @@ func TestFactory_CustomConfig(t *testing.T) {
 
 // Verify factory rejects malformed JSON.
 func TestFactory_InvalidJSON(t *testing.T) {
-	raw := json.RawMessage(`{invalid}`)
-	_, err := ScorerFactory("bad", raw, nil)
+	params := plugin.StrictDecoder(json.RawMessage(`{invalid}`))
+	_, err := ScorerFactory("bad", params, nil)
 	assert.Error(t, err)
 }
 
@@ -174,8 +175,8 @@ func TestScore_StoresSessionIDInRequestAttributes(t *testing.T) {
 
 // Session ID lookup uses the configured custom key.
 func TestScore_UsesCustomSessionIDKey(t *testing.T) {
-	raw := json.RawMessage(`{"sessionIdKey":"x-conv-id"}`)
-	p, err := ScorerFactory("custom-key", raw, nil)
+	params := plugin.StrictDecoder(json.RawMessage(`{"sessionIdKey":"x-conv-id"}`))
+	p, err := ScorerFactory("custom-key", params, nil)
 	require.NoError(t, err)
 	s := p.(*SessionAffinityScorer)
 	s.cache.Add("conv-123", "model-a")
@@ -367,8 +368,8 @@ func TestEndToEnd_OptimisticSessionID(t *testing.T) {
 
 // LRU eviction removes the least recently used entry when at capacity.
 func TestEviction_LRU_RemovesLeastRecent(t *testing.T) {
-	raw := json.RawMessage(`{"maxSessions":3}`)
-	p, err := ScorerFactory("evict-test", raw, nil)
+	params := plugin.StrictDecoder(json.RawMessage(`{"maxSessions":3}`))
+	p, err := ScorerFactory("evict-test", params, nil)
 	require.NoError(t, err)
 	s := p.(*SessionAffinityScorer)
 
@@ -394,8 +395,8 @@ func TestEviction_LRU_RemovesLeastRecent(t *testing.T) {
 
 // Get does not return entries after TTL has expired.
 func TestTTL_GetDoesNotReturnExpiredEntry(t *testing.T) {
-	raw := json.RawMessage(`{"maxSessions":100,"ttlSeconds":1}`)
-	p, err := ScorerFactory("ttl-test", raw, nil)
+	params := plugin.StrictDecoder(json.RawMessage(`{"maxSessions":100,"ttlSeconds":1}`))
+	p, err := ScorerFactory("ttl-test", params, nil)
 	require.NoError(t, err)
 	s := p.(*SessionAffinityScorer)
 
@@ -415,8 +416,8 @@ func TestTTL_GetDoesNotReturnExpiredEntry(t *testing.T) {
 
 // Cache respects maxSessions limit.
 func TestCapacity_DoesNotExceedMax(t *testing.T) {
-	raw := json.RawMessage(`{"maxSessions":10}`)
-	p, err := ScorerFactory("cap-test", raw, nil)
+	params := plugin.StrictDecoder(json.RawMessage(`{"maxSessions":10}`))
+	p, err := ScorerFactory("cap-test", params, nil)
 	require.NoError(t, err)
 	s := p.(*SessionAffinityScorer)
 
