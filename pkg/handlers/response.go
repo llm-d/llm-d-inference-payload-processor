@@ -24,6 +24,7 @@ import (
 	"strconv"
 	"time"
 
+	extprocpb "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/ext_proc/v3"
 	eppb "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
@@ -48,6 +49,19 @@ func (s *Server) HandleResponseHeaders(ctx context.Context, reqCtx *RequestConte
 	}
 
 	if !headers.GetEndOfStream() {
+		if s.canSkipResponseBody(reqCtx) {
+			log.FromContext(ctx).Info("no response body processing needed, overriding mode to NONE")
+			return []*eppb.ProcessingResponse{
+				{
+					Response: &eppb.ProcessingResponse_ResponseHeaders{
+						ResponseHeaders: buildHeadersResponse(reqCtx),
+					},
+					ModeOverride: &extprocpb.ProcessingMode{
+						ResponseBodyMode: extprocpb.ProcessingMode_NONE,
+					},
+				},
+			}, nil
+		}
 		log.FromContext(ctx).V(logutil.VERBOSE).Info("captured response headers, deferring response until body arrives...")
 		return nil, nil
 	}
@@ -59,6 +73,16 @@ func (s *Server) HandleResponseHeaders(ctx context.Context, reqCtx *RequestConte
 			},
 		},
 	}, nil
+}
+
+// canSkipResponseBody returns true when no plugin needs to process the response body.
+// When true, HandleResponseHeaders sends a mode_override to Envoy to stop delivering
+// response body chunks, eliminating ~2,000 gRPC round-trips per streaming response.
+func (s *Server) canSkipResponseBody(reqCtx *RequestContext) bool {
+	return !reqCtx.Profile.NeedsResponseBuffering &&
+		len(reqCtx.Profile.ResponsePlugins) == 0 &&
+		len(reqCtx.Profile.ResponseChunkProcessors) == 0 &&
+		len(s.postProcessors) == 0
 }
 
 // HandleResponseBody handles response bodies by executing response plugins in order.

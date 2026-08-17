@@ -24,6 +24,7 @@ import (
 	"testing"
 
 	basepb "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
+	extprocpb "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/ext_proc/v3"
 	extProcPb "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
 	"github.com/google/go-cmp/cmp"
 	"google.golang.org/protobuf/testing/protocmp"
@@ -58,6 +59,75 @@ func newTestRequestContext(profiles map[string]*requesthandling.Profile) *Reques
 		CycleState: plugin.NewCycleState(),
 		Request:    requesthandling.NewInferenceRequest(),
 		Response:   requesthandling.NewInferenceResponse(),
+	}
+}
+
+func TestHandleResponseHeaders_ModeOverrideWhenNoPlugins(t *testing.T) {
+	ctx := logutil.NewTestLoggerIntoContext(context.Background())
+
+	profiles := newTestProfiles()
+	server := newServerForTest(profiles)
+	reqCtx := newTestRequestContext(profiles)
+
+	headers := &extProcPb.HttpHeaders{
+		Headers: &basepb.HeaderMap{
+			Headers: []*basepb.HeaderValue{
+				{Key: "content-type", RawValue: []byte("application/json")},
+			},
+		},
+		EndOfStream: false,
+	}
+
+	resp, err := server.HandleResponseHeaders(ctx, reqCtx, headers)
+	if err != nil {
+		t.Fatalf("HandleResponseHeaders returned unexpected error: %v", err)
+	}
+
+	if resp == nil {
+		t.Fatal("expected mode_override response, got nil (deferred to body)")
+	}
+	if len(resp) != 1 {
+		t.Fatalf("expected 1 response, got %d", len(resp))
+	}
+
+	headerResp := resp[0].GetResponseHeaders()
+	if headerResp == nil {
+		t.Fatal("expected ResponseHeaders response")
+	}
+
+	modeOverride := resp[0].GetModeOverride()
+	if modeOverride == nil {
+		t.Fatal("expected ModeOverride to be set")
+	}
+	if modeOverride.ResponseBodyMode != extprocpb.ProcessingMode_NONE {
+		t.Errorf("expected ResponseBodyMode NONE, got %v", modeOverride.ResponseBodyMode)
+	}
+}
+
+func TestHandleResponseHeaders_NoModeOverrideWhenPluginsPresent(t *testing.T) {
+	ctx := logutil.NewTestLoggerIntoContext(context.Background())
+
+	profiles := newTestProfiles()
+	withResponsePlugins(profiles, &fakeResponsePlugin{name: "test"})
+	server := newServerForTest(profiles)
+	reqCtx := newTestRequestContext(profiles)
+
+	headers := &extProcPb.HttpHeaders{
+		Headers: &basepb.HeaderMap{
+			Headers: []*basepb.HeaderValue{
+				{Key: "content-type", RawValue: []byte("application/json")},
+			},
+		},
+		EndOfStream: false,
+	}
+
+	resp, err := server.HandleResponseHeaders(ctx, reqCtx, headers)
+	if err != nil {
+		t.Fatalf("HandleResponseHeaders returned unexpected error: %v", err)
+	}
+
+	if resp != nil {
+		t.Errorf("expected nil (deferred to body handler), got response with %d entries", len(resp))
 	}
 }
 
