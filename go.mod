@@ -25,11 +25,11 @@ require (
 	go.uber.org/zap v1.28.0
 	google.golang.org/grpc v1.83.1
 	google.golang.org/protobuf v1.36.12
-	k8s.io/api v0.35.7
-	k8s.io/apimachinery v0.35.7
-	k8s.io/client-go v0.35.7
-	k8s.io/code-generator v0.35.7
-	k8s.io/component-base v0.35.7
+	k8s.io/api v0.35.8
+	k8s.io/apimachinery v0.35.8
+	k8s.io/client-go v0.35.8
+	k8s.io/code-generator v0.35.8
+	k8s.io/component-base v0.35.8
 	sigs.k8s.io/controller-runtime v0.23.3
 	sigs.k8s.io/gateway-api-inference-extension v1.5.0
 	sigs.k8s.io/yaml v1.6.0
