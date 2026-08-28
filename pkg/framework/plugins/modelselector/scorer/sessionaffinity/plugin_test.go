@@ -61,8 +61,8 @@ func TestFactory_DefaultConfig(t *testing.T) {
 
 // Verify custom parameters override defaults.
 func TestFactory_CustomConfig(t *testing.T) {
-	raw := json.RawMessage(`{"sessionIdKey":"x-custom-id","maxSessions":500,"ttlSeconds":300}`)
-	p, err := ScorerFactory("custom", raw, nil)
+	params := plugin.StrictDecoder(json.RawMessage(`{"sessionIdKey":"x-custom-id","maxSessions":500,"ttlSeconds":300}`))
+	p, err := ScorerFactory("custom", params, nil)
 	require.NoError(t, err)
 	s := p.(*SessionAffinityScorer)
 	assert.Equal(t, "x-custom-id", s.sessionIDKey)
@@ -71,8 +71,8 @@ func TestFactory_CustomConfig(t *testing.T) {
 
 // Verify factory rejects malformed JSON.
 func TestFactory_InvalidJSON(t *testing.T) {
-	raw := json.RawMessage(`{invalid}`)
-	_, err := ScorerFactory("bad", raw, nil)
+	params := plugin.StrictDecoder(json.RawMessage(`{invalid}`))
+	_, err := ScorerFactory("bad", params, nil)
 	assert.Error(t, err)
 }
 
@@ -82,10 +82,9 @@ func TestFactory_InvalidJSON(t *testing.T) {
 func TestScore_NoSessionID_NoOpinion(t *testing.T) {
 	s := newTestScorer(t)
 	req := requesthandling.NewInferenceRequest()
-	cs := plugin.NewCycleState()
 	models := testModels("model-a", "model-b", "model-c")
 
-	scores := s.Score(context.Background(), cs, req, models)
+	scores := s.Score(context.Background(), req, models)
 
 	require.Len(t, scores, 3)
 	for _, m := range models {
@@ -99,10 +98,9 @@ func TestScore_FirstTurn_NoOpinion(t *testing.T) {
 	s := newTestScorer(t)
 	req := requesthandling.NewInferenceRequest()
 	req.Headers["x-session-id"] = "sess-new"
-	cs := plugin.NewCycleState()
 	models := testModels("model-a", "model-b")
 
-	scores := s.Score(context.Background(), cs, req, models)
+	scores := s.Score(context.Background(), req, models)
 
 	require.Len(t, scores, 2)
 	for _, m := range models {
@@ -118,10 +116,9 @@ func TestScore_FollowUpTurn_PrefersKnownModel(t *testing.T) {
 
 	req := requesthandling.NewInferenceRequest()
 	req.Headers["x-session-id"] = "sess-123"
-	cs := plugin.NewCycleState()
 	models := testModels("model-a", "model-b", "model-c")
 
-	scores := s.Score(context.Background(), cs, req, models)
+	scores := s.Score(context.Background(), req, models)
 
 	require.Len(t, scores, 3)
 	for _, m := range models {
@@ -140,10 +137,9 @@ func TestScore_KnownModelNoLongerInCandidates_NoOpinion(t *testing.T) {
 
 	req := requesthandling.NewInferenceRequest()
 	req.Headers["x-session-id"] = "sess-123"
-	cs := plugin.NewCycleState()
 	models := testModels("model-a", "model-b")
 
-	scores := s.Score(context.Background(), cs, req, models)
+	scores := s.Score(context.Background(), req, models)
 
 	require.Len(t, scores, 2)
 	for _, m := range models {
@@ -157,42 +153,39 @@ func TestScore_EmptyModels(t *testing.T) {
 	s := newTestScorer(t)
 	req := requesthandling.NewInferenceRequest()
 	req.Headers["x-session-id"] = "sess-1"
-	cs := plugin.NewCycleState()
 
-	scores := s.Score(context.Background(), cs, req, nil)
+	scores := s.Score(context.Background(), req, nil)
 
 	assert.Empty(t, scores)
 }
 
-// Session ID is stored in CycleState for the ResponseProcessor.
-func TestScore_StoresSessionIDInCycleState(t *testing.T) {
+// Session ID is stored in request attributes for the ResponseProcessor.
+func TestScore_StoresSessionIDInRequestAttributes(t *testing.T) {
 	s := newTestScorer(t)
 	req := requesthandling.NewInferenceRequest()
 	req.Headers["x-session-id"] = "my-session"
-	cs := plugin.NewCycleState()
 	models := testModels("model-a")
 
-	s.Score(context.Background(), cs, req, models)
+	s.Score(context.Background(), req, models)
 
-	val, err := plugin.ReadCycleStateKey[string](cs, cycleStateSessionIDKey)
+	val, err := requesthandling.ReadRequestAttribute[string](req, sessionIDAttributeKey)
 	require.NoError(t, err)
 	assert.Equal(t, "my-session", val)
 }
 
 // Session ID lookup uses the configured custom key.
 func TestScore_UsesCustomSessionIDKey(t *testing.T) {
-	raw := json.RawMessage(`{"sessionIdKey":"x-conv-id"}`)
-	p, err := ScorerFactory("custom-key", raw, nil)
+	params := plugin.StrictDecoder(json.RawMessage(`{"sessionIdKey":"x-conv-id"}`))
+	p, err := ScorerFactory("custom-key", params, nil)
 	require.NoError(t, err)
 	s := p.(*SessionAffinityScorer)
 	s.cache.Add("conv-123", "model-a")
 
 	req := requesthandling.NewInferenceRequest()
 	req.Headers["x-conv-id"] = "conv-123"
-	cs := plugin.NewCycleState()
 	models := testModels("model-a", "model-b")
 
-	scores := s.Score(context.Background(), cs, req, models)
+	scores := s.Score(context.Background(), req, models)
 
 	assert.Equal(t, preferredScore, scores[models[0]])
 	assert.Equal(t, noOpinionScore, scores[models[1]])
@@ -203,13 +196,13 @@ func TestScore_UsesCustomSessionIDKey(t *testing.T) {
 // Records a new session-to-model mapping on first turn.
 func TestProcessResponse_RecordsMapping(t *testing.T) {
 	s := newTestScorer(t)
-	cs := plugin.NewCycleState()
-	cs.Write(cycleStateSessionIDKey, "sess-456")
+	req := requesthandling.NewInferenceRequest()
+	req.SetAttribute(sessionIDAttributeKey, "sess-456")
 
 	resp := requesthandling.NewInferenceResponse()
 	resp.Body[responseModelField] = "model-a"
 
-	err := s.ProcessResponse(context.Background(), cs, resp)
+	err := s.ProcessResponse(context.Background(), req, resp)
 	require.NoError(t, err)
 
 	model, ok := s.cache.Get("sess-456")
@@ -217,15 +210,15 @@ func TestProcessResponse_RecordsMapping(t *testing.T) {
 	assert.Equal(t, "model-a", model)
 }
 
-// No session ID in CycleState → generates optimistic UUID and stores mapping.
+// No session ID in request attributes → generates optimistic UUID and stores mapping.
 func TestProcessResponse_NoSessionID_GeneratesOptimistic(t *testing.T) {
 	s := newTestScorer(t)
-	cs := plugin.NewCycleState()
+	req := requesthandling.NewInferenceRequest()
 
 	resp := requesthandling.NewInferenceResponse()
 	resp.Body[responseModelField] = "model-a"
 
-	err := s.ProcessResponse(context.Background(), cs, resp)
+	err := s.ProcessResponse(context.Background(), req, resp)
 	require.NoError(t, err)
 
 	assert.Equal(t, 1, s.cache.Len(), "should have stored optimistic session")
@@ -244,12 +237,12 @@ func TestProcessResponse_NoSessionID_GeneratesOptimistic(t *testing.T) {
 // No model in response body → no-op (no optimistic ID generated either).
 func TestProcessResponse_NoModelInBody_Skips(t *testing.T) {
 	s := newTestScorer(t)
-	cs := plugin.NewCycleState()
-	cs.Write(cycleStateSessionIDKey, "sess-789")
+	req := requesthandling.NewInferenceRequest()
+	req.SetAttribute(sessionIDAttributeKey, "sess-789")
 
 	resp := requesthandling.NewInferenceResponse()
 
-	err := s.ProcessResponse(context.Background(), cs, resp)
+	err := s.ProcessResponse(context.Background(), req, resp)
 	require.NoError(t, err)
 
 	assert.Equal(t, 0, s.cache.Len())
@@ -260,13 +253,13 @@ func TestProcessResponse_UpdatesExistingMapping(t *testing.T) {
 	s := newTestScorer(t)
 	s.cache.Add("sess-1", "model-old")
 
-	cs := plugin.NewCycleState()
-	cs.Write(cycleStateSessionIDKey, "sess-1")
+	req := requesthandling.NewInferenceRequest()
+	req.SetAttribute(sessionIDAttributeKey, "sess-1")
 
 	resp := requesthandling.NewInferenceResponse()
 	resp.Body[responseModelField] = "model-new"
 
-	err := s.ProcessResponse(context.Background(), cs, resp)
+	err := s.ProcessResponse(context.Background(), req, resp)
 	require.NoError(t, err)
 
 	model, ok := s.cache.Get("sess-1")
@@ -279,13 +272,13 @@ func TestProcessResponse_SameModel_NoUpdate(t *testing.T) {
 	s := newTestScorer(t)
 	s.cache.Add("sess-1", "model-a")
 
-	cs := plugin.NewCycleState()
-	cs.Write(cycleStateSessionIDKey, "sess-1")
+	req := requesthandling.NewInferenceRequest()
+	req.SetAttribute(sessionIDAttributeKey, "sess-1")
 
 	resp := requesthandling.NewInferenceResponse()
 	resp.Body[responseModelField] = "model-a"
 
-	err := s.ProcessResponse(context.Background(), cs, resp)
+	err := s.ProcessResponse(context.Background(), req, resp)
 	require.NoError(t, err)
 
 	model, ok := s.cache.Get("sess-1")
@@ -296,13 +289,13 @@ func TestProcessResponse_SameModel_NoUpdate(t *testing.T) {
 // Session ID is echoed back as a response header using the configured key.
 func TestProcessResponse_EchoesSessionID(t *testing.T) {
 	s := newTestScorer(t)
-	cs := plugin.NewCycleState()
-	cs.Write(cycleStateSessionIDKey, "sess-echo")
+	req := requesthandling.NewInferenceRequest()
+	req.SetAttribute(sessionIDAttributeKey, "sess-echo")
 
 	resp := requesthandling.NewInferenceResponse()
 	resp.Body[responseModelField] = "model-a"
 
-	err := s.ProcessResponse(context.Background(), cs, resp)
+	err := s.ProcessResponse(context.Background(), req, resp)
 	require.NoError(t, err)
 
 	assert.Equal(t, "sess-echo", resp.Headers["x-session-id"])
@@ -319,9 +312,8 @@ func TestEndToEnd_FirstTurnThenFollowUp(t *testing.T) {
 	// Turn 1: session ID present but no prior model → no opinion
 	req1 := requesthandling.NewInferenceRequest()
 	req1.Headers["x-session-id"] = "conv-abc"
-	cs1 := plugin.NewCycleState()
 
-	scores1 := s.Score(context.Background(), cs1, req1, models)
+	scores1 := s.Score(context.Background(), req1, models)
 	for _, m := range models {
 		assert.Equal(t, noOpinionScore, scores1[m])
 	}
@@ -329,15 +321,14 @@ func TestEndToEnd_FirstTurnThenFollowUp(t *testing.T) {
 	// Simulate model selection + response: model-b was picked
 	resp1 := requesthandling.NewInferenceResponse()
 	resp1.Body[responseModelField] = "model-b"
-	err := s.ProcessResponse(context.Background(), cs1, resp1)
+	err := s.ProcessResponse(context.Background(), req1, resp1)
 	require.NoError(t, err)
 
 	// Turn 2: same session → prefers model-b
 	req2 := requesthandling.NewInferenceRequest()
 	req2.Headers["x-session-id"] = "conv-abc"
-	cs2 := plugin.NewCycleState()
 
-	scores2 := s.Score(context.Background(), cs2, req2, models)
+	scores2 := s.Score(context.Background(), req2, models)
 	assert.Equal(t, noOpinionScore, scores2[models[0]]) // model-a
 	assert.Equal(t, preferredScore, scores2[models[1]]) // model-b
 }
@@ -349,9 +340,8 @@ func TestEndToEnd_OptimisticSessionID(t *testing.T) {
 
 	// Turn 1: no session ID at all
 	req1 := requesthandling.NewInferenceRequest()
-	cs1 := plugin.NewCycleState()
 
-	scores1 := s.Score(context.Background(), cs1, req1, models)
+	scores1 := s.Score(context.Background(), req1, models)
 	for _, m := range models {
 		assert.Equal(t, noOpinionScore, scores1[m])
 	}
@@ -359,7 +349,7 @@ func TestEndToEnd_OptimisticSessionID(t *testing.T) {
 	// Response generates optimistic session ID
 	resp1 := requesthandling.NewInferenceResponse()
 	resp1.Body[responseModelField] = "model-b"
-	err := s.ProcessResponse(context.Background(), cs1, resp1)
+	err := s.ProcessResponse(context.Background(), req1, resp1)
 	require.NoError(t, err)
 
 	generatedID := resp1.Headers["x-session-id"]
@@ -368,9 +358,8 @@ func TestEndToEnd_OptimisticSessionID(t *testing.T) {
 	// Turn 2: client echoes back the generated session ID → affinity kicks in
 	req2 := requesthandling.NewInferenceRequest()
 	req2.Headers["x-session-id"] = generatedID
-	cs2 := plugin.NewCycleState()
 
-	scores2 := s.Score(context.Background(), cs2, req2, models)
+	scores2 := s.Score(context.Background(), req2, models)
 	assert.Equal(t, noOpinionScore, scores2[models[0]]) // model-a
 	assert.Equal(t, preferredScore, scores2[models[1]]) // model-b
 }
@@ -379,8 +368,8 @@ func TestEndToEnd_OptimisticSessionID(t *testing.T) {
 
 // LRU eviction removes the least recently used entry when at capacity.
 func TestEviction_LRU_RemovesLeastRecent(t *testing.T) {
-	raw := json.RawMessage(`{"maxSessions":3}`)
-	p, err := ScorerFactory("evict-test", raw, nil)
+	params := plugin.StrictDecoder(json.RawMessage(`{"maxSessions":3}`))
+	p, err := ScorerFactory("evict-test", params, nil)
 	require.NoError(t, err)
 	s := p.(*SessionAffinityScorer)
 
@@ -406,8 +395,8 @@ func TestEviction_LRU_RemovesLeastRecent(t *testing.T) {
 
 // Get does not return entries after TTL has expired.
 func TestTTL_GetDoesNotReturnExpiredEntry(t *testing.T) {
-	raw := json.RawMessage(`{"maxSessions":100,"ttlSeconds":1}`)
-	p, err := ScorerFactory("ttl-test", raw, nil)
+	params := plugin.StrictDecoder(json.RawMessage(`{"maxSessions":100,"ttlSeconds":1}`))
+	p, err := ScorerFactory("ttl-test", params, nil)
 	require.NoError(t, err)
 	s := p.(*SessionAffinityScorer)
 
@@ -427,8 +416,8 @@ func TestTTL_GetDoesNotReturnExpiredEntry(t *testing.T) {
 
 // Cache respects maxSessions limit.
 func TestCapacity_DoesNotExceedMax(t *testing.T) {
-	raw := json.RawMessage(`{"maxSessions":10}`)
-	p, err := ScorerFactory("cap-test", raw, nil)
+	params := plugin.StrictDecoder(json.RawMessage(`{"maxSessions":10}`))
+	p, err := ScorerFactory("cap-test", params, nil)
 	require.NoError(t, err)
 	s := p.(*SessionAffinityScorer)
 

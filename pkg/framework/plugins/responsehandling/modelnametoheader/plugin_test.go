@@ -26,19 +26,19 @@ import (
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/plugins/requesthandling/modelselector"
 )
 
-func TestProcessResponseHeaders_SetsHeaderFromCycleState(t *testing.T) {
+func TestProcessResponseHeaders_SetsHeaderFromRequestAttribute(t *testing.T) {
 	p, err := PluginFactory("test", nil, nil)
 	if err != nil {
 		t.Fatalf("PluginFactory failed: %v", err)
 	}
 
-	cycleState := plugin.NewCycleState()
-	cycleState.Write(modelselector.SelectedModelCycleStateKey, "llama-70b")
+	request := requesthandling.NewInferenceRequest()
+	request.SetAttribute(modelselector.SelectedModelAttributeKey, "llama-70b")
 
 	response := requesthandling.NewInferenceResponse()
 
 	rhp := p.(requesthandling.ResponseHeadersProcessor)
-	if err := rhp.ProcessResponseHeaders(context.Background(), cycleState, response); err != nil {
+	if err := rhp.ProcessResponseHeaders(context.Background(), request, response); err != nil {
 		t.Fatalf("ProcessResponseHeaders failed: %v", err)
 	}
 
@@ -48,17 +48,17 @@ func TestProcessResponseHeaders_SetsHeaderFromCycleState(t *testing.T) {
 	}
 }
 
-func TestProcessResponseHeaders_NoOpWithoutCycleStateEntry(t *testing.T) {
+func TestProcessResponseHeaders_NoOpWithoutRequestAttribute(t *testing.T) {
 	p, err := PluginFactory("test", nil, nil)
 	if err != nil {
 		t.Fatalf("PluginFactory failed: %v", err)
 	}
 
-	cycleState := plugin.NewCycleState()
+	request := requesthandling.NewInferenceRequest()
 	response := requesthandling.NewInferenceResponse()
 
 	rhp := p.(requesthandling.ResponseHeadersProcessor)
-	if err := rhp.ProcessResponseHeaders(context.Background(), cycleState, response); err != nil {
+	if err := rhp.ProcessResponseHeaders(context.Background(), request, response); err != nil {
 		t.Fatalf("ProcessResponseHeaders failed: %v", err)
 	}
 
@@ -67,21 +67,24 @@ func TestProcessResponseHeaders_NoOpWithoutCycleStateEntry(t *testing.T) {
 	}
 }
 
-func TestProcessResponseHeaders_ReturnsErrorOnUnexpectedType(t *testing.T) {
+func TestProcessResponseHeaders_NoOpOnWrongType(t *testing.T) {
 	p, err := PluginFactory("test", nil, nil)
 	if err != nil {
 		t.Fatalf("PluginFactory failed: %v", err)
 	}
 
-	cycleState := plugin.NewCycleState()
-	cycleState.Write(modelselector.SelectedModelCycleStateKey, 12345) // wrong type
+	request := requesthandling.NewInferenceRequest()
+	request.SetAttribute(modelselector.SelectedModelAttributeKey, 12345) // wrong type
 
 	response := requesthandling.NewInferenceResponse()
 
 	rhp := p.(requesthandling.ResponseHeadersProcessor)
-	err = rhp.ProcessResponseHeaders(context.Background(), cycleState, response)
-	if err == nil {
-		t.Fatal("expected error for wrong-typed CycleState value, got nil")
+	if err := rhp.ProcessResponseHeaders(context.Background(), request, response); err != nil {
+		t.Fatalf("ProcessResponseHeaders should not error on wrong type: %v", err)
+	}
+
+	if len(response.MutatedHeaders()) != 0 {
+		t.Errorf("expected no mutated headers for wrong type, got %v", response.MutatedHeaders())
 	}
 }
 
@@ -104,7 +107,7 @@ func TestPluginFactory_DefaultHeaderName(t *testing.T) {
 }
 
 func TestPluginFactory_CustomHeaderName(t *testing.T) {
-	params := json.RawMessage(`{"headerName": "X-Custom-Model"}`)
+	params := plugin.StrictDecoder(json.RawMessage(`{"headerName": "X-Custom-Model"}`))
 	p, err := PluginFactory("custom", params, nil)
 	if err != nil {
 		t.Fatalf("PluginFactory failed: %v", err)
@@ -115,13 +118,13 @@ func TestPluginFactory_CustomHeaderName(t *testing.T) {
 		t.Errorf("expected header %q, got %q", "X-Custom-Model", mnp.headerName)
 	}
 
-	cycleState := plugin.NewCycleState()
-	cycleState.Write(modelselector.SelectedModelCycleStateKey, "gpt-4")
+	request := requesthandling.NewInferenceRequest()
+	request.SetAttribute(modelselector.SelectedModelAttributeKey, "gpt-4")
 
 	response := requesthandling.NewInferenceResponse()
 
 	rhp := p.(requesthandling.ResponseHeadersProcessor)
-	if err := rhp.ProcessResponseHeaders(context.Background(), cycleState, response); err != nil {
+	if err := rhp.ProcessResponseHeaders(context.Background(), request, response); err != nil {
 		t.Fatalf("ProcessResponseHeaders failed: %v", err)
 	}
 
@@ -132,7 +135,7 @@ func TestPluginFactory_CustomHeaderName(t *testing.T) {
 }
 
 func TestPluginFactory_InvalidConfig(t *testing.T) {
-	params := json.RawMessage(`{invalid`)
+	params := plugin.StrictDecoder(json.RawMessage(`{invalid`))
 	_, err := PluginFactory("bad", params, nil)
 	if err == nil {
 		t.Fatal("expected error for invalid JSON config, got nil")

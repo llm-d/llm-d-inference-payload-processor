@@ -103,7 +103,7 @@ func TestPick(t *testing.T) {
 	picker := NewSingleProfilePicker()
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := picker.Pick(context.Background(), plugin.NewCycleState(), requesthandling.NewInferenceRequest(), tt.profiles)
+			got, err := picker.Pick(context.Background(), requesthandling.NewInferenceRequest(), tt.profiles)
 
 			if tt.wantErr {
 				if err == nil {

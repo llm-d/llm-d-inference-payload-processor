@@ -18,7 +18,6 @@ package requestmetadata
 
 import (
 	"context"
-	"encoding/json"
 	"testing"
 	"time"
 
@@ -206,7 +205,7 @@ func TestExtractorFactoryWiresDatastore(t *testing.T) {
 	ds := datastore.NewFakeDataStore()
 	h := &fakeHandle{ds: ds}
 
-	p, err := ExtractorFactory("my-extractor", json.RawMessage(`{}`), h)
+	p, err := ExtractorFactory("my-extractor", nil, h)
 	if err != nil {
 		t.Fatalf("ExtractorFactory returned error: %v", err)
 	}

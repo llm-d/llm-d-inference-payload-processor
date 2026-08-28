@@ -19,7 +19,6 @@ package modelnametoheader
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -42,10 +41,10 @@ type modelNameToHeaderConfig struct {
 }
 
 // PluginFactory creates a new ModelNameToHeaderPlugin.
-func PluginFactory(name string, rawParameters json.RawMessage, _ plugin.Handle) (plugin.Plugin, error) {
+func PluginFactory(name string, parameters *json.Decoder, _ plugin.Handle) (plugin.Plugin, error) {
 	var cfg modelNameToHeaderConfig
-	if len(rawParameters) > 0 {
-		if err := json.Unmarshal(rawParameters, &cfg); err != nil {
+	if parameters != nil {
+		if err := parameters.Decode(&cfg); err != nil {
 			return nil, fmt.Errorf("failed to parse the parameters of the '%s' plugin - %w", PluginType, err)
 		}
 	}
@@ -74,14 +73,11 @@ func (p *ModelNameToHeaderPlugin) TypedName() plugin.TypedName {
 	return p.typedName
 }
 
-func (p *ModelNameToHeaderPlugin) ProcessResponseHeaders(ctx context.Context, cycleState *plugin.CycleState, response *requesthandling.InferenceResponse) error {
-	selectedModel, err := plugin.ReadCycleStateKey[string](cycleState, modelselector.SelectedModelCycleStateKey)
+func (p *ModelNameToHeaderPlugin) ProcessResponseHeaders(ctx context.Context, request *requesthandling.InferenceRequest, response *requesthandling.InferenceResponse) error {
+	selectedModel, err := requesthandling.ReadRequestAttribute[string](request, modelselector.SelectedModelAttributeKey)
 	if err != nil {
-		if errors.Is(err, plugin.ErrNotFound) {
-			log.FromContext(ctx).V(logutil.VERBOSE).Info("no selected model in CycleState, skipping")
-			return nil
-		}
-		return fmt.Errorf("failed to read selected model from CycleState: %w", err)
+		log.FromContext(ctx).V(logutil.VERBOSE).Info("no selected model in request attributes, skipping")
+		return nil
 	}
 
 	response.SetHeader(p.headerName, selectedModel)

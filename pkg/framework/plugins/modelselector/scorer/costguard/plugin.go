@@ -104,15 +104,15 @@ type CostGuardScorer struct {
 }
 
 // ScorerFactory validates rawParameters into a Config and constructs a scorer.
-func ScorerFactory(name string, rawParameters json.RawMessage, _ plugin.Handle) (plugin.Plugin, error) {
+func ScorerFactory(name string, parameters *json.Decoder, _ plugin.Handle) (plugin.Plugin, error) {
 	config := Config{
 		Epsilon:               defaultEpsilon,
 		Alpha:                 defaultAlpha,
 		Lambda:                defaultLambda,
 		PercentileMarginError: defaultPercentileMarginError,
 	}
-	if len(rawParameters) > 0 {
-		if err := json.Unmarshal(rawParameters, &config); err != nil {
+	if parameters != nil {
+		if err := parameters.Decode(&config); err != nil {
 			return nil, fmt.Errorf("costguard %q: failed to parse parameters: %w", name, err)
 		}
 	}
@@ -171,7 +171,7 @@ func (s *CostGuardScorer) WithName(name string) *CostGuardScorer {
 // Conditional Tail Expectation (tail mean above alpha). Under-explored,
 // missing, or malformed digests yield neutralScore. Ranks map to scores via
 // a sigmoid centred at the median.
-func (s *CostGuardScorer) Score(_ context.Context, _ *plugin.CycleState, _ *requesthandling.InferenceRequest, models []datalayer.Model) map[datalayer.Model]float64 {
+func (s *CostGuardScorer) Score(_ context.Context, _ *requesthandling.InferenceRequest, models []datalayer.Model) map[datalayer.Model]float64 {
 	if len(models) == 0 {
 		return map[datalayer.Model]float64{}
 	}

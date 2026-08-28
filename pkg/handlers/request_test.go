@@ -574,8 +574,7 @@ func TestHandleRequestBody_BuiltInPlugins(t *testing.T) {
 			addRequestPlugins(profiles, modelToHeaderPlugin, baseModelToHeaderPlugin)
 			server := newServerForTest(profiles)
 			reqCtx := &RequestContext{
-				CycleState: plugin.NewCycleState(),
-				Request:    requesthandling.NewInferenceRequest(),
+				Request: requesthandling.NewInferenceRequest(),
 			}
 			bodyBytes, _ := json.Marshal(test.body)
 			resp, err := server.HandleRequestBody(ctx, reqCtx, bodyBytes)
@@ -624,8 +623,7 @@ func TestHandleRequestBodyWithPluginMetrics(t *testing.T) {
 	addRequestPlugins(profiles, modelToHeaderPlugin, baseModelToHeaderPlugin)
 	server := newServerForTest(profiles)
 	reqCtx := &RequestContext{
-		CycleState: plugin.NewCycleState(),
-		Request:    requesthandling.NewInferenceRequest(),
+		Request: requesthandling.NewInferenceRequest(),
 	}
 
 	bodyBytes, _ := json.Marshal(map[string]any{
@@ -675,7 +673,7 @@ func (p *fakeRequestPlugin) TypedName() plugin.TypedName {
 	return plugin.TypedName{Type: "fake", Name: p.name}
 }
 
-func (p *fakeRequestPlugin) ProcessRequest(ctx context.Context, _ *plugin.CycleState, request *requesthandling.InferenceRequest) error {
+func (p *fakeRequestPlugin) ProcessRequest(ctx context.Context, request *requesthandling.InferenceRequest) error {
 	return p.mutateFn(ctx, request)
 }
 
@@ -897,8 +895,7 @@ func TestHandleRequestBody_MultiPluginHeaderMutations(t *testing.T) {
 			addRequestPlugins(profiles, tc.plugins...)
 			server := newServerForTest(profiles)
 			reqCtx := &RequestContext{
-				Request:    requesthandling.NewInferenceRequest(),
-				CycleState: plugin.NewCycleState(),
+				Request: requesthandling.NewInferenceRequest(),
 			}
 			for k, v := range tc.initialHeaders {
 				reqCtx.Request.Headers[k] = v
@@ -984,15 +981,15 @@ func buildStreamingResponse(bodyBytes []byte, setHeaders map[string]string, remo
 
 type bodyMutatingPlugin struct {
 	name     string
-	mutateFn func(ctx context.Context, cycleState *plugin.CycleState, request *requesthandling.InferenceRequest) error
+	mutateFn func(ctx context.Context, request *requesthandling.InferenceRequest) error
 }
 
 func (p *bodyMutatingPlugin) TypedName() plugin.TypedName {
 	return plugin.TypedName{Type: "fake", Name: p.name}
 }
 
-func (p *bodyMutatingPlugin) ProcessRequest(ctx context.Context, cycleState *plugin.CycleState, request *requesthandling.InferenceRequest) error {
-	return p.mutateFn(ctx, cycleState, request)
+func (p *bodyMutatingPlugin) ProcessRequest(ctx context.Context, request *requesthandling.InferenceRequest) error {
+	return p.mutateFn(ctx, request)
 }
 
 var _ requesthandling.RequestProcessor = &bodyMutatingPlugin{}
@@ -1003,7 +1000,7 @@ func TestHandleRequestBody_BodyMutation(t *testing.T) {
 
 	bodyPlugin := &bodyMutatingPlugin{
 		name: "body-mutator",
-		mutateFn: func(_ context.Context, _ *plugin.CycleState, request *requesthandling.InferenceRequest) error {
+		mutateFn: func(_ context.Context, request *requesthandling.InferenceRequest) error {
 			request.SetBodyField("injected", "value")
 			return nil
 		},
@@ -1055,8 +1052,7 @@ func TestHandleRequestBody_BodyMutation(t *testing.T) {
 	addRequestPlugins(profiles, bodyPlugin, baseModelPlugin)
 	server := newServerForTest(profiles)
 	reqCtx := &RequestContext{
-		CycleState: plugin.NewCycleState(),
-		Request:    requesthandling.NewInferenceRequest(),
+		Request: requesthandling.NewInferenceRequest(),
 	}
 	bodyBytes, _ := json.Marshal(body)
 	resp, err := server.HandleRequestBody(ctx, reqCtx, bodyBytes)

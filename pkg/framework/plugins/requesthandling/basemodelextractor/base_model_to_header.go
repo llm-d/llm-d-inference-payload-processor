@@ -46,7 +46,7 @@ type BaseModelToHeaderPlugin struct {
 }
 
 // BaseModelToHeaderPluginFactory defines the factory function for BaseModelToHeaderPlugin
-func BaseModelToHeaderPluginFactory(name string, _ json.RawMessage, handle plugin.Handle) (plugin.Plugin, error) {
+func BaseModelToHeaderPluginFactory(name string, _ *json.Decoder, handle plugin.Handle) (plugin.Plugin, error) {
 	plugin, err := NewBaseModelToHeaderPlugin(handle.ReconcilerBuilder, handle.Client())
 	if err != nil {
 		return nil, fmt.Errorf("failed to create plugin '%s' - %w", BaseModelToHeaderPluginType, err)
@@ -85,7 +85,7 @@ func (p *BaseModelToHeaderPlugin) WithName(name string) *BaseModelToHeaderPlugin
 }
 
 // ProcessRequest sets base model name on the header
-func (p *BaseModelToHeaderPlugin) ProcessRequest(ctx context.Context, _ *plugin.CycleState, request *requesthandling.InferenceRequest) error {
+func (p *BaseModelToHeaderPlugin) ProcessRequest(ctx context.Context, request *requesthandling.InferenceRequest) error {
 	// extract raw field value from body
 	rawFieldValue, exists := request.Body[modelField]
 	if !exists {

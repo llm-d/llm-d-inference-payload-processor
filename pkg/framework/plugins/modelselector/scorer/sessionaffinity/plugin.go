@@ -43,7 +43,7 @@ const (
 	defaultMaxSessions = 10000
 	defaultTTL         = time.Hour
 
-	cycleStateSessionIDKey = "session-affinity/session-id"
+	sessionIDAttributeKey = "session-affinity/session-id"
 
 	responseModelField = "model"
 
@@ -113,11 +113,11 @@ type SessionAffinityScorerConfig struct {
 }
 
 // ScorerFactory creates a new SessionAffinityScorer from config.
-func ScorerFactory(name string, rawParameters json.RawMessage, _ plugin.Handle) (plugin.Plugin, error) {
+func ScorerFactory(name string, parameters *json.Decoder, _ plugin.Handle) (plugin.Plugin, error) {
 	var config SessionAffinityScorerConfig
 
-	if len(rawParameters) > 0 {
-		if err := json.Unmarshal(rawParameters, &config); err != nil {
+	if parameters != nil {
+		if err := parameters.Decode(&config); err != nil {
 			return nil, fmt.Errorf("failed to parse parameters for %q plugin: %w", PluginType, err)
 		}
 	}
@@ -172,7 +172,7 @@ func (s *SessionAffinityScorer) TypedName() plugin.TypedName {
 }
 
 // Score returns a score in [0,1] for each model based on session affinity.
-func (s *SessionAffinityScorer) Score(ctx context.Context, cycleState *plugin.CycleState, request *requesthandling.InferenceRequest, models []datalayer.Model) map[datalayer.Model]float64 {
+func (s *SessionAffinityScorer) Score(ctx context.Context, request *requesthandling.InferenceRequest, models []datalayer.Model) map[datalayer.Model]float64 {
 	logger := log.FromContext(ctx)
 	scores := make(map[datalayer.Model]float64, len(models))
 
@@ -185,7 +185,7 @@ func (s *SessionAffinityScorer) Score(ctx context.Context, cycleState *plugin.Cy
 		return scores
 	}
 
-	cycleState.Write(cycleStateSessionIDKey, sessionID)
+	request.SetAttribute(sessionIDAttributeKey, sessionID)
 
 	previousModel, known := s.cache.Get(sessionID)
 
@@ -228,7 +228,7 @@ func (s *SessionAffinityScorer) Score(ctx context.Context, cycleState *plugin.Cy
 // When no session ID was present in the request, a new UUID is generated
 // optimistically and echoed back — if the client sends it on the next request,
 // session affinity will be established automatically.
-func (s *SessionAffinityScorer) ProcessResponse(ctx context.Context, cycleState *plugin.CycleState, response *requesthandling.InferenceResponse) error {
+func (s *SessionAffinityScorer) ProcessResponse(ctx context.Context, request *requesthandling.InferenceRequest, response *requesthandling.InferenceResponse) error {
 	logger := log.FromContext(ctx)
 
 	modelName, ok := response.Body[responseModelField].(string)
@@ -237,9 +237,8 @@ func (s *SessionAffinityScorer) ProcessResponse(ctx context.Context, cycleState 
 		return nil
 	}
 
-	sessionID, err := plugin.ReadCycleStateKey[string](cycleState, cycleStateSessionIDKey)
+	sessionID, err := requesthandling.ReadRequestAttribute[string](request, sessionIDAttributeKey)
 	if err != nil {
-		// No session ID in request — generate one optimistically
 		sessionID = uuid.New().String()
 		logger.V(logutil.VERBOSE).Info("generated optimistic session ID",
 			"sessionId", sessionID, "model", modelName)

@@ -26,7 +26,6 @@ import (
 	logutil "github.com/llm-d/llm-d-inference-payload-processor/pkg/common/observability/logging"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/datalayer"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/modelselector"
-	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/plugin"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/requesthandling"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/metrics"
 )
@@ -49,7 +48,7 @@ func (s *ModelSelector) Pipeline() *ModelSelectorPipeline {
 }
 
 // Select runs the model selection pipeline (Filter → Score → Pick) and returns the selected model.
-func (s *ModelSelector) Select(ctx context.Context, request *requesthandling.InferenceRequest, cycleState *plugin.CycleState, candidateModels []datalayer.Model) (result *modelselector.PipelineRunResult, err error) {
+func (s *ModelSelector) Select(ctx context.Context, request *requesthandling.InferenceRequest, candidateModels []datalayer.Model) (result *modelselector.PipelineRunResult, err error) {
 	logger := log.FromContext(ctx)
 	logger.V(logutil.VERBOSE).Info("Starting model selection", "candidateModels", len(candidateModels))
 
@@ -64,7 +63,7 @@ func (s *ModelSelector) Select(ctx context.Context, request *requesthandling.Inf
 		return nil, err
 	}
 
-	result, err = s.pipeline.Run(ctx, request, cycleState, candidateModels)
+	result, err = s.pipeline.Run(ctx, request, candidateModels)
 	if err != nil {
 		logger.V(logutil.VERBOSE).Info("Model selection failed", "error", err.Error())
 		return nil, err
