@@ -475,7 +475,7 @@ type mockProfilePicker struct{ mockPlugin }
 // compile-time type assertion
 var _ requesthandling.ProfilePicker = &mockProfilePicker{}
 
-func (m *mockProfilePicker) Pick(ctx context.Context, cycleState *plugin.CycleState, request *requesthandling.InferenceRequest,
+func (m *mockProfilePicker) Pick(ctx context.Context, request *requesthandling.InferenceRequest,
 	profiles map[string]*requesthandling.Profile) (*requesthandling.Profile, error) {
 	return nil, nil
 }
@@ -486,7 +486,7 @@ type mockRequestProcessor struct{ mockPlugin }
 // compile-time type assertion
 var _ requesthandling.RequestProcessor = &mockRequestProcessor{}
 
-func (m *mockRequestProcessor) ProcessRequest(ctx context.Context, cycleState *plugin.CycleState, request *requesthandling.InferenceRequest) error {
+func (m *mockRequestProcessor) ProcessRequest(ctx context.Context, request *requesthandling.InferenceRequest) error {
 	return nil
 }
 
@@ -496,7 +496,7 @@ type mockResponseProcessor struct{ mockPlugin }
 // compile-time type assertion
 var _ requesthandling.ResponseProcessor = &mockResponseProcessor{}
 
-func (m *mockResponseProcessor) ProcessResponse(ctx context.Context, cycleState *plugin.CycleState, request *requesthandling.InferenceResponse) error {
+func (m *mockResponseProcessor) ProcessResponse(ctx context.Context, request *requesthandling.InferenceRequest, response *requesthandling.InferenceResponse) error {
 	return nil
 }
 
@@ -506,7 +506,7 @@ type mockFilter struct{ mockPlugin }
 // compile-time type assertion
 var _ modelselector.Filter = &mockFilter{}
 
-func (m *mockFilter) Filter(_ context.Context, _ *plugin.CycleState, _ *requesthandling.InferenceRequest, models []datalayer.Model) []datalayer.Model {
+func (m *mockFilter) Filter(_ context.Context, _ *requesthandling.InferenceRequest, models []datalayer.Model) []datalayer.Model {
 	return models
 }
 
@@ -516,7 +516,7 @@ type mockScorer struct{ mockPlugin }
 // compile-time type assertion
 var _ modelselector.Scorer = &mockScorer{}
 
-func (m *mockScorer) Score(ctx context.Context, cycleState *plugin.CycleState, request *requesthandling.InferenceRequest, models []datalayer.Model) map[datalayer.Model]float64 {
+func (m *mockScorer) Score(ctx context.Context, request *requesthandling.InferenceRequest, models []datalayer.Model) map[datalayer.Model]float64 {
 	return nil
 }
 
@@ -549,7 +549,7 @@ type mockPicker struct{ mockPlugin }
 // compile-time type assertion
 var _ modelselector.Picker = &mockPicker{}
 
-func (m *mockPicker) Pick(ctx context.Context, cycleState *plugin.CycleState, scoredModels []*modelselector.ScoredModel) *modelselector.PipelineRunResult {
+func (m *mockPicker) Pick(ctx context.Context, scoredModels []*modelselector.ScoredModel) *modelselector.PipelineRunResult {
 	return nil
 }
 

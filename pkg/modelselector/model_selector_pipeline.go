@@ -143,26 +143,22 @@ func (p *ModelSelectorPipeline) String() string {
 }
 
 // Run runs the ModelSelectorPipeline: Filter → Score → Pick.
-func (p *ModelSelectorPipeline) Run(ctx context.Context, request *requesthandling.InferenceRequest, cycleState *plugin.CycleState, candidateModels []datalayer.Model) (*modelselector.PipelineRunResult, error) {
-	models := p.runFilterPlugins(ctx, request, cycleState, candidateModels)
+func (p *ModelSelectorPipeline) Run(ctx context.Context, request *requesthandling.InferenceRequest, candidateModels []datalayer.Model) (*modelselector.PipelineRunResult, error) {
+	models := p.runFilterPlugins(ctx, request, candidateModels)
 	if len(models) == 0 {
-		// Typed so the handler maps it to an HTTP ImmediateResponse instead of
-		// failing the ext_proc stream.
 		return nil, errcommon.Error{Code: errcommon.ResourceExhausted, Msg: "no models available after filtering"}
 	}
 
-	weightedScorePerModel := p.runScorerPlugins(ctx, request, cycleState, models)
+	weightedScorePerModel := p.runScorerPlugins(ctx, request, models)
 
-	result := p.runPickerPlugin(ctx, cycleState, weightedScorePerModel)
+	result := p.runPickerPlugin(ctx, weightedScorePerModel)
 
 	return result, nil
 }
 
-func (p *ModelSelectorPipeline) runFilterPlugins(ctx context.Context, request *requesthandling.InferenceRequest, cycleState *plugin.CycleState, models []datalayer.Model) []datalayer.Model {
+func (p *ModelSelectorPipeline) runFilterPlugins(ctx context.Context, request *requesthandling.InferenceRequest, models []datalayer.Model) []datalayer.Model {
 	logger := log.FromContext(ctx)
 
-	// Cache loggers and check Enabled() once to avoid per-iteration allocations
-	// from argument boxing when logging at that level is disabled.
 	verboseLogger := logger.V(logutil.VERBOSE)
 	verboseEnabled := verboseLogger.Enabled()
 	debugLogger := logger.V(logutil.DEBUG)
@@ -179,7 +175,7 @@ func (p *ModelSelectorPipeline) runFilterPlugins(ctx context.Context, request *r
 			verboseLogger.Info("Running filter plugin", "plugin", filter.TypedName())
 		}
 		before := time.Now()
-		filteredModels = filter.Filter(ctx, cycleState, request, filteredModels)
+		filteredModels = filter.Filter(ctx, request, filteredModels)
 		metrics.RecordPluginProcessingLatency(filterExtensionPoint, filter.TypedName().Type, filter.TypedName().Name, time.Since(before))
 		if debugEnabled {
 			debugLogger.Info("Completed running filter plugin", "plugin", filter.TypedName(), "remainingModels", len(filteredModels))
@@ -196,18 +192,14 @@ func (p *ModelSelectorPipeline) runFilterPlugins(ctx context.Context, request *r
 	return filteredModels
 }
 
-func (p *ModelSelectorPipeline) runScorerPlugins(ctx context.Context, request *requesthandling.InferenceRequest, cycleState *plugin.CycleState, models []datalayer.Model) map[string]*modelselector.ScoredModel {
+func (p *ModelSelectorPipeline) runScorerPlugins(ctx context.Context, request *requesthandling.InferenceRequest, models []datalayer.Model) map[string]*modelselector.ScoredModel {
 	logger := log.FromContext(ctx)
 
-	// Cache loggers and check Enabled() once to avoid per-iteration allocations
-	// from argument boxing when logging at that level is disabled.
 	verboseLogger := logger.V(logutil.VERBOSE)
 	verboseEnabled := verboseLogger.Enabled()
 	debugLogger := logger.V(logutil.DEBUG)
 	debugEnabled := debugLogger.Enabled()
 
-	// Create one big array for all ScoredModels instead of allocating each one
-	// separately. This reduces memory allocations from N to 1.
 	n := len(models)
 	storage := make([]modelselector.ScoredModel, n)
 	scoredModels := make(map[string]*modelselector.ScoredModel, n)
@@ -221,7 +213,7 @@ func (p *ModelSelectorPipeline) runScorerPlugins(ctx context.Context, request *r
 			verboseLogger.Info("Running scorer plugin", "plugin", scorer.TypedName())
 		}
 		before := time.Now()
-		scores := scorer.Score(ctx, cycleState, request, models)
+		scores := scorer.Score(ctx, request, models)
 		metrics.RecordPluginProcessingLatency(scorerExtensionPoint, scorer.TypedName().Type, scorer.TypedName().Name, time.Since(before))
 		for model, score := range scores {
 			if sm, exists := scoredModels[model.GetName()]; exists {
@@ -237,11 +229,9 @@ func (p *ModelSelectorPipeline) runScorerPlugins(ctx context.Context, request *r
 	return scoredModels
 }
 
-func (p *ModelSelectorPipeline) runPickerPlugin(ctx context.Context, cycleState *plugin.CycleState, scoredModelMap map[string]*modelselector.ScoredModel) *modelselector.PipelineRunResult {
+func (p *ModelSelectorPipeline) runPickerPlugin(ctx context.Context, scoredModelMap map[string]*modelselector.ScoredModel) *modelselector.PipelineRunResult {
 	logger := log.FromContext(ctx)
 
-	// Cache loggers and check Enabled() once to avoid allocations from argument
-	// boxing when logging at that level is disabled.
 	verboseLogger := logger.V(logutil.VERBOSE)
 	verboseEnabled := verboseLogger.Enabled()
 	debugLogger := logger.V(logutil.DEBUG)
@@ -258,7 +248,7 @@ func (p *ModelSelectorPipeline) runPickerPlugin(ctx context.Context, cycleState 
 		verboseLogger.Info("Running picker plugin", "plugin", p.picker.TypedName())
 	}
 	before := time.Now()
-	result := p.picker.Pick(ctx, cycleState, scoredModels)
+	result := p.picker.Pick(ctx, scoredModels)
 	metrics.RecordPluginProcessingLatency(pickerExtensionPoint, p.picker.TypedName().Type, p.picker.TypedName().Name, time.Since(before))
 	if debugEnabled {
 		debugLogger.Info("Completed running picker plugin", "plugin", p.picker.TypedName(), "result", result)

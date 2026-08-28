@@ -78,7 +78,7 @@ func (s *CostScorer) WithName(name string) *CostScorer {
 //   - Higher score indicates better (cheaper) model
 //   - If only one model, it receives neutral score 0.5
 //   - If all models have zero price, each receives score 1.0
-func (s *CostScorer) Score(_ context.Context, _ *plugin.CycleState, _ *requesthandling.InferenceRequest, models []datalayer.Model) map[datalayer.Model]float64 {
+func (s *CostScorer) Score(_ context.Context, _ *requesthandling.InferenceRequest, models []datalayer.Model) map[datalayer.Model]float64 {
 	// Create a map to hold the score of each model candidate
 	scores := make(map[datalayer.Model]float64, len(models))
 

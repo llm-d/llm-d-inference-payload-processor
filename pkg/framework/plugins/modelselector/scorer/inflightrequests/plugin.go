@@ -64,7 +64,7 @@ func (s *InflightRequestsScorer) WithName(name string) *InflightRequestsScorer {
 
 // Score returns a score in [0,1] for each model based on its in-flight request count.
 // Formula: score = (max - count) / (max - min)
-func (s *InflightRequestsScorer) Score(_ context.Context, _ *plugin.CycleState, _ *requesthandling.InferenceRequest, models []datalayer.Model) map[datalayer.Model]float64 {
+func (s *InflightRequestsScorer) Score(_ context.Context, _ *requesthandling.InferenceRequest, models []datalayer.Model) map[datalayer.Model]float64 {
 	var minCount int64 = math.MaxInt64
 	var maxCount int64 = math.MinInt64
 

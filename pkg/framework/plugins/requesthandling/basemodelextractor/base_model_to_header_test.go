@@ -242,7 +242,7 @@ func TestBaseModelToHeaderPlugin_ProcessRequest(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := p.ProcessRequest(context.Background(), nil, tt.request)
+			err := p.ProcessRequest(context.Background(), tt.request)
 			if tt.wantErr {
 				if err == nil {
 					t.Fatal("expected error, got nil")
@@ -288,7 +288,7 @@ func TestBaseModelToHeaderPlugin_ProcessRequest_MutatedHeaders(t *testing.T) {
 	request := requesthandling.NewInferenceRequest()
 	request.Body["model"] = testAdapter
 
-	if err := p.ProcessRequest(context.Background(), nil, request); err != nil {
+	if err := p.ProcessRequest(context.Background(), request); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
