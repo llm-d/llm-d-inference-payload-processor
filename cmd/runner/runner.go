@@ -57,6 +57,7 @@ import (
 	costguardscorer "github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/plugins/modelselector/scorer/costguard"
 	inflightrequestsscorer "github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/plugins/modelselector/scorer/inflightrequests"
 	sessionaffinity "github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/plugins/modelselector/scorer/sessionaffinity"
+	ttftawarescorer "github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/plugins/modelselector/scorer/ttftaware"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/plugins/requesthandling/basemodelextractor"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/plugins/requesthandling/bodyfieldtoheader"
 	modelselectorplugin "github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/plugins/requesthandling/modelselector"
@@ -304,6 +305,7 @@ func (r *Runner) registerInTreePlugins() {
 	plugin.Register(weightedrandom.WeightedRandomPickerType, weightedrandom.WeightedRandomPickerFactory)
 	plugin.Register(modelselectorplugin.ModelSelectorPluginType, modelselectorplugin.ModelSelectorPluginFactory)
 	plugin.Register(inflightrequestsscorer.PluginType, inflightrequestsscorer.ScorerFactory)
+	plugin.Register(ttftawarescorer.PluginType, ttftawarescorer.ScorerFactory)
 	plugin.Register(sessionaffinity.PluginType, sessionaffinity.ScorerFactory)
 	plugin.Register(costguardscorer.PluginType, costguardscorer.ScorerFactory)
 	plugin.Register(modelnametoheader.PluginType, modelnametoheader.PluginFactory)
