@@ -254,6 +254,21 @@ func (p *ModelSelectorPipeline) runScorerPlugins(ctx context.Context, request *r
 		before := time.Now()
 		scores := scorer.Score(spanCtx, cycleState, request, models)
 		metrics.RecordPluginProcessingLatency(scorerExtensionPoint, typedName.Type, typedName.Name, time.Since(before))
+		if len(scores) > 0 {
+			var maxScore, totalScore float64
+			first := true
+			for _, score := range scores {
+				if first || score > maxScore {
+					maxScore = score
+				}
+				first = false
+				totalScore += score
+			}
+			span.SetAttributes(
+				attribute.Float64("llm_d.scorer.score.max", maxScore),
+				attribute.Float64("llm_d.scorer.score.avg", totalScore/float64(len(scores))),
+			)
+		}
 		span.End()
 		for model, score := range scores {
 			if sm, exists := scoredModels[model.GetName()]; exists {
