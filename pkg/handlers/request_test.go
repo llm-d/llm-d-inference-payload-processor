@@ -19,6 +19,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strconv"
 	"strings"
 	"testing"
@@ -26,6 +27,10 @@ import (
 	basepb "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	extProcPb "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
 	"github.com/google/go-cmp/cmp"
+	"go.opentelemetry.io/otel"
+	otelcodes "go.opentelemetry.io/otel/codes"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/protobuf/testing/protocmp"
 	metricsutils "k8s.io/component-base/metrics/testutil"
@@ -680,6 +685,82 @@ func (p *fakeRequestPlugin) ProcessRequest(ctx context.Context, _ *plugin.CycleS
 }
 
 var _ requesthandling.RequestProcessor = &fakeRequestPlugin{}
+
+// TestRunRequestPlugins_Spans verifies that runRequestPlugins emits a
+// "request_plugins" stage span with a child "plugin.*" span per plugin, and
+// that a failing plugin's span is marked with an error status.
+func TestRunRequestPlugins_Spans(t *testing.T) {
+	recorder := tracetest.NewSpanRecorder()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
+	origTP := otel.GetTracerProvider()
+	otel.SetTracerProvider(tp)
+	t.Cleanup(func() { otel.SetTracerProvider(origTP) })
+
+	wantErr := errors.New("boom")
+	plugins := []requesthandling.RequestProcessor{
+		&fakeRequestPlugin{name: "ok", mutateFn: func(context.Context, *requesthandling.InferenceRequest) error { return nil }},
+		&fakeRequestPlugin{name: "boom", mutateFn: func(context.Context, *requesthandling.InferenceRequest) error { return wantErr }},
+	}
+
+	s := &Server{}
+	err := s.runRequestPlugins(context.Background(), plugin.NewCycleState(), requesthandling.NewInferenceRequest(), plugins)
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("runRequestPlugins error = %v, want %v", err, wantErr)
+	}
+
+	ended := recorder.Ended()
+
+	// Stage span grouping the per-plugin spans.
+	stage := findSpan(t, ended, "request_plugins")
+
+	// Both plugins ran (the first succeeded, the second failed and aborted the
+	// loop), so two plugin spans should exist, each parented to the stage span.
+	pluginSpans := findSpans(ended, "plugin.fake")
+	if len(pluginSpans) != 2 {
+		t.Fatalf("expected 2 plugin.fake spans, got %d", len(pluginSpans))
+	}
+	for _, ps := range pluginSpans {
+		if ps.Parent().SpanID() != stage.SpanContext().SpanID() {
+			t.Errorf("plugin span parent = %v, want stage span %v", ps.Parent().SpanID(), stage.SpanContext().SpanID())
+		}
+	}
+
+	// Exactly one plugin span (the failing one) carries an error status.
+	var errored int
+	for _, ps := range pluginSpans {
+		if ps.Status().Code == otelcodes.Error {
+			errored++
+			if ps.Status().Description != wantErr.Error() {
+				t.Errorf("error span description = %q, want %q", ps.Status().Description, wantErr.Error())
+			}
+		}
+	}
+	if errored != 1 {
+		t.Errorf("expected exactly 1 plugin span with error status, got %d", errored)
+	}
+}
+
+// findSpan returns the single ended span with the given name, failing the test
+// if there is not exactly one.
+func findSpan(t *testing.T, spans []sdktrace.ReadOnlySpan, name string) sdktrace.ReadOnlySpan {
+	t.Helper()
+	matches := findSpans(spans, name)
+	if len(matches) != 1 {
+		t.Fatalf("expected exactly 1 span named %q, got %d", name, len(matches))
+	}
+	return matches[0]
+}
+
+// findSpans returns all ended spans with the given name.
+func findSpans(spans []sdktrace.ReadOnlySpan, name string) []sdktrace.ReadOnlySpan {
+	var matches []sdktrace.ReadOnlySpan
+	for _, s := range spans {
+		if s.Name() == name {
+			matches = append(matches, s)
+		}
+	}
+	return matches
+}
 
 // TestHandleRequestBody_MultiPluginHeaderMutations tests the end-to-end behavior of
 // HandleRequestBody when multiple request plugins set and/or remove headers.

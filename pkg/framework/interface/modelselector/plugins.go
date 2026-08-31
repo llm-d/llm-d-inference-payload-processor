@@ -42,5 +42,8 @@ type Scorer interface {
 // Picker picks the final model(s) to send the request to.
 type Picker interface {
 	plugin.Plugin
+	// Pick selects a target model from the scored candidates. Implementations
+	// must return a non-nil *PipelineRunResult with a non-nil TargetModel;
+	// callers rely on this guarantee and do not nil-check the result.
 	Pick(ctx context.Context, cycleState *plugin.CycleState, scoredModels []*ScoredModel) *PipelineRunResult
 }

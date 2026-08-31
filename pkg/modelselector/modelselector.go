@@ -21,9 +21,13 @@ import (
 	"errors"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	logutil "github.com/llm-d/llm-d-inference-payload-processor/pkg/common/observability/logging"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/common/observability/tracing"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/datalayer"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/modelselector"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/plugin"
@@ -53,10 +57,24 @@ func (s *ModelSelector) Select(ctx context.Context, request *requesthandling.Inf
 	logger := log.FromContext(ctx)
 	logger.V(logutil.VERBOSE).Info("Starting model selection", "candidateModels", len(candidateModels))
 
+	// Stage span for the whole model-selector decision. It is the single most
+	// useful thing to see in a trace, so record the requested and selected model
+	// (the pipeline's filter/scorer/picker spans nest under it).
+	ctx, span := tracing.Tracer(modelSelectorTracerScope).Start(ctx, "model_selector", trace.WithSpanKind(trace.SpanKindInternal))
+	defer span.End()
+	span.SetAttributes(attribute.Int("llm_d.model_selector.candidate_count", len(candidateModels)))
+	if requestedModel, ok := request.Body["model"].(string); ok && requestedModel != "" {
+		span.SetAttributes(attribute.String("llm_d.model_selector.requested_model", requestedModel))
+	}
+
 	selectStart := time.Now()
 	defer func() {
 		metrics.RecordModelSelectorE2ELatency(time.Since(selectStart))
 		metrics.RecordModelSelectorAttempt(err)
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
+		}
 	}()
 
 	if len(candidateModels) == 0 {
@@ -75,6 +93,7 @@ func (s *ModelSelector) Select(ctx context.Context, request *requesthandling.Inf
 		return nil, err
 	}
 
+	span.SetAttributes(attribute.String("llm_d.model_selector.selected_model", result.TargetModel.GetName()))
 	logger.V(logutil.VERBOSE).Info("Model selection completed", "selectedModel", result.TargetModel.GetName())
 
 	return result, nil

@@ -25,10 +25,14 @@ import (
 	"time"
 
 	eppb "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	envoy "github.com/llm-d/llm-d-inference-payload-processor/pkg/common/envoy"
 	logutil "github.com/llm-d/llm-d-inference-payload-processor/pkg/common/observability/logging"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/common/observability/tracing"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/plugin"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/requesthandling"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/metrics"
@@ -286,18 +290,34 @@ func (s *Server) runResponsePlugins(ctx context.Context, cycleState *plugin.Cycl
 	verboseLogger := logger.V(logutil.VERBOSE)
 	verboseEnabled := verboseLogger.Enabled()
 
-	var err error
+	// Stage span grouping the per-plugin spans under gateway.request.
+	tracer := tracing.Tracer(handlersTracerScope)
+	ctx, stageSpan := tracer.Start(ctx, "response_plugins", trace.WithSpanKind(trace.SpanKindInternal))
+	defer stageSpan.End()
+
 	for _, respPlugin := range respPlugins {
+		typedName := respPlugin.TypedName()
 		if verboseEnabled {
-			verboseLogger.Info("Executing response plugin", "plugin", respPlugin.TypedName())
+			verboseLogger.Info("Executing response plugin", "plugin", typedName)
 		}
+		pluginCtx, span := tracer.Start(ctx, "plugin."+typedName.Type,
+			trace.WithSpanKind(trace.SpanKindInternal),
+			trace.WithAttributes(
+				attribute.String("llm_d.plugin.extension_point", responsePluginExtensionPoint),
+				attribute.String("llm_d.plugin.type", typedName.Type),
+				attribute.String("llm_d.plugin.name", typedName.Name),
+			))
 		before := time.Now()
-		err = respPlugin.ProcessResponse(ctx, cycleState, response)
-		metrics.RecordPluginProcessingLatency(responsePluginExtensionPoint, respPlugin.TypedName().Type, respPlugin.TypedName().Name, time.Since(before))
+		err := respPlugin.ProcessResponse(pluginCtx, cycleState, response)
+		metrics.RecordPluginProcessingLatency(responsePluginExtensionPoint, typedName.Type, typedName.Name, time.Since(before))
 		if err != nil {
-			logger.Error(err, "Failed to execute response plugin", "plugin", respPlugin.TypedName())
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
+			span.End()
+			logger.Error(err, "Failed to execute response plugin", "plugin", typedName)
 			return err
 		}
+		span.End()
 	}
 
 	return nil

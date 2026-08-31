@@ -27,7 +27,6 @@ import (
 	extProcPb "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
 	"github.com/go-logr/logr"
 	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc/codes"
@@ -37,11 +36,11 @@ import (
 	envoy "github.com/llm-d/llm-d-inference-payload-processor/pkg/common/envoy"
 	errcommon "github.com/llm-d/llm-d-inference-payload-processor/pkg/common/error"
 	logutil "github.com/llm-d/llm-d-inference-payload-processor/pkg/common/observability/logging"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/common/observability/tracing"
 	datasource "github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/datalayer/datasource"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/plugin"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/requesthandling"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/metrics"
-	"github.com/llm-d/llm-d-inference-payload-processor/version"
 )
 
 const (
@@ -50,6 +49,10 @@ const (
 
 	requestPluginExtensionPoint  = "request"
 	responsePluginExtensionPoint = "response"
+
+	// handlersTracerScope is the OTel instrumentation scope for spans emitted by
+	// the request/response handlers, following the package-path naming convention.
+	handlersTracerScope = "llm-d-ipp/pkg/handlers"
 )
 
 func NewServer(preProcessors []requesthandling.RequestProcessor, profilePicker requesthandling.ProfilePicker,
@@ -128,13 +131,7 @@ func (s *Server) Process(srv extProcPb.ExternalProcessor_ProcessServer) error {
 	// The server span is started when the request headers arrive, so it can be
 	// parented to the upstream trace context they carry instead of starting an
 	// orphan root trace.
-	tracer := otel.Tracer(
-		"llm-d-inference-payload-processor/pkg/handlers",
-		trace.WithInstrumentationVersion(version.BuildRef),
-		trace.WithInstrumentationAttributes(
-			attribute.String("commit-sha", version.CommitSHA),
-		),
-	)
+	tracer := tracing.Tracer(handlersTracerScope)
 	var span trace.Span
 	defer func() {
 		if span != nil {
