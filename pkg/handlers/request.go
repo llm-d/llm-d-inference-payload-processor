@@ -27,6 +27,7 @@ import (
 	eppb "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/trace"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	envoy "github.com/llm-d/llm-d-inference-payload-processor/pkg/common/envoy"
@@ -52,15 +53,7 @@ func (s *Server) HandleRequestHeaders(ctx context.Context, reqCtx *RequestContex
 		}
 	}
 
-	// Inject the active trace context into the egress headers so the next
-	// filter in the chain is parented to this span rather than the upstream one.
-	traceCarrier := propagation.MapCarrier{}
-	otel.GetTextMapPropagator().Inject(ctx, traceCarrier)
-	for key, value := range traceCarrier {
-		// Normalize keys to lowercase; HTTP/2 (used by ext_proc) requires
-		// lowercase header names, and a non-W3C propagator may emit mixed case.
-		reqCtx.Request.SetHeader(strings.ToLower(key), value)
-	}
+	injectTraceContextHeaders(ctx, reqCtx)
 
 	if !headers.GetEndOfStream() {
 		log.FromContext(ctx).V(logutil.VERBOSE).Info("captured request headers, deferring response until body arrives...")
@@ -188,6 +181,23 @@ func addStreamedBodyResponse(responses []*eppb.ProcessingResponse, requestBodyBy
 		})
 	}
 	return responses
+}
+
+// injectTraceContextHeaders adds W3C trace headers for downstream filters only when
+// the active span is recording. Non-recording spans (e.g. payload-pre-processing
+// with --tracing=false) must not synthesize traceparent flags=00 for later ext_proc hops.
+func injectTraceContextHeaders(ctx context.Context, reqCtx *RequestContext) {
+	span := trace.SpanFromContext(ctx)
+	if span == nil || !span.IsRecording() {
+		return
+	}
+	traceCarrier := propagation.MapCarrier{}
+	otel.GetTextMapPropagator().Inject(ctx, traceCarrier)
+	for key, value := range traceCarrier {
+		// Normalize keys to lowercase; HTTP/2 (used by ext_proc) requires
+		// lowercase header names, and a non-W3C propagator may emit mixed case.
+		reqCtx.Request.SetHeader(strings.ToLower(key), value)
+	}
 }
 
 // HandleRequestTrailers handles request trailers.

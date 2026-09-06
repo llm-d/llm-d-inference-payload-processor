@@ -110,24 +110,52 @@ func loggerWithSpanContext(logger logr.Logger, sc trace.SpanContext) (logr.Logge
 	), true
 }
 
-// extractTraceContext returns ctx augmented with the upstream trace context
-// (traceparent, tracestate, baggage) propagated via the Envoy request headers.
-func extractTraceContext(ctx context.Context, headers *extProcPb.HttpHeaders) context.Context {
+// httpSpanContextFromHeaders extracts W3C trace context from ext_proc HTTP headers only.
+func httpSpanContextFromHeaders(headers *extProcPb.HttpHeaders) trace.SpanContext {
 	carrier := propagation.MapCarrier{}
 	if headers != nil && headers.Headers != nil {
 		for _, header := range headers.Headers.Headers {
 			carrier[strings.ToLower(header.Key)] = envoy.GetHeaderValue(header)
 		}
 	}
-	return otel.GetTextMapPropagator().Extract(ctx, carrier)
+	return trace.SpanContextFromContext(
+		otel.GetTextMapPropagator().Extract(context.Background(), carrier),
+	)
+}
+
+// sampledHTTPTraceParent reports whether HTTP headers carry a sampled W3C trace.
+// Unsampled values (flags=00) are treated as absent for span parenting so an
+// earlier ext_proc hop with tracing disabled cannot block root export downstream.
+func sampledHTTPTraceParent(headerSC trace.SpanContext) bool {
+	return headerSC.IsValid() && headerSC.IsSampled()
+}
+
+// gatewayRequestParentContext prepares the parent context for gateway.request and
+// reports whether the span should be started with trace.WithNewRoot().
+func gatewayRequestParentContext(streamCtx context.Context, headerSC trace.SpanContext) (context.Context, bool) {
+	if sampledHTTPTraceParent(headerSC) {
+		return requestTraceContext(streamCtx, headerSC), false
+	}
+	return requestTraceContext(streamCtx, trace.SpanContext{}), true
+}
+
+// requestTraceContext prepares the parent context for the gateway.request server span.
+//
+// HTTP trace context is applied onto the gRPC stream context so cancellation is preserved.
+// When headerSC is invalid, remote SpanContext on the stream is cleared; the caller must
+// pass trace.WithNewRoot() when starting gateway.request so parentbased sampling records it.
+func requestTraceContext(streamCtx context.Context, headerSC trace.SpanContext) context.Context {
+	if headerSC.IsValid() {
+		return trace.ContextWithSpanContext(streamCtx, headerSC)
+	}
+	return trace.ContextWithSpanContext(streamCtx, trace.SpanContext{})
 }
 
 func (s *Server) Process(srv extProcPb.ExternalProcessor_ProcessServer) error {
 	ctx := srv.Context()
 
-	// The server span is started when the request headers arrive, so it can be
-	// parented to the upstream trace context they carry instead of starting an
-	// orphan root trace.
+	// gateway.request is started on RequestHeaders: parent to client traceparent when present,
+	// otherwise a new root span (trace.WithNewRoot) so parentbased sampling can export it.
 	tracer := otel.Tracer(
 		"llm-d-inference-payload-processor/pkg/handlers",
 		trace.WithInstrumentationVersion(version.BuildRef),
@@ -184,8 +212,13 @@ func (s *Server) Process(srv extProcPb.ExternalProcessor_ProcessServer) error {
 		switch v := req.Request.(type) {
 		case *extProcPb.ProcessingRequest_RequestHeaders:
 			if span == nil {
-				ctx, span = tracer.Start(extractTraceContext(ctx, v.RequestHeaders),
-					"gateway.request", trace.WithSpanKind(trace.SpanKindServer))
+				headerSC := httpSpanContextFromHeaders(v.RequestHeaders)
+				parentCtx, withNewRoot := gatewayRequestParentContext(ctx, headerSC)
+				startOpts := []trace.SpanStartOption{trace.WithSpanKind(trace.SpanKindServer)}
+				if withNewRoot {
+					startOpts = append(startOpts, trace.WithNewRoot())
+				}
+				ctx, span = tracer.Start(parentCtx, "gateway.request", startOpts...)
 				// Correlate logs with traces: enrich the request logger with the
 				// active span's trace_id/span_id and store it back into the context
 				// so every downstream log line (handlers, plugins, model selector)

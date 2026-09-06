@@ -29,6 +29,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/protobuf/testing/protocmp"
 
@@ -59,7 +60,7 @@ func withTraceContextPropagator(t *testing.T) {
 	t.Cleanup(func() { otel.SetTextMapPropagator(prev) })
 }
 
-func TestExtractTraceContext(t *testing.T) {
+func TestRequestTraceContext_HTTPHeaders(t *testing.T) {
 	withTraceContextPropagator(t)
 
 	tests := []struct {
@@ -90,12 +91,12 @@ func TestExtractTraceContext(t *testing.T) {
 			wantValid: true,
 		},
 		{
-			name:      "no traceparent leaves context untouched",
+			name:      "no traceparent returns context without remote span",
 			headers:   &extProcPb.HttpHeaders{Headers: &basepb.HeaderMap{}},
 			wantValid: false,
 		},
 		{
-			name:      "nil headers leaves context untouched",
+			name:      "nil headers returns context without remote span",
 			headers:   nil,
 			wantValid: false,
 		},
@@ -103,7 +104,7 @@ func TestExtractTraceContext(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			ctx := extractTraceContext(context.Background(), tc.headers)
+			ctx := requestTraceContext(context.Background(), httpSpanContextFromHeaders(tc.headers))
 			sc := trace.SpanContextFromContext(ctx)
 			if sc.IsValid() != tc.wantValid {
 				t.Fatalf("extracted span context validity = %v, want %v", sc.IsValid(), tc.wantValid)
@@ -118,6 +119,141 @@ func TestExtractTraceContext(t *testing.T) {
 				t.Errorf("span ID = %s, want %s", got, testSpanID)
 			}
 		})
+	}
+}
+
+func TestRequestTraceContext_IgnoresGRPCStreamTraceWithoutHTTPTraceparent(t *testing.T) {
+	withTraceContextPropagator(t)
+
+	// Simulate an unsampled remote parent on the ext_proc gRPC stream context.
+	streamCtx := otel.GetTextMapPropagator().Extract(context.Background(), propagation.MapCarrier{
+		"traceparent": "00-" + testTraceID + "-" + testSpanID + "-00",
+	})
+	if !trace.SpanContextFromContext(streamCtx).IsValid() {
+		t.Fatal("test setup: expected valid unsampled remote span context on gRPC ctx")
+	}
+
+	got := requestTraceContext(streamCtx, httpSpanContextFromHeaders(&extProcPb.HttpHeaders{Headers: &basepb.HeaderMap{}}))
+	if trace.SpanContextFromContext(got).IsValid() {
+		t.Fatal("expected mesh trace stripped when HTTP headers lack traceparent")
+	}
+}
+
+func TestRequestTraceContext_GatewayRequestSpanSampledWithoutHTTPTraceparent(t *testing.T) {
+	withTraceContextPropagator(t)
+
+	tp := sdktrace.NewTracerProvider(
+		sdktrace.WithSampler(sdktrace.ParentBased(sdktrace.TraceIDRatioBased(1.0))),
+	)
+	prevTP := otel.GetTracerProvider()
+	otel.SetTracerProvider(tp)
+	t.Cleanup(func() { otel.SetTracerProvider(prevTP) })
+
+	grpcTracer := tp.Tracer("grpc")
+	streamCtx, grpcSpan := grpcTracer.Start(
+		otel.GetTextMapPropagator().Extract(context.Background(), propagation.MapCarrier{
+			"traceparent": "00-" + testTraceID + "-" + testSpanID + "-00",
+		}),
+		"ext_proc.stream",
+	)
+	defer grpcSpan.End()
+
+	parentCtx, withNewRoot := gatewayRequestParentContext(streamCtx, httpSpanContextFromHeaders(&extProcPb.HttpHeaders{Headers: &basepb.HeaderMap{}}))
+	if !withNewRoot {
+		t.Fatal("expected new root when HTTP headers lack traceparent")
+	}
+	gwTracer := tp.Tracer("handlers")
+	startOpts := []trace.SpanStartOption{trace.WithSpanKind(trace.SpanKindServer)}
+	if withNewRoot {
+		startOpts = append(startOpts, trace.WithNewRoot())
+	}
+	_, gwSpan := gwTracer.Start(parentCtx, "gateway.request", startOpts...)
+	gwSpan.End()
+
+	if !gwSpan.SpanContext().IsSampled() {
+		t.Fatal("expected gateway.request to be sampled when HTTP headers lack traceparent")
+	}
+	if gwSpan.SpanContext().TraceID().String() == testTraceID {
+		t.Fatalf("gateway.request reused unsampled gRPC trace ID %s", testTraceID)
+	}
+}
+
+func TestGatewayRequestSpanExportsRootWithUnsampledHTTPTraceparent(t *testing.T) {
+	withTraceContextPropagator(t)
+
+	tp := sdktrace.NewTracerProvider(
+		sdktrace.WithSampler(sdktrace.ParentBased(sdktrace.TraceIDRatioBased(1.0))),
+	)
+	prevTP := otel.GetTracerProvider()
+	otel.SetTracerProvider(tp)
+	t.Cleanup(func() { otel.SetTracerProvider(prevTP) })
+
+	headers := &extProcPb.HttpHeaders{
+		Headers: &basepb.HeaderMap{
+			Headers: []*basepb.HeaderValue{
+				{Key: "traceparent", RawValue: []byte("00-" + testTraceID + "-" + testSpanID + "-00")},
+			},
+		},
+	}
+	headerSC := httpSpanContextFromHeaders(headers)
+	if !headerSC.IsValid() || headerSC.IsSampled() {
+		t.Fatal("test setup: expected valid unsampled HTTP trace context")
+	}
+
+	parentCtx, withNewRoot := gatewayRequestParentContext(context.Background(), headerSC)
+	if !withNewRoot {
+		t.Fatal("expected new root when HTTP traceparent is unsampled")
+	}
+	_, gwSpan := tp.Tracer("handlers").Start(parentCtx, "gateway.request",
+		trace.WithSpanKind(trace.SpanKindServer),
+		trace.WithNewRoot(),
+	)
+	gwSpan.End()
+
+	if !gwSpan.SpanContext().IsSampled() {
+		t.Fatal("expected gateway.request root span to be sampled when upstream traceparent is unsampled")
+	}
+	if got := gwSpan.SpanContext().TraceID().String(); got == testTraceID {
+		t.Fatalf("gateway.request reused unsampled upstream trace ID %s", testTraceID)
+	}
+}
+
+func TestRequestTraceContext_HTTPTraceparentOverridesGRPCStreamTrace(t *testing.T) {
+	withTraceContextPropagator(t)
+
+	streamCtx := otel.GetTextMapPropagator().Extract(context.Background(), propagation.MapCarrier{
+		"traceparent": "00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-00",
+	})
+
+	got := requestTraceContext(streamCtx, httpSpanContextFromHeaders(&extProcPb.HttpHeaders{
+		Headers: &basepb.HeaderMap{
+			Headers: []*basepb.HeaderValue{
+				{Key: "traceparent", RawValue: []byte("00-" + testTraceID + "-" + testSpanID + "-01")},
+			},
+		},
+	}))
+	sc := trace.SpanContextFromContext(got)
+	if !sc.IsValid() {
+		t.Fatal("expected valid span context from HTTP traceparent")
+	}
+	if got := sc.TraceID().String(); got != testTraceID {
+		t.Errorf("trace ID = %s, want %s", got, testTraceID)
+	}
+}
+
+func TestRequestTraceContext_PreservesStreamCancellation(t *testing.T) {
+	withTraceContextPropagator(t)
+
+	streamCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	got := requestTraceContext(streamCtx, httpSpanContextFromHeaders(&extProcPb.HttpHeaders{Headers: &basepb.HeaderMap{}}))
+	cancel()
+
+	select {
+	case <-got.Done():
+	case <-time.After(time.Second):
+		t.Fatal("expected request context to cancel when stream context cancels")
 	}
 }
 
