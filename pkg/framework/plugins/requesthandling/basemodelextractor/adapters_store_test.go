@@ -235,3 +235,31 @@ func TestConfigMapDelete_BaseModelCount(t *testing.T) {
 		}
 	}
 }
+
+func TestConfigMapUpdateOrAddIfNotExist_UpdateBaseModel(t *testing.T) {
+	store := NewAdaptersStore()
+	first := makeConfigMap("first", baseModel, "- a1\n")
+	second := makeConfigMap("second", baseModel, "- a2\n")
+	for _, cm := range []*corev1.ConfigMap{first, second} {
+		if err := store.configMapUpdateOrAddIfNotExist(cm); err != nil {
+			t.Fatal(err)
+		}
+	}
+	first.Data[baseModelKey] = "other-base"
+	if err := store.configMapUpdateOrAddIfNotExist(first); err != nil {
+		t.Fatal(err)
+	}
+	for model, want := range map[string]string{"a1": "other-base", "other-base": "other-base", "a2": baseModel, baseModel: baseModel} {
+		if got := store.getBaseModel(model); got != want {
+			t.Errorf("getBaseModel(%q) = %q, want %q", model, got, want)
+		}
+	}
+	store.configMapDelete(&corev1.ConfigMap{ObjectMeta: second.ObjectMeta})
+	if got := store.getBaseModel(baseModel); got != "" {
+		t.Errorf("deleted base model = %q", got)
+	}
+	store.configMapDelete(&corev1.ConfigMap{ObjectMeta: first.ObjectMeta})
+	if got := store.getBaseModel("other-base"); got != "" {
+		t.Errorf("deleted updated base model = %q", got)
+	}
+}
