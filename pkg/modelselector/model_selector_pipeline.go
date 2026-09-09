@@ -188,7 +188,7 @@ func (p *ModelSelectorPipeline) runFilterPlugins(ctx context.Context, request *r
 		if verboseEnabled {
 			verboseLogger.Info("Running filter plugin", "plugin", typedName)
 		}
-		spanCtx, span := tracer.Start(ctx, "plugin."+typedName.Type,
+		spanCtx, span := tracer.Start(ctx, "plugin."+typedName.String(),
 			trace.WithSpanKind(trace.SpanKindInternal),
 			trace.WithAttributes(
 				attribute.String("llm_d.plugin.extension_point", filterExtensionPoint),
@@ -242,7 +242,7 @@ func (p *ModelSelectorPipeline) runScorerPlugins(ctx context.Context, request *r
 		if verboseEnabled {
 			verboseLogger.Info("Running scorer plugin", "plugin", typedName)
 		}
-		spanCtx, span := tracer.Start(ctx, "plugin."+typedName.Type,
+		spanCtx, span := tracer.Start(ctx, "plugin."+typedName.String(),
 			trace.WithSpanKind(trace.SpanKindInternal),
 			trace.WithAttributes(
 				attribute.String("llm_d.plugin.extension_point", scorerExtensionPoint),
@@ -254,20 +254,13 @@ func (p *ModelSelectorPipeline) runScorerPlugins(ctx context.Context, request *r
 		before := time.Now()
 		scores := scorer.Score(spanCtx, cycleState, request, models)
 		metrics.RecordPluginProcessingLatency(scorerExtensionPoint, typedName.Type, typedName.Name, time.Since(before))
-		if len(scores) > 0 {
-			var maxScore, totalScore float64
-			first := true
-			for _, score := range scores {
-				if first || score > maxScore {
-					maxScore = score
-				}
-				first = false
-				totalScore += score
-			}
-			span.SetAttributes(
-				attribute.Float64("llm_d.scorer.score.max", maxScore),
-				attribute.Float64("llm_d.scorer.score.avg", totalScore/float64(len(scores))),
-			)
+		// Record one event per candidate model so a request can be drilled into
+		// to see exactly what each model scored, rather than only an aggregate.
+		for model, score := range scores {
+			span.AddEvent("score", trace.WithAttributes(
+				attribute.String("llm_d.scorer.target", model.GetName()),
+				attribute.Float64("llm_d.scorer.score", score),
+			))
 		}
 		span.End()
 		for model, score := range scores {

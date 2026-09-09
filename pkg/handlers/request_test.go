@@ -714,10 +714,12 @@ func TestRunRequestPlugins_Spans(t *testing.T) {
 	stage := findSpan(t, ended, "request_plugins")
 
 	// Both plugins ran (the first succeeded, the second failed and aborted the
-	// loop), so two plugin spans should exist, each parented to the stage span.
-	pluginSpans := findSpans(ended, "plugin.fake")
+	// loop), so two plugin spans should exist, each parented to the stage span
+	// and named after their <name>/<type> so same-type plugins stay
+	// distinguishable in a waterfall view.
+	pluginSpans := append(findSpans(ended, "plugin.ok/fake"), findSpans(ended, "plugin.boom/fake")...)
 	if len(pluginSpans) != 2 {
-		t.Fatalf("expected 2 plugin.fake spans, got %d", len(pluginSpans))
+		t.Fatalf("expected 2 plugin spans (plugin.ok/fake, plugin.boom/fake), got %d", len(pluginSpans))
 	}
 	for _, ps := range pluginSpans {
 		if ps.Parent().SpanID() != stage.SpanContext().SpanID() {
