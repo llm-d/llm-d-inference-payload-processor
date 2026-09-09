@@ -188,7 +188,7 @@ func addStreamedBodyResponse(responses []*eppb.ProcessingResponse, requestBodyBy
 // with --tracing=false) must not synthesize traceparent flags=00 for later ext_proc hops.
 func injectTraceContextHeaders(ctx context.Context, reqCtx *RequestContext) {
 	span := trace.SpanFromContext(ctx)
-	if span == nil || !span.IsRecording() {
+	if !span.IsRecording() {
 		return
 	}
 	traceCarrier := propagation.MapCarrier{}

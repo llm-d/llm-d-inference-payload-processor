@@ -30,6 +30,7 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/protobuf/testing/protocmp"
 
@@ -181,7 +182,9 @@ func TestRequestTraceContext_GatewayRequestSpanSampledWithoutHTTPTraceparent(t *
 func TestGatewayRequestSpanExportsRootWithUnsampledHTTPTraceparent(t *testing.T) {
 	withTraceContextPropagator(t)
 
+	exporter := tracetest.NewInMemoryExporter()
 	tp := sdktrace.NewTracerProvider(
+		sdktrace.WithSyncer(exporter),
 		sdktrace.WithSampler(sdktrace.ParentBased(sdktrace.TraceIDRatioBased(1.0))),
 	)
 	prevTP := otel.GetTracerProvider()
@@ -204,10 +207,14 @@ func TestGatewayRequestSpanExportsRootWithUnsampledHTTPTraceparent(t *testing.T)
 	if !withNewRoot {
 		t.Fatal("expected new root when HTTP traceparent is unsampled")
 	}
-	_, gwSpan := tp.Tracer("handlers").Start(parentCtx, "gateway.request",
-		trace.WithSpanKind(trace.SpanKindServer),
-		trace.WithNewRoot(),
-	)
+	startOpts := []trace.SpanStartOption{trace.WithSpanKind(trace.SpanKindServer)}
+	if withNewRoot {
+		startOpts = append(startOpts, trace.WithNewRoot())
+		if headerSC.IsValid() {
+			startOpts = append(startOpts, trace.WithLinks(trace.Link{SpanContext: headerSC}))
+		}
+	}
+	_, gwSpan := tp.Tracer("handlers").Start(parentCtx, "gateway.request", startOpts...)
 	gwSpan.End()
 
 	if !gwSpan.SpanContext().IsSampled() {
@@ -215,6 +222,17 @@ func TestGatewayRequestSpanExportsRootWithUnsampledHTTPTraceparent(t *testing.T)
 	}
 	if got := gwSpan.SpanContext().TraceID().String(); got == testTraceID {
 		t.Fatalf("gateway.request reused unsampled upstream trace ID %s", testTraceID)
+	}
+
+	spans := exporter.GetSpans()
+	if len(spans) != 1 {
+		t.Fatalf("expected 1 exported span, got %d", len(spans))
+	}
+	if len(spans[0].Links) != 1 {
+		t.Fatalf("expected 1 span link on the new root, got %d", len(spans[0].Links))
+	}
+	if got := spans[0].Links[0].SpanContext.TraceID().String(); got != testTraceID {
+		t.Errorf("span link trace ID = %s, want %s", got, testTraceID)
 	}
 }
 

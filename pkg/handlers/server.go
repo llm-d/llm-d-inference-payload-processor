@@ -217,6 +217,9 @@ func (s *Server) Process(srv extProcPb.ExternalProcessor_ProcessServer) error {
 				startOpts := []trace.SpanStartOption{trace.WithSpanKind(trace.SpanKindServer)}
 				if withNewRoot {
 					startOpts = append(startOpts, trace.WithNewRoot())
+					if headerSC.IsValid() {
+						startOpts = append(startOpts, trace.WithLinks(trace.Link{SpanContext: headerSC}))
+					}
 				}
 				ctx, span = tracer.Start(parentCtx, "gateway.request", startOpts...)
 				// Correlate logs with traces: enrich the request logger with the
