@@ -16,6 +16,8 @@ limitations under the License.
 
 package datalayer
 
+import "encoding/json"
+
 type Model interface {
 	GetName() string
 	GetAttributes() AttributeMap
@@ -42,4 +44,14 @@ func (m *model) GetName() string {
 
 func (m *model) GetAttributes() AttributeMap {
 	return m.attributes
+}
+
+// MarshalJSON projects the unexported name field to an exported JSON key
+// so a Model is visible in structured logs.
+// Attributes are intentionally omitted because
+// AttributeMap is itself an interface backed by an unexported sync.Map
+func (m *model) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		Name string `json:"name"`
+	}{Name: m.name})
 }
