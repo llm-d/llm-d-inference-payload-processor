@@ -26,3 +26,7 @@ type Plugin = eppplugin.Plugin
 type TypedName = eppplugin.TypedName
 
 type HandlePlugins = eppplugin.HandlePlugins
+
+// StrictDecoder converts raw JSON plugin parameters into a strict *json.Decoder
+// (DisallowUnknownFields), or returns nil when raw is empty.
+var StrictDecoder = eppplugin.StrictDecoder

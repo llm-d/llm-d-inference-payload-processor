@@ -20,7 +20,6 @@ import (
 	"context"
 
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/datalayer"
-	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/plugin"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/requesthandling"
 )
 
@@ -35,5 +34,5 @@ type PipelineRunResult struct {
 }
 
 type ModelSelectorPipeline interface {
-	Run(ctx context.Context, request *requesthandling.InferenceRequest, cycleState *plugin.CycleState, candidateModels []datalayer.Model) (*PipelineRunResult, error)
+	Run(ctx context.Context, request *requesthandling.InferenceRequest, candidateModels []datalayer.Model) (*PipelineRunResult, error)
 }
