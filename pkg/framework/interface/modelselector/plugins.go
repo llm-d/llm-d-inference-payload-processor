@@ -27,7 +27,7 @@ import (
 // Filter defines the interface for filtering a list of candidate models based on context.
 type Filter interface {
 	plugin.Plugin
-	Filter(ctx context.Context, cycleState *plugin.CycleState, request *requesthandling.InferenceRequest, models []datalayer.Model) []datalayer.Model
+	Filter(ctx context.Context, request *requesthandling.InferenceRequest, models []datalayer.Model) []datalayer.Model
 }
 
 // Scorer defines the interface for scoring a list of models based on context.
@@ -36,11 +36,11 @@ type Filter interface {
 // If a scorer returns value lower than 0, it will be treated as score 0.
 type Scorer interface {
 	plugin.Plugin
-	Score(ctx context.Context, cycleState *plugin.CycleState, request *requesthandling.InferenceRequest, models []datalayer.Model) map[datalayer.Model]float64
+	Score(ctx context.Context, request *requesthandling.InferenceRequest, models []datalayer.Model) map[datalayer.Model]float64
 }
 
 // Picker picks the final model(s) to send the request to.
 type Picker interface {
 	plugin.Plugin
-	Pick(ctx context.Context, cycleState *plugin.CycleState, scoredModels []*ScoredModel) *PipelineRunResult
+	Pick(ctx context.Context, scoredModels []*ScoredModel) *PipelineRunResult
 }

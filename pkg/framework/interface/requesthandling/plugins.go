@@ -26,14 +26,14 @@ type ProfilePicker interface {
 	plugin.Plugin
 
 	// Pick selects the Profile to run from a list of candidate profiles, while taking into consideration the request properties.
-	Pick(ctx context.Context, cycleState *plugin.CycleState, request *InferenceRequest, profiles map[string]*Profile) (*Profile, error)
+	Pick(ctx context.Context, request *InferenceRequest, profiles map[string]*Profile) (*Profile, error)
 }
 
 type RequestProcessor interface {
 	plugin.Plugin
 	// ProcessRequest runs the RequestProcessor plugin.
 	// RequestProcessor can mutate the headers and/or the body of the request.
-	ProcessRequest(ctx context.Context, cycleState *plugin.CycleState, request *InferenceRequest) error
+	ProcessRequest(ctx context.Context, request *InferenceRequest) error
 }
 
 // ResponseProcessor processes the complete buffered response body.
@@ -41,16 +41,16 @@ type RequestProcessor interface {
 // the entire response before calling ProcessResponse on each such plugin.
 type ResponseProcessor interface {
 	plugin.Plugin
-	ProcessResponse(ctx context.Context, cycleState *plugin.CycleState, response *InferenceResponse) error
+	ProcessResponse(ctx context.Context, request *InferenceRequest, response *InferenceResponse) error
 }
 
 // ResponseHeadersProcessor processes response headers before the body arrives.
 // Plugins implementing this interface run during HandleResponseHeaders, so they
 // work for both streaming and non-streaming responses. Use this when a plugin
-// only needs CycleState and header access (not the response body).
+// only needs request attributes and header access (not the response body).
 type ResponseHeadersProcessor interface {
 	plugin.Plugin
-	ProcessResponseHeaders(ctx context.Context, cycleState *plugin.CycleState, response *InferenceResponse) error
+	ProcessResponseHeaders(ctx context.Context, request *InferenceRequest, response *InferenceResponse) error
 }
 
 // ResponseChunkProcessor processes individual response body chunks as they
@@ -59,5 +59,5 @@ type ResponseHeadersProcessor interface {
 // and mutate it via response.SetChunk().
 type ResponseChunkProcessor interface {
 	plugin.Plugin
-	ProcessResponseChunk(ctx context.Context, cycleState *plugin.CycleState, response *InferenceResponse, isFinal bool) error
+	ProcessResponseChunk(ctx context.Context, request *InferenceRequest, response *InferenceResponse, isFinal bool) error
 }

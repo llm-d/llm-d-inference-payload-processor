@@ -22,7 +22,6 @@ import (
 
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/datalayer"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/modelselector"
-	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/plugin"
 )
 
 func TestMaxScorePicker(t *testing.T) {
@@ -71,7 +70,7 @@ func TestMaxScorePicker(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			p := NewMaxScorePicker()
-			result := p.Pick(context.Background(), plugin.NewCycleState(), tt.input)
+			result := p.Pick(context.Background(), tt.input)
 
 			if result == nil {
 				t.Fatal("expected result, got nil")

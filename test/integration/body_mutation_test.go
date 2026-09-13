@@ -45,7 +45,7 @@ func (p *bodyMutatingPlugin) TypedName() plugin.TypedName {
 	return plugin.TypedName{Type: "test-body-mutator", Name: "test-body-mutator"}
 }
 
-func (p *bodyMutatingPlugin) ProcessRequest(_ context.Context, _ *plugin.CycleState, request *requesthandling.InferenceRequest) error {
+func (p *bodyMutatingPlugin) ProcessRequest(_ context.Context, request *requesthandling.InferenceRequest) error {
 	request.SetBodyField(p.fieldName, p.fieldValue)
 	return nil
 }

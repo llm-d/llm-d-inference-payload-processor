@@ -95,7 +95,7 @@ func (f *ModelGroupFilter) WithName(name string) *ModelGroupFilter {
 //   - a plain non-"auto"-prefixed string: the single candidate matching that name.
 //   - "auto/" (empty group name), unknown group, unmatched name, or non-string
 //     type: no candidates (pipeline rejects with 429).
-func (f *ModelGroupFilter) Filter(ctx context.Context, _ *plugin.CycleState, request *requesthandling.InferenceRequest, models []datalayer.Model) []datalayer.Model {
+func (f *ModelGroupFilter) Filter(ctx context.Context, request *requesthandling.InferenceRequest, models []datalayer.Model) []datalayer.Model {
 	logger := log.FromContext(ctx)
 
 	raw := request.Body[requestModelField]
