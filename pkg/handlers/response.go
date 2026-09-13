@@ -101,6 +101,13 @@ func (s *Server) HandleResponseBody(ctx context.Context, reqCtx *RequestContext,
 			return nil, fmt.Errorf("failed to marshal mutated response body - %w", err)
 		}
 		reqCtx.Response.SetHeader(contentLengthHeader, strconv.Itoa(len(mutatedBytes)))
+	} else {
+		// Symmetric with the request handler (HandleRequestBody): always declare
+		// Content-Length so Envoy knows the size of the body that follows the
+		// streamed body replacement. Without it, a non-mutated (passthrough) body is
+		// delivered downstream with Content-Length 0 / empty body for non-streaming
+		// responses.
+		reqCtx.Response.SetHeader(contentLengthHeader, strconv.Itoa(len(responseBodyBytes)))
 	}
 
 	var ret []*eppb.ProcessingResponse
@@ -129,6 +136,11 @@ func (s *Server) HandleResponseBody(ctx context.Context, reqCtx *RequestContext,
 // ResponseHeaders (including any header mutations from the response-headers phase)
 // followed by chunked body responses via AddStreamedResponseBody.
 func (s *Server) generatePassthroughResponseBodyResponse(reqCtx *RequestContext, responseBodyBytes []byte) []*eppb.ProcessingResponse {
+	// Declare Content-Length for the passthrough body so Envoy emits the full body
+	// (not an empty one) when replacing the response body in FULL_DUPLEX_STREAMED mode.
+	// This helper is only reached from HandleResponseBody with the complete buffered body.
+	reqCtx.Response.SetHeader(contentLengthHeader, strconv.Itoa(len(responseBodyBytes)))
+
 	responses := []*eppb.ProcessingResponse{
 		{
 			Response: &eppb.ProcessingResponse_ResponseHeaders{
