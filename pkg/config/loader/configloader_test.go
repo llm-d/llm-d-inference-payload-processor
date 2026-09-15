@@ -682,6 +682,56 @@ func TestBuildProfilesScorerMissingWeight(t *testing.T) {
 	require.ErrorContains(t, err, "requires a weight")
 }
 
+// TestLoadConfigurationInvalidProfilePickerRef verifies that LoadConfiguration returns an error
+// when the profilePicker references a non-ProfilePicker or nonexistent plugin.
+func TestLoadConfigurationInvalidProfilePickerRef(t *testing.T) {
+	// Not parallel: modifies global plugin registry.
+	registerTestPlugins(t)
+
+	tests := []struct {
+		name             string
+		configText       string
+		wantErrContains  string
+		expectProfilePic bool
+	}{
+		{
+			name:            "Error - profilePicker references a non-ProfilePicker plugin",
+			configText:      errorProfilePickerWrongTypeText,
+			wantErrContains: "is not a requesthandling.ProfilePicker",
+		},
+		{
+			name:            "Error - profilePicker references a nonexistent plugin",
+			configText:      errorProfilePickerMissingRefText,
+			wantErrContains: "is not a requesthandling.ProfilePicker",
+		},
+		{
+			name:             "Success - profilePicker references a valid ProfilePicker plugin",
+			configText:       successConfigWithProfileText,
+			expectProfilePic: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			logger := logging.NewTestLogger()
+			handle := plugin.NewHandle(context.Background(), nil, nil, nil)
+			processor := datalayerpkg.NewFakeProcessor()
+
+			cfg, err := LoadConfiguration([]byte(tc.configText), handle, processor, logger)
+
+			if tc.wantErrContains != "" {
+				require.Error(t, err, "LoadConfiguration was supposed to fail")
+				require.Nil(t, cfg, "LoadConfiguration should not return a config on error")
+				require.ErrorContains(t, err, tc.wantErrContains)
+				return
+			}
+			require.NoError(t, err, "LoadConfiguration wasn't supposed to fail")
+			require.NotNil(t, cfg.ProfilePicker, "the loaded config should have a profile picker")
+			require.Equal(t, testProfilePicker, cfg.ProfilePicker.TypedName().Name, "incorrect profile picker")
+		})
+	}
+}
+
 func TestBuildProfilesUnknownPluginType(t *testing.T) {
 	// Not parallel: modifies global plugin registry.
 	registerTestPlugins(t)

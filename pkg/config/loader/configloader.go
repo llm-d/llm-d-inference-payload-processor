@@ -61,11 +61,11 @@ func LoadConfiguration(configBytes []byte, handle plugin.Handle, processor datas
 		return nil, err
 	}
 
-	var profilePicker requesthandling.ProfilePicker
-	var ok bool
-	if profilePicker, ok = handle.Plugin(rawConfig.ProfilePicker.PluginRef).(requesthandling.ProfilePicker); !ok {
+	profilePicker, ok := handle.Plugin(rawConfig.ProfilePicker.PluginRef).(requesthandling.ProfilePicker)
+	if !ok {
 		err = fmt.Errorf("the profilePicker referenced in the configuration (%s) is not a requesthandling.ProfilePicker", rawConfig.ProfilePicker.PluginRef)
-		logger.Error(err, "failed to load the configuration")
+		logger.Error(err, "failed to load the profilePicker")
+		return nil, err
 	}
 
 	profiles, err := buildProfiles(rawConfig.Profiles, handle)
