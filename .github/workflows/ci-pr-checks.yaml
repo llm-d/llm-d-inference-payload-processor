@@ -28,8 +28,8 @@ jobs:
               - '!LICENSE'
               - '!OWNERS'
 
-  # Go: lint, build, and test
-  lint-and-test:
+  # Go: lint
+  lint:
     runs-on: ubuntu-latest
     needs: check-code-changes
     if: needs.check-code-changes.outputs.has_code_changes == 'true'
@@ -54,6 +54,27 @@ jobs:
         with:
           version: v2.12.2
           args: ""
+
+  # Go: build and test
+  build-and-test:
+    runs-on: ubuntu-latest
+    needs: check-code-changes
+    if: needs.check-code-changes.outputs.has_code_changes == 'true'
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v7
+
+      - name: Extract Go version from go.mod
+        run: sed -En 's/^go (.*)$/GO_VERSION=\1/p' go.mod >> $GITHUB_ENV
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: "${{ env.GO_VERSION }}"
+          cache-dependency-path: ./go.sum
+
+      - name: Download dependencies
+        run: go mod download
 
       - name: Build
         run: make build
