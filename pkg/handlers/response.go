@@ -29,7 +29,6 @@ import (
 
 	envoy "github.com/llm-d/llm-d-inference-payload-processor/pkg/common/envoy"
 	logutil "github.com/llm-d/llm-d-inference-payload-processor/pkg/common/observability/logging"
-	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/plugin"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/requesthandling"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/metrics"
 )
@@ -43,7 +42,7 @@ func (s *Server) HandleResponseHeaders(ctx context.Context, reqCtx *RequestConte
 		}
 	}
 
-	if err := s.runResponseHeadersProcessors(ctx, reqCtx.CycleState, reqCtx.Response); err != nil {
+	if err := s.runResponseHeadersProcessors(ctx, reqCtx.Request, reqCtx.Response); err != nil {
 		return nil, err
 	}
 
@@ -83,12 +82,12 @@ func (s *Server) HandleResponseBody(ctx context.Context, reqCtx *RequestContext,
 	}
 
 	if hasProfilePlugins {
-		if err := s.runResponsePlugins(ctx, reqCtx.CycleState, reqCtx.Response, reqCtx.Profile.ResponsePlugins); err != nil {
+		if err := s.runResponsePlugins(ctx, reqCtx.Request, reqCtx.Response, reqCtx.Profile.ResponsePlugins); err != nil {
 			return nil, err
 		}
 	}
 
-	if err := s.runResponsePlugins(ctx, reqCtx.CycleState, reqCtx.Response, s.postProcessors); err != nil {
+	if err := s.runResponsePlugins(ctx, reqCtx.Request, reqCtx.Response, s.postProcessors); err != nil {
 		return nil, err
 	}
 
@@ -174,7 +173,7 @@ func (s *Server) HandleResponseChunk(ctx context.Context, reqCtx *RequestContext
 	chunk := string(chunkBytes)
 	reqCtx.Response.ResetChunkState(chunk)
 
-	if err := s.runResponseChunkProcessors(ctx, reqCtx.CycleState, reqCtx.Response, endOfStream, reqCtx.Profile.ResponseChunkProcessors); err != nil {
+	if err := s.runResponseChunkProcessors(ctx, reqCtx.Request, reqCtx.Response, endOfStream, reqCtx.Profile.ResponseChunkProcessors); err != nil {
 		logger.Error(err, "Failed to run response chunk processors")
 		return nil, err
 	}
@@ -190,7 +189,7 @@ func (s *Server) HandleResponseChunk(ctx context.Context, reqCtx *RequestContext
 // runResponseChunkProcessors executes chunk processors in the order they were registered.
 // Each plugin receives response.CurrentChunk so mutations from earlier plugins are visible
 // to later ones in the chain.
-func (s *Server) runResponseChunkProcessors(ctx context.Context, cycleState *plugin.CycleState, response *requesthandling.InferenceResponse, isFinal bool, processors []requesthandling.ResponseChunkProcessor) error {
+func (s *Server) runResponseChunkProcessors(ctx context.Context, request *requesthandling.InferenceRequest, response *requesthandling.InferenceResponse, isFinal bool, processors []requesthandling.ResponseChunkProcessor) error {
 	logger := log.FromContext(ctx).V(logutil.DEFAULT)
 	verboseLogger := logger.V(logutil.VERBOSE)
 
@@ -199,7 +198,7 @@ func (s *Server) runResponseChunkProcessors(ctx context.Context, cycleState *plu
 			verboseLogger.Info("Executing response chunk plugin", "plugin", cp.TypedName())
 		}
 		before := time.Now()
-		err := cp.ProcessResponseChunk(ctx, cycleState, response, isFinal)
+		err := cp.ProcessResponseChunk(ctx, request, response, isFinal)
 		metrics.RecordPluginProcessingLatency(responsePluginExtensionPoint, cp.TypedName().Type, cp.TypedName().Name, time.Since(before))
 		if err != nil {
 			return err
@@ -254,7 +253,7 @@ func (s *Server) HandleResponseTrailers(trailers *eppb.HttpTrailers) ([]*eppb.Pr
 }
 
 // runResponseHeadersProcessors executes response-headers post-processors in order.
-func (s *Server) runResponseHeadersProcessors(ctx context.Context, cycleState *plugin.CycleState, response *requesthandling.InferenceResponse) error {
+func (s *Server) runResponseHeadersProcessors(ctx context.Context, request *requesthandling.InferenceRequest, response *requesthandling.InferenceResponse) error {
 	if len(s.responseHeadersPostProcessors) == 0 {
 		return nil
 	}
@@ -267,7 +266,7 @@ func (s *Server) runResponseHeadersProcessors(ctx context.Context, cycleState *p
 			verboseLogger.Info("Executing response headers plugin", "plugin", hp.TypedName())
 		}
 		before := time.Now()
-		if err := hp.ProcessResponseHeaders(ctx, cycleState, response); err != nil {
+		if err := hp.ProcessResponseHeaders(ctx, request, response); err != nil {
 			logger.Error(err, "Failed to execute response headers plugin", "plugin", hp.TypedName())
 			return err
 		}
@@ -278,7 +277,7 @@ func (s *Server) runResponseHeadersProcessors(ctx context.Context, cycleState *p
 }
 
 // runResponsePlugins executes response plugins in the order they were registered.
-func (s *Server) runResponsePlugins(ctx context.Context, cycleState *plugin.CycleState, response *requesthandling.InferenceResponse, respPlugins []requesthandling.ResponseProcessor) error {
+func (s *Server) runResponsePlugins(ctx context.Context, request *requesthandling.InferenceRequest, response *requesthandling.InferenceResponse, respPlugins []requesthandling.ResponseProcessor) error {
 	logger := log.FromContext(ctx).V(logutil.DEFAULT)
 
 	// Cache verbose logger and check Enabled() once to avoid per-iteration
@@ -292,7 +291,7 @@ func (s *Server) runResponsePlugins(ctx context.Context, cycleState *plugin.Cycl
 			verboseLogger.Info("Executing response plugin", "plugin", respPlugin.TypedName())
 		}
 		before := time.Now()
-		err = respPlugin.ProcessResponse(ctx, cycleState, response)
+		err = respPlugin.ProcessResponse(ctx, request, response)
 		metrics.RecordPluginProcessingLatency(responsePluginExtensionPoint, respPlugin.TypedName().Type, respPlugin.TypedName().Name, time.Since(before))
 		if err != nil {
 			logger.Error(err, "Failed to execute response plugin", "plugin", respPlugin.TypedName())

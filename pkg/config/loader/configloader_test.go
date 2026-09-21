@@ -475,7 +475,7 @@ type mockProfilePicker struct{ mockPlugin }
 // compile-time type assertion
 var _ requesthandling.ProfilePicker = &mockProfilePicker{}
 
-func (m *mockProfilePicker) Pick(ctx context.Context, cycleState *plugin.CycleState, request *requesthandling.InferenceRequest,
+func (m *mockProfilePicker) Pick(ctx context.Context, request *requesthandling.InferenceRequest,
 	profiles map[string]*requesthandling.Profile) (*requesthandling.Profile, error) {
 	return nil, nil
 }
@@ -486,7 +486,7 @@ type mockRequestProcessor struct{ mockPlugin }
 // compile-time type assertion
 var _ requesthandling.RequestProcessor = &mockRequestProcessor{}
 
-func (m *mockRequestProcessor) ProcessRequest(ctx context.Context, cycleState *plugin.CycleState, request *requesthandling.InferenceRequest) error {
+func (m *mockRequestProcessor) ProcessRequest(ctx context.Context, request *requesthandling.InferenceRequest) error {
 	return nil
 }
 
@@ -496,7 +496,7 @@ type mockResponseProcessor struct{ mockPlugin }
 // compile-time type assertion
 var _ requesthandling.ResponseProcessor = &mockResponseProcessor{}
 
-func (m *mockResponseProcessor) ProcessResponse(ctx context.Context, cycleState *plugin.CycleState, request *requesthandling.InferenceResponse) error {
+func (m *mockResponseProcessor) ProcessResponse(ctx context.Context, request *requesthandling.InferenceRequest, response *requesthandling.InferenceResponse) error {
 	return nil
 }
 
@@ -506,7 +506,7 @@ type mockFilter struct{ mockPlugin }
 // compile-time type assertion
 var _ modelselector.Filter = &mockFilter{}
 
-func (m *mockFilter) Filter(_ context.Context, _ *plugin.CycleState, _ *requesthandling.InferenceRequest, models []datalayer.Model) []datalayer.Model {
+func (m *mockFilter) Filter(_ context.Context, _ *requesthandling.InferenceRequest, models []datalayer.Model) []datalayer.Model {
 	return models
 }
 
@@ -516,7 +516,7 @@ type mockScorer struct{ mockPlugin }
 // compile-time type assertion
 var _ modelselector.Scorer = &mockScorer{}
 
-func (m *mockScorer) Score(ctx context.Context, cycleState *plugin.CycleState, request *requesthandling.InferenceRequest, models []datalayer.Model) map[datalayer.Model]float64 {
+func (m *mockScorer) Score(ctx context.Context, request *requesthandling.InferenceRequest, models []datalayer.Model) map[datalayer.Model]float64 {
 	return nil
 }
 
@@ -549,7 +549,7 @@ type mockPicker struct{ mockPlugin }
 // compile-time type assertion
 var _ modelselector.Picker = &mockPicker{}
 
-func (m *mockPicker) Pick(ctx context.Context, cycleState *plugin.CycleState, scoredModels []*modelselector.ScoredModel) *modelselector.PipelineRunResult {
+func (m *mockPicker) Pick(ctx context.Context, scoredModels []*modelselector.ScoredModel) *modelselector.PipelineRunResult {
 	return nil
 }
 
@@ -558,37 +558,36 @@ func registerTestPlugins(t *testing.T) {
 
 	// Register standard test mocks.
 	plugin.Register(testPluginType,
-		func(name string, params json.RawMessage, _ plugin.Handle) (plugin.Plugin, error) {
+		func(name string, _ *json.Decoder, _ plugin.Handle) (plugin.Plugin, error) {
 			return &mockPlugin{t: plugin.TypedName{Name: name, Type: testPluginType}}, nil
 		})
 
 	plugin.Register(testProfilePicker,
-		func(name string, params json.RawMessage, _ plugin.Handle) (plugin.Plugin, error) {
+		func(name string, _ *json.Decoder, _ plugin.Handle) (plugin.Plugin, error) {
 			return &mockProfilePicker{mockPlugin{t: plugin.TypedName{Name: name, Type: testProfilePicker}}}, nil
 		})
 
 	plugin.Register(testRequestProcType,
-		func(name string, params json.RawMessage, _ plugin.Handle) (plugin.Plugin, error) {
+		func(name string, _ *json.Decoder, _ plugin.Handle) (plugin.Plugin, error) {
 			return &mockRequestProcessor{mockPlugin{t: plugin.TypedName{Name: name, Type: testRequestProcType}}}, nil
 		})
 
 	plugin.Register(testResponseProcType,
-		func(name string, params json.RawMessage, _ plugin.Handle) (plugin.Plugin, error) {
+		func(name string, _ *json.Decoder, _ plugin.Handle) (plugin.Plugin, error) {
 			return &mockResponseProcessor{mockPlugin{t: plugin.TypedName{Name: name, Type: testResponseProcType}}}, nil
 		})
 
 	plugin.Register(testPickerType,
-		func(name string, params json.RawMessage, _ plugin.Handle) (plugin.Plugin, error) {
+		func(name string, _ *json.Decoder, _ plugin.Handle) (plugin.Plugin, error) {
 			return &mockPicker{mockPlugin{t: plugin.TypedName{Name: name, Type: testPickerType}}}, nil
 		})
 
-	plugin.Register(testScorerType, func(name string, params json.RawMessage, _ plugin.Handle) (plugin.Plugin, error) {
-		// Attempt to unmarshal to trigger errors for invalid JSON in tests.
-		if len(params) > 0 {
+	plugin.Register(testScorerType, func(name string, params *json.Decoder, _ plugin.Handle) (plugin.Plugin, error) {
+		if params != nil {
 			var p struct {
 				Cost float32 `json:"cost"`
 			}
-			if err := json.Unmarshal(params, &p); err != nil {
+			if err := params.Decode(&p); err != nil {
 				return nil, err
 			}
 		}
@@ -596,22 +595,22 @@ func registerTestPlugins(t *testing.T) {
 	})
 
 	plugin.Register(testFilterType,
-		func(name string, _ json.RawMessage, _ plugin.Handle) (plugin.Plugin, error) {
+		func(name string, _ *json.Decoder, _ plugin.Handle) (plugin.Plugin, error) {
 			return &mockFilter{mockPlugin{t: plugin.TypedName{Name: name, Type: testFilterType}}}, nil
 		})
 
 	plugin.Register(testExtractorType,
-		func(name string, _ json.RawMessage, _ plugin.Handle) (plugin.Plugin, error) {
+		func(name string, _ *json.Decoder, _ plugin.Handle) (plugin.Plugin, error) {
 			return &mockExtractor{mockPlugin{t: plugin.TypedName{Name: name, Type: testExtractorType}}}, nil
 		})
 
 	plugin.Register(testCollectorType,
-		func(name string, _ json.RawMessage, _ plugin.Handle) (plugin.Plugin, error) {
+		func(name string, _ *json.Decoder, _ plugin.Handle) (plugin.Plugin, error) {
 			return &mockCollector{mockPlugin{t: plugin.TypedName{Name: name, Type: testCollectorType}}}, nil
 		})
 
 	plugin.Register(testDataSourceType,
-		func(name string, _ json.RawMessage, _ plugin.Handle) (plugin.Plugin, error) {
+		func(name string, _ *json.Decoder, _ plugin.Handle) (plugin.Plugin, error) {
 			return &mockDataSource{mockPlugin{t: plugin.TypedName{Name: name, Type: testDataSourceType}}}, nil
 		})
 }
@@ -624,7 +623,7 @@ func registerModelSelectorPlugins(t *testing.T) {
 	plugin.Register(costaware.CostScorerType, costaware.CostScorerFactory)
 	plugin.Register(maxscore.MaxScorePickerType, maxscore.MaxScorePickerFactory)
 	plugin.Register(testFilterType,
-		func(name string, _ json.RawMessage, _ plugin.Handle) (plugin.Plugin, error) {
+		func(name string, _ *json.Decoder, _ plugin.Handle) (plugin.Plugin, error) {
 			return &mockFilter{mockPlugin{t: plugin.TypedName{Name: name, Type: testFilterType}}}, nil
 		})
 }

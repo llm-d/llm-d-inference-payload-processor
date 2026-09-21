@@ -21,8 +21,11 @@ import (
 )
 
 // Factory is the definition of the factory functions that are used to instantiate plugins
-// specified in a configuration.
-type FactoryFunc func(name string, parameters json.RawMessage, handle Handle) (Plugin, error)
+// specified in a configuration. The framework provides a strict decoder
+// (DisallowUnknownFields) over the plugin's raw parameters, or nil when the plugin was
+// instantiated without parameters. Factories that ignore parameters can take the decoder
+// as `_ *json.Decoder`.
+type FactoryFunc func(name string, parameters *json.Decoder, handle Handle) (Plugin, error)
 
 // Register is a static function that can be called to register plugin factory functions.
 func Register(pluginType string, factory FactoryFunc) {

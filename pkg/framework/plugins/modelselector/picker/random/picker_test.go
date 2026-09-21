@@ -18,6 +18,7 @@ package random
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/datalayer"
@@ -60,7 +61,7 @@ func TestRandomPicker_Pick(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			p := NewRandomPicker()
-			result := p.Pick(context.Background(), plugin.NewCycleState(), tt.input)
+			result := p.Pick(context.Background(), tt.input)
 
 			if result == nil {
 				t.Fatal("expected result, got nil")
@@ -103,7 +104,7 @@ func TestRandomPicker_Pick_IgnoresScores(t *testing.T) {
 	counts := map[string]int{}
 
 	for range iterations {
-		result := p.Pick(context.Background(), plugin.NewCycleState(), input)
+		result := p.Pick(context.Background(), input)
 		counts[result.TargetModel.GetName()]++
 	}
 
@@ -184,7 +185,7 @@ func TestRandomPickerFactory(t *testing.T) {
 	})
 
 	t.Run("ignores config parameter", func(t *testing.T) {
-		_, err := RandomPickerFactory("test", []byte(`{"some": "config"}`), nil)
+		_, err := RandomPickerFactory("test", plugin.StrictDecoder(json.RawMessage(`{"some": "config"}`)), nil)
 		if err != nil {
 			t.Fatalf("config should be ignored, got error: %v", err)
 		}
