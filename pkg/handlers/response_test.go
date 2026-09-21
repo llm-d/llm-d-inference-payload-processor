@@ -75,7 +75,21 @@ func TestHandleResponseBody_NoPlugins(t *testing.T) {
 	want := []*extProcPb.ProcessingResponse{
 		{
 			Response: &extProcPb.ProcessingResponse_ResponseHeaders{
-				ResponseHeaders: &extProcPb.HeadersResponse{},
+				ResponseHeaders: &extProcPb.HeadersResponse{
+					Response: &extProcPb.CommonResponse{
+						HeaderMutation: &extProcPb.HeaderMutation{
+							SetHeaders: []*basepb.HeaderValueOption{
+								{
+									Header: &basepb.HeaderValue{
+										Key:      contentLengthHeader,
+										RawValue: []byte(strconv.Itoa(len(responseBody))),
+									},
+									AppendAction: basepb.HeaderValueOption_OVERWRITE_IF_EXISTS_OR_ADD,
+								},
+							},
+						},
+					},
+				},
 			},
 		},
 		{
@@ -256,6 +270,13 @@ func TestHandleResponseBody_PluginNoBodyMutation(t *testing.T) {
 									Header: &basepb.HeaderValue{
 										Key:      "X-Custom-Response",
 										RawValue: []byte("added"),
+									},
+									AppendAction: basepb.HeaderValueOption_OVERWRITE_IF_EXISTS_OR_ADD,
+								},
+								{
+									Header: &basepb.HeaderValue{
+										Key:      contentLengthHeader,
+										RawValue: []byte(strconv.Itoa(len(responseBody))),
 									},
 									AppendAction: basepb.HeaderValueOption_OVERWRITE_IF_EXISTS_OR_ADD,
 								},
