@@ -62,7 +62,7 @@ func (p *SingleProfilePicker) WithName(name string) *SingleProfilePicker {
 
 // Pick selects the Profile to run from the list of candidate profiles, while taking into consideration the request properties and the
 // previously executed cycles along with their results.
-func (p *SingleProfilePicker) Pick(ctx context.Context, cycleState *plugin.CycleState, request *requesthandling.InferenceRequest, profiles map[string]*requesthandling.Profile) (*requesthandling.Profile, error) {
+func (p *SingleProfilePicker) Pick(ctx context.Context, request *requesthandling.InferenceRequest, profiles map[string]*requesthandling.Profile) (*requesthandling.Profile, error) {
 	if len(profiles) != 1 {
 		return nil, fmt.Errorf("failed to select a single profile from %d profiles", len(profiles))
 	}

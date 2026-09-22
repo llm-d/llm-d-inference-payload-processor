@@ -85,7 +85,7 @@ func (p *BaseModelToHeaderPlugin) WithName(name string) *BaseModelToHeaderPlugin
 }
 
 // ProcessRequest sets base model name on the header
-func (p *BaseModelToHeaderPlugin) ProcessRequest(ctx context.Context, _ *plugin.CycleState, request *requesthandling.InferenceRequest) error {
+func (p *BaseModelToHeaderPlugin) ProcessRequest(ctx context.Context, request *requesthandling.InferenceRequest) error {
 	// extract raw field value from body
 	rawFieldValue, exists := request.Body[modelField]
 	if !exists {

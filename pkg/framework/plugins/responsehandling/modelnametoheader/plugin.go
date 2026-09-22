@@ -19,7 +19,6 @@ package modelnametoheader
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -74,14 +73,11 @@ func (p *ModelNameToHeaderPlugin) TypedName() plugin.TypedName {
 	return p.typedName
 }
 
-func (p *ModelNameToHeaderPlugin) ProcessResponseHeaders(ctx context.Context, cycleState *plugin.CycleState, response *requesthandling.InferenceResponse) error {
-	selectedModel, err := plugin.ReadCycleStateKey[string](cycleState, modelselector.SelectedModelCycleStateKey)
+func (p *ModelNameToHeaderPlugin) ProcessResponseHeaders(ctx context.Context, request *requesthandling.InferenceRequest, response *requesthandling.InferenceResponse) error {
+	selectedModel, err := requesthandling.ReadRequestAttribute[string](request, modelselector.SelectedModelAttributeKey)
 	if err != nil {
-		if errors.Is(err, plugin.ErrNotFound) {
-			log.FromContext(ctx).V(logutil.VERBOSE).Info("no selected model in CycleState, skipping")
-			return nil
-		}
-		return fmt.Errorf("failed to read selected model from CycleState: %w", err)
+		log.FromContext(ctx).V(logutil.VERBOSE).Info("no selected model in request attributes, skipping")
+		return nil
 	}
 
 	response.SetHeader(p.headerName, selectedModel)
