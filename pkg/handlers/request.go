@@ -59,7 +59,8 @@ func (s *Server) HandleRequestHeaders(ctx context.Context, reqCtx *RequestContex
 		log.FromContext(ctx).V(logutil.VERBOSE).Info("captured request headers, deferring response until body arrives...")
 		return nil
 	}
-	// EndOfStream means no body is expected, return HeadersResponse immediately
+
+	reqCtx.RequestSentTimestamp = time.Now()
 	headersResponse := &eppb.HeadersResponse{}
 	if len(reqCtx.Request.MutatedHeaders()) > 0 || len(reqCtx.Request.RemovedHeaders()) > 0 {
 		headersResponse.Response = &eppb.CommonResponse{
