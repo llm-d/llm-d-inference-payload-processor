@@ -26,7 +26,7 @@ require (
 	google.golang.org/grpc v1.83.2
 	google.golang.org/protobuf v1.36.12
 	k8s.io/api v0.35.8
-	k8s.io/apimachinery v0.35.8
+	k8s.io/apimachinery v0.35.9
 	k8s.io/client-go v0.35.8
 	k8s.io/code-generator v0.35.8
 	k8s.io/component-base v0.35.8
