@@ -797,3 +797,47 @@ func addRequestPlugins(p map[string]*requesthandling.Profile, plugins ...request
 func withResponsePlugins(p map[string]*requesthandling.Profile, plugins ...requesthandling.ResponseProcessor) {
 	p[testProfileName].ResponsePlugins = plugins
 }
+
+func TestProcess_BodylessRequestReportsSaneTTFT(t *testing.T) {
+	streamCtx, cancel := context.WithCancel(logutil.NewTestLoggerIntoContext(context.Background()))
+	notifier := &captureNotifier{events: make(chan datasource.Event, 1)}
+	srv := newServerForTest(newTestProfiles()).WithEventNotifier(notifier)
+	testListener, errChan := utils.SetupTestStreamingServer(t, streamCtx, srv)
+	process, conn := utils.GetStreamingServerClient(streamCtx, t)
+	defer conn.Close()
+	defer func() {
+		cancel()
+		<-errChan
+		testListener.Close()
+	}()
+
+	if err := process.Send(&extProcPb.ProcessingRequest{
+		Request: &extProcPb.ProcessingRequest_RequestHeaders{
+			RequestHeaders: &extProcPb.HttpHeaders{EndOfStream: true},
+		},
+	}); err != nil {
+		t.Fatalf("send request headers: %v", err)
+	}
+	if err := process.Send(&extProcPb.ProcessingRequest{
+		Request: &extProcPb.ProcessingRequest_ResponseBody{
+			ResponseBody: &extProcPb.HttpBody{Body: []byte(`{"model":"m"}`), EndOfStream: true},
+		},
+	}); err != nil {
+		t.Fatalf("send response body: %v", err)
+	}
+
+	var event datasource.Event
+	select {
+	case event = <-notifier.events:
+	case <-time.After(10 * time.Second):
+		t.Fatal("no response event fired")
+	}
+
+	payload := event.Payload.(datasource.ResponsePayload)
+	if payload.TTFT < 0 || payload.TTFT > time.Minute {
+		t.Errorf("TTFT = %v, want a duration measured from this request", payload.TTFT)
+	}
+	if payload.Duration < 0 || payload.Duration > time.Minute {
+		t.Errorf("Duration = %v, want a duration measured from this request", payload.Duration)
+	}
+}
