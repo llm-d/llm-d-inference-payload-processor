@@ -47,12 +47,15 @@ func InitTracing(ctx context.Context, logger logr.Logger, defaultServiceName str
 	logger = logger.WithName("trace")
 	loggerWrap := &errorHandler{logger: logger}
 
-	_, ok := os.LookupEnv("OTEL_SERVICE_NAME")
-	if !ok {
-		os.Setenv("OTEL_SERVICE_NAME", defaultServiceName)
+	// resource.New reports malformed OTEL_RESOURCE_ATTRIBUTES entries alongside a
+	// resource holding everything it could parse. Tracing degrades to that resource
+	// rather than stopping process startup.
+	res, err := newResource(ctx, defaultServiceName)
+	if err != nil {
+		loggerWrap.Handle(fmt.Errorf("%s: %v", "build trace resource degraded", err))
 	}
 
-	_, ok = os.LookupEnv("OTEL_EXPORTER_OTLP_ENDPOINT")
+	_, ok := os.LookupEnv("OTEL_EXPORTER_OTLP_ENDPOINT")
 	if !ok {
 		os.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317")
 	}
@@ -88,10 +91,7 @@ func InitTracing(ctx context.Context, logger logr.Logger, defaultServiceName str
 	opt := []sdktrace.TracerProviderOption{
 		sdktrace.WithBatcher(traceExporter),
 		sdktrace.WithSampler(sampler),
-		sdktrace.WithResource(resource.NewWithAttributes(
-			semconv.SchemaURL,
-			semconv.ServiceVersionKey.String(version.BuildRef),
-		)),
+		sdktrace.WithResource(res),
 	}
 
 	tracerProvider := sdktrace.NewTracerProvider(opt...)
@@ -110,6 +110,24 @@ func InitTracing(ctx context.Context, logger logr.Logger, defaultServiceName str
 	}()
 
 	return nil
+}
+
+// newResource builds the resource describing this process. Detectors are applied
+// in order and later ones win, so OTEL_SERVICE_NAME and OTEL_RESOURCE_ATTRIBUTES
+// override the built-in defaults.
+//
+// resource.Default is deliberately not merged in: it carries a newer semantic
+// convention schema URL than the one used here, and merging conflicting schema
+// URLs drops the schema URL from the result.
+func newResource(ctx context.Context, defaultServiceName string) (*resource.Resource, error) {
+	return resource.New(ctx,
+		resource.WithSchemaURL(semconv.SchemaURL),
+		resource.WithAttributes(
+			semconv.ServiceNameKey.String(defaultServiceName),
+			semconv.ServiceVersionKey.String(version.BuildRef),
+		),
+		resource.WithFromEnv(),
+	)
 }
 
 // initTraceExporter create a SpanExporter
