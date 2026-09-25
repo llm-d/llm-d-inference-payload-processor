@@ -177,7 +177,9 @@ Following is the available interfaces that can be implemented.
 
 ### Request-handling interfaces
 
-In addition to `ProcessRequest`, there are additional request processing interfaces, such as **`ProfilePicker`** and **`PreProcess`**.
+In addition to `ProcessRequest`, there are additional request processing interfaces, such as **`ProfilePicker`**.
+Pre-processing does not have an interface of its own: any `RequestProcessor` referenced from
+`preProcessing` runs on every request before profile selection.
 
 **`ProfilePicker`** — called once per request to select the profile to run. The implementation below
 is the built-in [`single-profile-picker`][single-profile-picker-src], which asserts exactly one
