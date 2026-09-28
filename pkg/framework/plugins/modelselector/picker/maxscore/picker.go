@@ -38,7 +38,7 @@ const (
 var _ modelselector.Picker = &MaxScorePicker{}
 
 // MaxScorePickerFactory defines the factory function for MaxScorePicker.
-func MaxScorePickerFactory(name string, _ json.RawMessage, _ plugin.Handle) (plugin.Plugin, error) {
+func MaxScorePickerFactory(name string, _ *json.Decoder, _ plugin.Handle) (plugin.Plugin, error) {
 	return NewMaxScorePicker().WithName(name), nil
 }
 
@@ -66,7 +66,7 @@ func (p *MaxScorePicker) TypedName() plugin.TypedName {
 }
 
 // Pick selects the model with the highest score.
-func (p *MaxScorePicker) Pick(ctx context.Context, _ *plugin.CycleState, scoredModels []*modelselector.ScoredModel) *modelselector.PipelineRunResult {
+func (p *MaxScorePicker) Pick(ctx context.Context, scoredModels []*modelselector.ScoredModel) *modelselector.PipelineRunResult {
 	if debugLogger := log.FromContext(ctx).V(logutil.DEBUG); debugLogger.Enabled() {
 		debugLogger.Info("selecting model from candidates by max score", "numCandidates", len(scoredModels),
 			"scoredModels", scoredModels)

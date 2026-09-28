@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/plugin"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/requesthandling"
 )
 
@@ -101,38 +102,38 @@ func TestBodyFieldToHeaderPluginFactory(t *testing.T) {
 	tests := []struct {
 		name       string
 		pluginName string
-		rawParams  json.RawMessage
+		rawParams  *json.Decoder
 		wantErr    bool
 		wantName   string
 	}{
 		{
 			name:       "valid config",
 			pluginName: "my-plugin",
-			rawParams:  json.RawMessage(`{"fieldName":"model","headerName":"X-Gateway-Model"}`),
+			rawParams:  plugin.StrictDecoder(json.RawMessage(`{"fieldName":"model","headerName":"X-Gateway-Model"}`)),
 			wantName:   "my-plugin",
 		},
 		{
 			name:       "invalid JSON",
 			pluginName: "my-plugin",
-			rawParams:  json.RawMessage(`{invalid`),
+			rawParams:  plugin.StrictDecoder(json.RawMessage(`{invalid`)),
 			wantErr:    true,
 		},
 		{
 			name:       "missing fieldName",
 			pluginName: "my-plugin",
-			rawParams:  json.RawMessage(`{"header_name":"X-Gateway-Model"}`),
+			rawParams:  plugin.StrictDecoder(json.RawMessage(`{"header_name":"X-Gateway-Model"}`)),
 			wantErr:    true,
 		},
 		{
 			name:       "missing headerName",
 			pluginName: "my-plugin",
-			rawParams:  json.RawMessage(`{"field_name":"model"}`),
+			rawParams:  plugin.StrictDecoder(json.RawMessage(`{"field_name":"model"}`)),
 			wantErr:    true,
 		},
 		{
 			name:       "empty parameters",
 			pluginName: "my-plugin",
-			rawParams:  json.RawMessage(``),
+			rawParams:  nil,
 			wantErr:    true,
 		},
 		{
@@ -144,13 +145,13 @@ func TestBodyFieldToHeaderPluginFactory(t *testing.T) {
 		{
 			name:       "JSON null",
 			pluginName: "my-plugin",
-			rawParams:  json.RawMessage(`null`),
+			rawParams:  plugin.StrictDecoder(json.RawMessage(`null`)),
 			wantErr:    true,
 		},
 		{
 			name:       "empty JSON object",
 			pluginName: "my-plugin",
-			rawParams:  json.RawMessage(`{}`),
+			rawParams:  plugin.StrictDecoder(json.RawMessage(`{}`)),
 			wantErr:    true,
 		},
 	}
@@ -257,7 +258,7 @@ func TestBodyFieldToHeaderPlugin_ProcessRequest(t *testing.T) {
 				t.Fatalf("failed to create plugin: %v", err)
 			}
 
-			err = p.ProcessRequest(context.Background(), nil, tt.request)
+			err = p.ProcessRequest(context.Background(), tt.request)
 			if tt.wantErr {
 				if err == nil {
 					t.Fatal("expected error, got nil")
@@ -285,7 +286,7 @@ func TestBodyFieldToHeaderPlugin_ProcessRequest_MutatedHeaders(t *testing.T) {
 	request := requesthandling.NewInferenceRequest()
 	request.Body["model"] = testModelValue
 
-	if err := p.ProcessRequest(context.Background(), nil, request); err != nil {
+	if err := p.ProcessRequest(context.Background(), request); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 

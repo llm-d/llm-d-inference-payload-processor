@@ -151,7 +151,7 @@ func newTestExtractor(t *testing.T) (*RequestCostMetadataExtractor, datalayer.Da
 func TestExtractorFactory_HonorsConfig(t *testing.T) {
 	ds := datastore.NewFakeDataStore()
 	raw := json.RawMessage(`{"compression":50,"flushIntervalDuration":"1m","windowDuration":"30m"}`)
-	p, err := ExtractorFactory("x", raw, &fakeHandle{ds: ds})
+	p, err := ExtractorFactory("x", plugin.StrictDecoder(raw), &fakeHandle{ds: ds})
 	if err != nil {
 		t.Fatalf("ExtractorFactory: %v", err)
 	}
@@ -170,12 +170,12 @@ func TestExtractorFactory_HonorsConfig(t *testing.T) {
 func TestExtractorFactory_RejectsInvalidDurations(t *testing.T) {
 	tests := []struct {
 		name string
-		raw  json.RawMessage
+		raw  *json.Decoder
 	}{
-		{"flushIntervalDuration malformed", json.RawMessage(`{"compression":200,"flushIntervalDuration":"not-a-duration"}`)},
-		{"flushIntervalDuration negative", json.RawMessage(`{"compression":200,"flushIntervalDuration":"-1s"}`)},
-		{"windowDuration malformed", json.RawMessage(`{"compression":200,"windowDuration":"not-a-duration"}`)},
-		{"windowDuration negative", json.RawMessage(`{"compression":200,"windowDuration":"-1s"}`)},
+		{"flushIntervalDuration malformed", plugin.StrictDecoder(json.RawMessage(`{"compression":200,"flushIntervalDuration":"not-a-duration"}`))},
+		{"flushIntervalDuration negative", plugin.StrictDecoder(json.RawMessage(`{"compression":200,"flushIntervalDuration":"-1s"}`))},
+		{"windowDuration malformed", plugin.StrictDecoder(json.RawMessage(`{"compression":200,"windowDuration":"not-a-duration"}`))},
+		{"windowDuration negative", plugin.StrictDecoder(json.RawMessage(`{"compression":200,"windowDuration":"-1s"}`))},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

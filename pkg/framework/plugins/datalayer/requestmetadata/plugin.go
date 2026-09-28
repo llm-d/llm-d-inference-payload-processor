@@ -37,7 +37,7 @@ const (
 var _ dlsrc.Extractor = &RequestMetadataExtractor{}
 
 // ExtractorFactory creates a RequestMetadataExtractor wired to the shared DataStore.
-func ExtractorFactory(name string, _ json.RawMessage, h plugin.Handle) (plugin.Plugin, error) {
+func ExtractorFactory(name string, _ *json.Decoder, h plugin.Handle) (plugin.Plugin, error) {
 	return NewRequestMetadataExtractor(h.Datastore()).WithName(name), nil
 }
 

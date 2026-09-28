@@ -32,7 +32,7 @@ func TestFactory(t *testing.T) {
 	tests := []struct {
 		name          string
 		pluginName    string
-		rawParameters json.RawMessage
+		rawParameters *json.Decoder
 		expectError   bool
 	}{
 		{
@@ -44,7 +44,7 @@ func TestFactory(t *testing.T) {
 		{
 			name:          "factory with empty parameters",
 			pluginName:    "my-scorer",
-			rawParameters: json.RawMessage(`{}`),
+			rawParameters: plugin.StrictDecoder(json.RawMessage(`{}`)),
 			expectError:   false,
 		},
 	}
@@ -84,7 +84,6 @@ func TestWithName(t *testing.T) {
 // TestScore tests the Score method with various scenarios
 func TestScore(t *testing.T) {
 	ctx := context.Background()
-	cycleState := plugin.NewCycleState()
 	request := requesthandling.NewInferenceRequest()
 
 	tests := []struct {
@@ -200,7 +199,7 @@ func TestScore(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			scorer := NewCostScorer()
-			scores := scorer.Score(ctx, cycleState, request, tt.models)
+			scores := scorer.Score(ctx, request, tt.models)
 
 			// Check that we got the expected number of scores
 			if len(scores) != len(tt.expectedScores) {

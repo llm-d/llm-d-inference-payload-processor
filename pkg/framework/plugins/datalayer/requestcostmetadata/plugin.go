@@ -87,14 +87,14 @@ type RequestCostMetadataExtractorConfig struct {
 }
 
 // ExtractorFactory creates a RequestCostMetadataExtractor wired to the shared Datastore.
-func ExtractorFactory(name string, parameters json.RawMessage, h plugin.Handle) (plugin.Plugin, error) {
+func ExtractorFactory(name string, parameters *json.Decoder, h plugin.Handle) (plugin.Plugin, error) {
 	config := RequestCostMetadataExtractorConfig{
 		Compression:           defaultCompression,
 		FlushIntervalDuration: defaultFlushIntervalDuration.String(),
 		WindowDuration:        defaultWindowDuration.String(),
 	}
-	if len(parameters) > 0 {
-		if err := json.Unmarshal(parameters, &config); err != nil {
+	if parameters != nil {
+		if err := parameters.Decode(&config); err != nil {
 			return nil, fmt.Errorf("failed to parse parameters for plugin %q: %w", name, err)
 		}
 	}

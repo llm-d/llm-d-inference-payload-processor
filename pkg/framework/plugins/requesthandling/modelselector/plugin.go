@@ -33,15 +33,15 @@ import (
 const (
 	ModelSelectorPluginType = "model-selector"
 
-	// SelectedModelCycleStateKey is the CycleState key where the selected model name is stored.
-	SelectedModelCycleStateKey = "model-selector/selected-model"
+	// SelectedModelAttributeKey is the request attribute key where the selected model name is stored.
+	SelectedModelAttributeKey = "model-selector/selected-model"
 )
 
 var _ requesthandling.RequestProcessor = &ModelSelectorPlugin{}
 
 // ModelSelectorPluginFactory is the factory function for the ModelSelector RequestProcessor plugin.
 // It creates a plugin with an empty pipeline; plugins are wired in by the configuration loader.
-func ModelSelectorPluginFactory(name string, _ json.RawMessage, handle plugin.Handle) (plugin.Plugin, error) {
+func ModelSelectorPluginFactory(name string, _ *json.Decoder, handle plugin.Handle) (plugin.Plugin, error) {
 	return NewModelSelectorPlugin(ms.NewModelSelectorPipeline(), handle.Datastore()).WithName(name), nil
 }
 
@@ -76,8 +76,8 @@ func (p *ModelSelectorPlugin) WithName(name string) *ModelSelectorPlugin {
 }
 
 // ProcessRequest reads candidate models from the Datastore, runs model
-// selection, and writes the selected model into the request body and CycleState.
-func (p *ModelSelectorPlugin) ProcessRequest(ctx context.Context, cycleState *plugin.CycleState, request *requesthandling.InferenceRequest) error {
+// selection, and writes the selected model into the request body and attributes.
+func (p *ModelSelectorPlugin) ProcessRequest(ctx context.Context, request *requesthandling.InferenceRequest) error {
 	logger := log.FromContext(ctx)
 
 	candidateModels := p.datastore.GetModels(datalayer.AllModelsPredicate)
@@ -85,7 +85,7 @@ func (p *ModelSelectorPlugin) ProcessRequest(ctx context.Context, cycleState *pl
 		return errors.New("no candidate models available in datastore")
 	}
 
-	result, err := p.selector.Select(ctx, request, cycleState, candidateModels)
+	result, err := p.selector.Select(ctx, request, candidateModels)
 	if err != nil {
 		return err
 	}
@@ -94,7 +94,7 @@ func (p *ModelSelectorPlugin) ProcessRequest(ctx context.Context, cycleState *pl
 	logger.V(logutil.VERBOSE).Info("Model selected", "model", selectedName)
 
 	request.SetBodyField("model", selectedName)
-	cycleState.Write(SelectedModelCycleStateKey, selectedName)
+	request.SetAttribute(SelectedModelAttributeKey, selectedName)
 
 	return nil
 }

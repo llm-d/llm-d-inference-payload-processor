@@ -51,7 +51,7 @@ func (f *fakeHandle) GetAllPluginsWithNames() map[string]plugin.Plugin { return 
 func useFactory(t *testing.T, path string, ds datalayer.Datastore) *ModelConfigDataSource {
 	t.Helper()
 	rawCfg, _ := json.Marshal(PluginConfig{ModelsPath: path})
-	p, err := DatasourceFactory("test", rawCfg, &fakeHandle{ds: ds})
+	p, err := DatasourceFactory("test", plugin.StrictDecoder(rawCfg), &fakeHandle{ds: ds})
 	if err != nil {
 		t.Fatalf("DatasourceFactory: %v", err)
 	}
@@ -134,7 +134,7 @@ func waitForUpdatedConfig(t *testing.T, ds datalayer.Datastore, wantCount int, t
 // that is not valid JSON at all.
 func TestDatasourceFactory_InvalidJSON(t *testing.T) {
 	ds := datastore.NewFakeDataStore()
-	_, err := DatasourceFactory("x", json.RawMessage(`not-json`), &fakeHandle{ds: ds})
+	_, err := DatasourceFactory("x", plugin.StrictDecoder(json.RawMessage(`not-json`)), &fakeHandle{ds: ds})
 	if err == nil {
 		t.Error("expected error for invalid JSON plugin config, got nil")
 	}
@@ -143,7 +143,7 @@ func TestDatasourceFactory_InvalidJSON(t *testing.T) {
 // TestDatasourceFactory_EmptyInput ensures the factory rejects an empty config payload.
 func TestDatasourceFactory_EmptyInput(t *testing.T) {
 	ds := datastore.NewFakeDataStore()
-	_, err := DatasourceFactory("x", json.RawMessage(``), &fakeHandle{ds: ds})
+	_, err := DatasourceFactory("x", nil, &fakeHandle{ds: ds})
 	if err == nil {
 		t.Error("expected error for empty plugin config input, got nil")
 	}
@@ -154,7 +154,7 @@ func TestDatasourceFactory_EmptyInput(t *testing.T) {
 func TestDatasourceFactory_MissingModelsPath(t *testing.T) {
 	ds := datastore.NewFakeDataStore()
 	rawCfg, _ := json.Marshal(PluginConfig{}) // modelsPath omitted → empty string
-	_, err := DatasourceFactory("x", rawCfg, &fakeHandle{ds: ds})
+	_, err := DatasourceFactory("x", plugin.StrictDecoder(rawCfg), &fakeHandle{ds: ds})
 	if err == nil {
 		t.Error("expected error for missing modelsPath, got nil")
 	}
@@ -165,7 +165,7 @@ func TestDatasourceFactory_MissingModelsPath(t *testing.T) {
 func TestDatasourceFactory_FileNotExist(t *testing.T) {
 	ds := datastore.NewFakeDataStore()
 	rawCfg, _ := json.Marshal(PluginConfig{ModelsPath: "/no/such/file.json"})
-	_, err := DatasourceFactory("x", rawCfg, &fakeHandle{ds: ds})
+	_, err := DatasourceFactory("x", plugin.StrictDecoder(rawCfg), &fakeHandle{ds: ds})
 	if err == nil {
 		t.Error("expected error for non-existent file, got nil")
 	}
@@ -177,7 +177,7 @@ func TestDatasourceFactory_DirectoryNotFile(t *testing.T) {
 	ds := datastore.NewFakeDataStore()
 	dir := t.TempDir()
 	rawCfg, _ := json.Marshal(PluginConfig{ModelsPath: dir})
-	_, err := DatasourceFactory("x", rawCfg, &fakeHandle{ds: ds})
+	_, err := DatasourceFactory("x", plugin.StrictDecoder(rawCfg), &fakeHandle{ds: ds})
 	if err == nil {
 		t.Error("expected error for directory path, got nil")
 	}
@@ -206,7 +206,7 @@ func TestStart_InvalidFileContent(t *testing.T) {
 	ds := datastore.NewFakeDataStore()
 	path := writeTempRaw(t, `this is not valid json {{{`)
 	rawCfg, _ := json.Marshal(PluginConfig{ModelsPath: path})
-	p, err := DatasourceFactory("x", rawCfg, &fakeHandle{ds: ds})
+	p, err := DatasourceFactory("x", plugin.StrictDecoder(rawCfg), &fakeHandle{ds: ds})
 	if err != nil {
 		t.Fatalf("DatasourceFactory: %v", err)
 	}

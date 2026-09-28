@@ -59,7 +59,7 @@ var _ modelselector.Filter = &ModelGroupFilter{}
 // no parameters: group membership is resolved at filter time from each candidate
 // model's modelgroups.GroupsAttributeKey attribute, populated by the
 // model-config-datasource plugin from the shared config file's "groups" list.
-func ModelGroupFilterFactory(name string, _ json.RawMessage, _ plugin.Handle) (plugin.Plugin, error) {
+func ModelGroupFilterFactory(name string, _ *json.Decoder, _ plugin.Handle) (plugin.Plugin, error) {
 	return NewModelGroupFilter().WithName(name), nil
 }
 
@@ -95,7 +95,7 @@ func (f *ModelGroupFilter) WithName(name string) *ModelGroupFilter {
 //   - a plain non-"auto"-prefixed string: the single candidate matching that name.
 //   - "auto/" (empty group name), unknown group, unmatched name, or non-string
 //     type: no candidates (pipeline rejects with 429).
-func (f *ModelGroupFilter) Filter(ctx context.Context, _ *plugin.CycleState, request *requesthandling.InferenceRequest, models []datalayer.Model) []datalayer.Model {
+func (f *ModelGroupFilter) Filter(ctx context.Context, request *requesthandling.InferenceRequest, models []datalayer.Model) []datalayer.Model {
 	logger := log.FromContext(ctx)
 
 	raw := request.Body[requestModelField]

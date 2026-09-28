@@ -90,7 +90,7 @@ func TestModelGroupFilter_NoGroupsConfigured(t *testing.T) {
 
 	t.Run("auto/somegroup fails with no groups defined", func(t *testing.T) {
 		req := requestWithModel("auto/somegroup")
-		got := modelNames(f.Filter(context.Background(), nil, req, candidates))
+		got := modelNames(f.Filter(context.Background(), req, candidates))
 		if len(got) != 0 {
 			t.Errorf("Filter() = %v, want empty", got)
 		}
@@ -98,7 +98,7 @@ func TestModelGroupFilter_NoGroupsConfigured(t *testing.T) {
 
 	t.Run("explicit valid model name succeeds with no groups defined", func(t *testing.T) {
 		req := requestWithModel("qwen3-8b")
-		got := modelNames(f.Filter(context.Background(), nil, req, candidates))
+		got := modelNames(f.Filter(context.Background(), req, candidates))
 		want := []string{"qwen3-8b"}
 		if len(got) != len(want) || got[0] != want[0] {
 			t.Errorf("Filter() = %v, want %v", got, want)
@@ -200,7 +200,7 @@ func TestModelGroupFilter_Filter(t *testing.T) {
 			f := NewModelGroupFilter()
 			req := requestWithModel(tt.modelBody)
 
-			got := modelNames(f.Filter(context.Background(), nil, req, candidateModels(membership, all...)))
+			got := modelNames(f.Filter(context.Background(), req, candidateModels(membership, all...)))
 			want := append([]string{}, tt.want...)
 			sort.Strings(want)
 
@@ -227,7 +227,7 @@ func TestModelGroupFilter_GroupModelsNotInCandidates(t *testing.T) {
 	f := NewModelGroupFilter()
 	req := requestWithModel("auto/qwen3models")
 
-	got := modelNames(f.Filter(context.Background(), nil, req, candidates))
+	got := modelNames(f.Filter(context.Background(), req, candidates))
 	if len(got) != 0 {
 		t.Errorf("Filter() = %v, want empty", got)
 	}
@@ -247,7 +247,7 @@ func TestModelGroupFilter_PartialGroupInCandidates(t *testing.T) {
 	f := NewModelGroupFilter()
 	req := requestWithModel("auto/qwen3models")
 
-	got := modelNames(f.Filter(context.Background(), nil, req, candidates))
+	got := modelNames(f.Filter(context.Background(), req, candidates))
 	want := []string{"qwen3-72b", "qwen3-8b"}
 	sort.Strings(want)
 
@@ -273,7 +273,7 @@ func TestModelGroupFilter_ModelInMultipleGroups(t *testing.T) {
 
 	for _, group := range []string{"qwen3models", "large-models"} {
 		req := requestWithModel("auto/" + group)
-		got := modelNames(f.Filter(context.Background(), nil, req, candidates))
+		got := modelNames(f.Filter(context.Background(), req, candidates))
 		if len(got) != 1 || got[0] != "qwen3-32b" {
 			t.Errorf("Filter() for group %q = %v, want [qwen3-32b]", group, got)
 		}

@@ -33,7 +33,7 @@ type testFilter struct {
 }
 
 func (f *testFilter) TypedName() plugin.TypedName { return f.typedName }
-func (f *testFilter) Filter(_ context.Context, _ *plugin.CycleState, _ *requesthandling.InferenceRequest, models []datalayer.Model) []datalayer.Model {
+func (f *testFilter) Filter(_ context.Context, _ *requesthandling.InferenceRequest, models []datalayer.Model) []datalayer.Model {
 	f.callCount++
 	if f.filterFn != nil {
 		return f.filterFn(models)
@@ -48,7 +48,7 @@ type testScorer struct {
 }
 
 func (s *testScorer) TypedName() plugin.TypedName { return s.typedName }
-func (s *testScorer) Score(_ context.Context, _ *plugin.CycleState, _ *requesthandling.InferenceRequest, models []datalayer.Model) map[datalayer.Model]float64 {
+func (s *testScorer) Score(_ context.Context, _ *requesthandling.InferenceRequest, models []datalayer.Model) map[datalayer.Model]float64 {
 	s.callCount++
 	if s.scoreFn != nil {
 		return s.scoreFn(models)
@@ -66,7 +66,7 @@ type testPicker struct {
 }
 
 func (p *testPicker) TypedName() plugin.TypedName { return p.typedName }
-func (p *testPicker) Pick(_ context.Context, _ *plugin.CycleState, scoredModels []*modelselector.ScoredModel) *modelselector.PipelineRunResult {
+func (p *testPicker) Pick(_ context.Context, scoredModels []*modelselector.ScoredModel) *modelselector.PipelineRunResult {
 	p.callCount++
 	if len(scoredModels) == 0 {
 		return nil
@@ -181,7 +181,7 @@ func TestPipelineRun(t *testing.T) {
 				}
 			}
 
-			result, err := pipeline.Run(context.Background(), requesthandling.NewInferenceRequest(), plugin.NewCycleState(), tt.models)
+			result, err := pipeline.Run(context.Background(), requesthandling.NewInferenceRequest(), tt.models)
 
 			if tt.wantErr {
 				if err == nil {
@@ -242,7 +242,7 @@ func TestScoreWeightAccumulation(t *testing.T) {
 		t.Fatalf("AddPlugins failed: %v", err)
 	}
 
-	result, err := pipeline.Run(context.Background(), requesthandling.NewInferenceRequest(), plugin.NewCycleState(), []datalayer.Model{modelA, modelB})
+	result, err := pipeline.Run(context.Background(), requesthandling.NewInferenceRequest(), []datalayer.Model{modelA, modelB})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

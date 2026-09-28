@@ -121,7 +121,7 @@ func TestScore_AllNeutral(t *testing.T) {
 			for i, spec := range tt.models {
 				models[i] = modelWithDigest(t, spec.name, newCostDigestN(t, spec.cost, spec.count))
 			}
-			scores := s.Score(context.Background(), plugin.NewCycleState(), requesthandling.NewInferenceRequest(), models)
+			scores := s.Score(context.Background(), requesthandling.NewInferenceRequest(), models)
 			require.Len(t, scores, len(models))
 			for _, m := range models {
 				assert.Equal(t, neutralScore, scores[m])
@@ -139,7 +139,7 @@ func TestScore_TwoDistinctRanks(t *testing.T) {
 	cheap := modelWithDigest(t, "cheap", newCostDigestN(t, 1.0, overCount))
 	expensive := modelWithDigest(t, "expensive", newCostDigestN(t, 3.0, overCount))
 	models := []datalayer.Model{cheap, expensive}
-	scores := s.Score(context.Background(), plugin.NewCycleState(), requesthandling.NewInferenceRequest(), models)
+	scores := s.Score(context.Background(), requesthandling.NewInferenceRequest(), models)
 	require.Len(t, scores, len(models))
 	assert.Greater(t, scores[cheap], 0.5, "cheaper model should score above neutral")
 	assert.Less(t, scores[expensive], 0.5, "more expensive model should score below neutral")
@@ -161,7 +161,7 @@ func TestScore_ThreeDistinctRanks(t *testing.T) {
 	mid := modelWithDigest(t, "mid", newCostDigestN(t, 2.0, overCount))
 	expensive := modelWithDigest(t, "expensive", newCostDigestN(t, 3.0, overCount))
 	models := []datalayer.Model{cheap, mid, expensive}
-	scores := s.Score(context.Background(), plugin.NewCycleState(), requesthandling.NewInferenceRequest(), models)
+	scores := s.Score(context.Background(), requesthandling.NewInferenceRequest(), models)
 	require.Len(t, scores, len(models))
 	assert.InDelta(t, 0.5, scores[mid], 1e-9, "median-rank model should score exactly neutral")
 	assert.Greater(t, scores[cheap], scores[mid])
@@ -183,14 +183,14 @@ func TestScore_SelfCalibratesToScale(t *testing.T) {
 	smallCheap := modelWithDigest(t, "small-cheap", newCostDigestN(t, 1.0, overCount))
 	smallMid := modelWithDigest(t, "small-mid", newCostDigestN(t, 2.0, overCount))
 	smallExpensive := modelWithDigest(t, "small-expensive", newCostDigestN(t, 3.0, overCount))
-	smallScores := s.Score(context.Background(), plugin.NewCycleState(), requesthandling.NewInferenceRequest(),
+	smallScores := s.Score(context.Background(), requesthandling.NewInferenceRequest(),
 		[]datalayer.Model{smallCheap, smallMid, smallExpensive})
 
 	// Large-scale fixture — same relative geometry, costs scaled by 1000.
 	largeCheap := modelWithDigest(t, "large-cheap", newCostDigestN(t, 1000.0, overCount))
 	largeMid := modelWithDigest(t, "large-mid", newCostDigestN(t, 2000.0, overCount))
 	largeExpensive := modelWithDigest(t, "large-expensive", newCostDigestN(t, 3000.0, overCount))
-	largeScores := s.Score(context.Background(), plugin.NewCycleState(), requesthandling.NewInferenceRequest(),
+	largeScores := s.Score(context.Background(), requesthandling.NewInferenceRequest(),
 		[]datalayer.Model{largeCheap, largeMid, largeExpensive})
 
 	assert.InDelta(t, smallScores[smallCheap], largeScores[largeCheap], 1e-9)
@@ -213,7 +213,7 @@ func TestScore_UnevenSpread(t *testing.T) {
 	cheap := modelWithDigest(t, "cheap", newCostDigestN(t, 1.0, overCount))
 	mid := modelWithDigest(t, "mid", newCostDigestN(t, 2.0, overCount))
 	expensive := modelWithDigest(t, "expensive", newCostDigestN(t, 100.0, overCount))
-	scores := s.Score(context.Background(), plugin.NewCycleState(), requesthandling.NewInferenceRequest(),
+	scores := s.Score(context.Background(), requesthandling.NewInferenceRequest(),
 		[]datalayer.Model{cheap, mid, expensive})
 	require.Len(t, scores, 3)
 	assert.InDelta(t, 0.5, scores[mid], 1e-9, "median-rank model still scores exactly neutral")
@@ -270,7 +270,7 @@ func TestScore_UnderExplored(t *testing.T) {
 					expensive = modelWithDigest(t, "expensive", newCostDigestN(t, 3.0, over))
 					models = []datalayer.Model{cheap, expensive, u}
 				}
-				scores := s.Score(context.Background(), plugin.NewCycleState(), requesthandling.NewInferenceRequest(), models)
+				scores := s.Score(context.Background(), requesthandling.NewInferenceRequest(), models)
 				require.Len(t, scores, len(models))
 				assert.Equal(t, neutralScore, scores[u])
 				if ctx.withExplored {
@@ -287,15 +287,15 @@ func TestScore_UnderExplored(t *testing.T) {
 // with an empty JSON object; both must produce the same defaulted scorer.
 func TestFactory_DefaultConfig(t *testing.T) {
 	tests := []struct {
-		name string
-		raw  json.RawMessage
+		name   string
+		params *json.Decoder
 	}{
 		{"nil parameters", nil},
-		{"empty object", json.RawMessage(`{}`)},
+		{"empty object", plugin.StrictDecoder(json.RawMessage(`{}`))},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			p, err := ScorerFactory("test-cg", tt.raw, nil)
+			p, err := ScorerFactory("test-cg", tt.params, nil)
 			require.NoError(t, err)
 			s, ok := p.(*CostGuardScorer)
 			require.True(t, ok)
@@ -312,8 +312,8 @@ func TestFactory_DefaultConfig(t *testing.T) {
 
 // TestFactory_CustomConfig verifies that custom parameters override defaults.
 func TestFactory_CustomConfig(t *testing.T) {
-	raw := json.RawMessage(`{"epsilon":0.2,"alpha":0.9,"lambda":2.0,"percentileMarginError":0.05}`)
-	p, err := ScorerFactory("custom", raw, nil)
+	params := plugin.StrictDecoder(json.RawMessage(`{"epsilon":0.2,"alpha":0.9,"lambda":2.0,"percentileMarginError":0.05}`))
+	p, err := ScorerFactory("custom", params, nil)
 	require.NoError(t, err)
 	s := p.(*CostGuardScorer)
 	assert.Equal(t, 0.2, s.epsilon)
@@ -342,7 +342,7 @@ func TestFactory_ValidationErrors(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := ScorerFactory("bad", json.RawMessage(tt.raw), nil)
+			_, err := ScorerFactory("bad", plugin.StrictDecoder(json.RawMessage(tt.raw)), nil)
 			require.Error(t, err)
 		})
 	}
@@ -388,7 +388,7 @@ func TestFactory_AcceptedBoundaries(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			p, err := ScorerFactory("boundary", json.RawMessage(tt.raw), nil)
+			p, err := ScorerFactory("boundary", plugin.StrictDecoder(json.RawMessage(tt.raw)), nil)
 			require.NoError(t, err)
 			tt.check(t, p.(*CostGuardScorer))
 		})
@@ -494,7 +494,7 @@ func TestScore_Explore(t *testing.T) {
 			}
 			observed := make(map[datalayer.Model]struct{}, len(pool))
 			for i := 0; i < trials; i++ {
-				scores := s.Score(context.Background(), plugin.NewCycleState(), requesthandling.NewInferenceRequest(), models)
+				scores := s.Score(context.Background(), requesthandling.NewInferenceRequest(), models)
 				require.Len(t, scores, len(models))
 				var pick datalayer.Model
 				pickCount := 0
@@ -529,7 +529,7 @@ func TestScore_ExploitPathUnchanged(t *testing.T) {
 	models := []datalayer.Model{cheap, expensive, u}
 
 	for i := 0; i < trials; i++ {
-		scores := s.Score(context.Background(), plugin.NewCycleState(), requesthandling.NewInferenceRequest(), models)
+		scores := s.Score(context.Background(), requesthandling.NewInferenceRequest(), models)
 		require.Len(t, scores, len(models))
 		assert.Equal(t, neutralScore, scores[u], "under-explored model must remain neutral on the exploit path")
 		assert.Greater(t, scores[cheap], 0.5, "cheap model scores above neutral")

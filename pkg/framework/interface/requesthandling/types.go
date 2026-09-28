@@ -17,6 +17,9 @@ limitations under the License.
 package requesthandling
 
 import (
+	"fmt"
+	"sync"
+
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/plugin"
@@ -89,6 +92,31 @@ func (r *InferenceMessage) BodyMutated() bool {
 
 type InferenceRequest struct {
 	InferenceMessage
+	attributes sync.Map
+}
+
+func (r *InferenceRequest) SetAttribute(key string, val any) {
+	r.attributes.Store(key, val)
+}
+
+func (r *InferenceRequest) GetAttribute(key string) (any, bool) {
+	return r.attributes.Load(key)
+}
+
+func ReadRequestAttribute[T any](r *InferenceRequest, key string) (T, error) {
+	var zero T
+
+	raw, ok := r.attributes.Load(key)
+	if !ok {
+		return zero, fmt.Errorf("attribute %q: not found", key)
+	}
+
+	val, ok := raw.(T)
+	if !ok {
+		return zero, fmt.Errorf("unexpected type for key %q: got %T, want %T", key, raw, zero)
+	}
+
+	return val, nil
 }
 
 type InferenceResponse struct {

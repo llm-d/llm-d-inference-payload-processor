@@ -18,7 +18,6 @@ package modelselector
 
 import (
 	"context"
-	"encoding/json"
 	"slices"
 	"testing"
 
@@ -80,7 +79,7 @@ func newFakeHandle(modelNames ...string) *fakeHandle {
 // mustFactory calls ModelSelectorPluginFactory and fails the test on error.
 func mustFactory(t *testing.T, handle *fakeHandle) *ModelSelectorPlugin {
 	t.Helper()
-	plug, err := ModelSelectorPluginFactory(ModelSelectorPluginType, json.RawMessage(`{}`), handle)
+	plug, err := ModelSelectorPluginFactory(ModelSelectorPluginType, nil, handle)
 	if err != nil {
 		t.Fatalf("ModelSelectorPluginFactory failed: %v", err)
 	}
@@ -103,9 +102,8 @@ func TestProcessRequestSelectsFromDatastoreModels(t *testing.T) {
 
 	request := requesthandling.NewInferenceRequest()
 	request.Body["model"] = "auto"
-	cycleState := fwkplugin.NewCycleState()
 
-	if err := p.ProcessRequest(context.Background(), cycleState, request); err != nil {
+	if err := p.ProcessRequest(context.Background(), request); err != nil {
 		t.Fatalf("ProcessRequest failed: %v", err)
 	}
 
@@ -114,12 +112,12 @@ func TestProcessRequestSelectsFromDatastoreModels(t *testing.T) {
 		t.Errorf("selected model %q is not in datastore models %v", selectedModel, candidates)
 	}
 
-	storedModel, err := fwkplugin.ReadCycleStateKey[string](cycleState, SelectedModelCycleStateKey)
+	storedModel, err := requesthandling.ReadRequestAttribute[string](request, SelectedModelAttributeKey)
 	if err != nil {
-		t.Fatalf("expected selected model in CycleState: %v", err)
+		t.Fatalf("expected selected model in request attributes: %v", err)
 	}
 	if storedModel != selectedModel {
-		t.Errorf("CycleState model %q != body model %q", storedModel, selectedModel)
+		t.Errorf("request attribute model %q != body model %q", storedModel, selectedModel)
 	}
 }
 
@@ -130,9 +128,8 @@ func TestProcessRequestFailsWithEmptyDatastore(t *testing.T) {
 
 	request := requesthandling.NewInferenceRequest()
 	request.Body["model"] = "auto"
-	cycleState := fwkplugin.NewCycleState()
 
-	if err := p.ProcessRequest(context.Background(), cycleState, request); err == nil {
+	if err := p.ProcessRequest(context.Background(), request); err == nil {
 		t.Fatal("expected error with empty datastore")
 	}
 }
@@ -197,14 +194,14 @@ func TestAddPluginsRejectsScorerWithoutWeight(t *testing.T) {
 type fakeScorerFilter struct{ typedName fwkplugin.TypedName }
 
 func (f *fakeScorerFilter) TypedName() fwkplugin.TypedName { return f.typedName }
-func (f *fakeScorerFilter) Score(_ context.Context, _ *fwkplugin.CycleState, _ *requesthandling.InferenceRequest, models []datalayer.Model) map[datalayer.Model]float64 {
+func (f *fakeScorerFilter) Score(_ context.Context, _ *requesthandling.InferenceRequest, models []datalayer.Model) map[datalayer.Model]float64 {
 	out := make(map[datalayer.Model]float64, len(models))
 	for _, m := range models {
 		out[m] = 1.0
 	}
 	return out
 }
-func (f *fakeScorerFilter) Filter(_ context.Context, _ *fwkplugin.CycleState, _ *requesthandling.InferenceRequest, models []datalayer.Model) []datalayer.Model {
+func (f *fakeScorerFilter) Filter(_ context.Context, _ *requesthandling.InferenceRequest, models []datalayer.Model) []datalayer.Model {
 	return models
 }
 
