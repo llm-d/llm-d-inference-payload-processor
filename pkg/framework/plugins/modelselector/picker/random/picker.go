@@ -69,7 +69,7 @@ func (p *RandomPicker) TypedName() plugin.TypedName {
 }
 
 // Pick selects random model from the list of candidates.
-func (p *RandomPicker) Pick(ctx context.Context, _ *plugin.CycleState, scoredModels []*modelselector.ScoredModel) *modelselector.PipelineRunResult {
+func (p *RandomPicker) Pick(ctx context.Context, scoredModels []*modelselector.ScoredModel) *modelselector.PipelineRunResult {
 	if debugLogger := log.FromContext(ctx).V(logutil.DEBUG); debugLogger.Enabled() {
 		debugLogger.Info("Selecting model from candidates randomly",
 			"numOfCandidates", len(scoredModels), "scoredModels", scoredModels)

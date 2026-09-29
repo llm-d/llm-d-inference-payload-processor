@@ -81,8 +81,7 @@ func BenchmarkModelSelectorPipelineRun(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				cycleState := plugin.NewCycleState()
-				result, err := pipeline.Run(ctx, request, cycleState, models)
+				result, err := pipeline.Run(ctx, request, models)
 				if err != nil {
 					b.Fatalf("Run failed: %v", err)
 				}
@@ -111,7 +110,7 @@ type benchScorer struct {
 
 func (s *benchScorer) TypedName() plugin.TypedName { return s.typedName }
 
-func (s *benchScorer) Score(_ context.Context, _ *plugin.CycleState, _ *requesthandling.InferenceRequest, models []datalayer.Model) map[datalayer.Model]float64 {
+func (s *benchScorer) Score(_ context.Context, _ *requesthandling.InferenceRequest, models []datalayer.Model) map[datalayer.Model]float64 {
 	scores := make(map[datalayer.Model]float64, len(models))
 	for i, m := range models {
 		// Produce varied but deterministic scores
@@ -127,7 +126,7 @@ type benchPicker struct {
 
 func (p *benchPicker) TypedName() plugin.TypedName { return p.typedName }
 
-func (p *benchPicker) Pick(_ context.Context, _ *plugin.CycleState, scoredModels []*modelselector.ScoredModel) *modelselector.PipelineRunResult {
+func (p *benchPicker) Pick(_ context.Context, scoredModels []*modelselector.ScoredModel) *modelselector.PipelineRunResult {
 	if len(scoredModels) == 0 {
 		return nil
 	}

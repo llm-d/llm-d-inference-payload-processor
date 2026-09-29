@@ -36,28 +36,27 @@ import (
 
 const testPluginValue = "done"
 
-// fakeResponsePlugin implements requesthandling.PayloadProcessor for testing response plugin execution.
+// fakeResponsePlugin implements requesthandling.ResponseProcessor for testing.
 type fakeResponsePlugin struct {
 	name     string
-	mutateFn func(ctx context.Context, cycleState *plugin.CycleState, response *requesthandling.InferenceResponse) error
+	mutateFn func(ctx context.Context, request *requesthandling.InferenceRequest, response *requesthandling.InferenceResponse) error
 }
 
 func (p *fakeResponsePlugin) TypedName() plugin.TypedName {
 	return plugin.TypedName{Type: "fake", Name: p.name}
 }
 
-func (p *fakeResponsePlugin) ProcessResponse(ctx context.Context, cycleState *plugin.CycleState, response *requesthandling.InferenceResponse) error {
-	return p.mutateFn(ctx, cycleState, response)
+func (p *fakeResponsePlugin) ProcessResponse(ctx context.Context, request *requesthandling.InferenceRequest, response *requesthandling.InferenceResponse) error {
+	return p.mutateFn(ctx, request, response)
 }
 
 var _ requesthandling.ResponseProcessor = &fakeResponsePlugin{}
 
 func newTestRequestContext(profiles map[string]*requesthandling.Profile) *RequestContext {
 	return &RequestContext{
-		Profile:    profiles[testProfileName],
-		CycleState: plugin.NewCycleState(),
-		Request:    requesthandling.NewInferenceRequest(),
-		Response:   requesthandling.NewInferenceResponse(),
+		Profile:  profiles[testProfileName],
+		Request:  requesthandling.NewInferenceRequest(),
+		Response: requesthandling.NewInferenceResponse(),
 	}
 }
 
@@ -106,7 +105,7 @@ func TestHandleResponseBody_SinglePlugin(t *testing.T) {
 
 	mutatePlugin := &fakeResponsePlugin{
 		name: "mutator",
-		mutateFn: func(_ context.Context, _ *plugin.CycleState, response *requesthandling.InferenceResponse) error {
+		mutateFn: func(_ context.Context, _ *requesthandling.InferenceRequest, response *requesthandling.InferenceResponse) error {
 			response.SetBodyField("mutated", true)
 			return nil
 		},
@@ -139,14 +138,14 @@ func TestHandleResponseBody_MultiplePlugins(t *testing.T) {
 
 	plugin1 := &fakeResponsePlugin{
 		name: "plugin1",
-		mutateFn: func(_ context.Context, _ *plugin.CycleState, response *requesthandling.InferenceResponse) error {
+		mutateFn: func(_ context.Context, _ *requesthandling.InferenceRequest, response *requesthandling.InferenceResponse) error {
 			response.SetBodyField("p1", testPluginValue)
 			return nil
 		},
 	}
 	plugin2 := &fakeResponsePlugin{
 		name: "plugin2",
-		mutateFn: func(_ context.Context, _ *plugin.CycleState, response *requesthandling.InferenceResponse) error {
+		mutateFn: func(_ context.Context, _ *requesthandling.InferenceRequest, response *requesthandling.InferenceResponse) error {
 			response.SetBodyField("p2", testPluginValue)
 			return nil
 		},
@@ -180,7 +179,7 @@ func TestHandleResponseBody_PluginError(t *testing.T) {
 
 	failingPlugin := &fakeResponsePlugin{
 		name: "failing",
-		mutateFn: func(_ context.Context, _ *plugin.CycleState, _ *requesthandling.InferenceResponse) error {
+		mutateFn: func(_ context.Context, _ *requesthandling.InferenceRequest, _ *requesthandling.InferenceResponse) error {
 			return errors.New("failed to execute plugin")
 		},
 	}
@@ -204,7 +203,7 @@ func TestHandleResponseBody_StreamingWithPlugin(t *testing.T) {
 
 	mutatePlugin := &fakeResponsePlugin{
 		name: "mutator",
-		mutateFn: func(_ context.Context, _ *plugin.CycleState, response *requesthandling.InferenceResponse) error {
+		mutateFn: func(_ context.Context, _ *requesthandling.InferenceRequest, response *requesthandling.InferenceResponse) error {
 			response.SetBodyField("mutated", true)
 			return nil
 		},
@@ -237,7 +236,7 @@ func TestHandleResponseBody_PluginNoBodyMutation(t *testing.T) {
 
 	headerOnlyPlugin := &fakeResponsePlugin{
 		name: "header-only",
-		mutateFn: func(_ context.Context, _ *plugin.CycleState, response *requesthandling.InferenceResponse) error {
+		mutateFn: func(_ context.Context, _ *requesthandling.InferenceRequest, response *requesthandling.InferenceResponse) error {
 			response.SetHeader("X-Custom-Response", "added")
 			return nil
 		},

@@ -23,7 +23,6 @@ import (
 
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/datalayer"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/datalayer/pricing"
-	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/plugin"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/requesthandling"
 )
 
@@ -84,7 +83,6 @@ func TestWithName(t *testing.T) {
 // TestScore tests the Score method with various scenarios
 func TestScore(t *testing.T) {
 	ctx := context.Background()
-	cycleState := plugin.NewCycleState()
 	request := requesthandling.NewInferenceRequest()
 
 	tests := []struct {
@@ -200,7 +198,7 @@ func TestScore(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			scorer := NewCostScorer()
-			scores := scorer.Score(ctx, cycleState, request, tt.models)
+			scores := scorer.Score(ctx, request, tt.models)
 
 			// Check that we got the expected number of scores
 			if len(scores) != len(tt.expectedScores) {
