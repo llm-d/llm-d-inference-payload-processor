@@ -94,6 +94,7 @@ type Runner struct {
 
 	customCollectors  []prometheus.Collector
 	customControllers []func(client.Client, *ctrlbuilder.Builder) error
+	cacheByObject     map[client.Object]cache.ByObject
 	processor         datasource.DatalayerProcessor
 }
 
@@ -116,6 +117,31 @@ func (r *Runner) WithCustomCollectors(collectors ...prometheus.Collector) *Runne
 // coupled to data-plane plugin lifecycle.
 func (r *Runner) WithCustomControllers(setupFuncs ...func(client.Client, *ctrlbuilder.Builder) error) *Runner {
 	r.customControllers = setupFuncs
+	return r
+}
+
+// WithCacheByObject configures per-object cache namespace scoping on the
+// controller-runtime manager. Entries override DefaultNamespaces (set via
+// the NAMESPACE env var) for the specified object types, allowing some
+// informers to be scoped to specific namespaces while others remain
+// cluster-wide.
+//
+// This is useful for RBAC hardening: scope a Secret informer to model
+// namespaces so the ServiceAccount only needs namespace-scoped
+// RoleBindings instead of cluster-wide secrets access.
+//
+// Example:
+//
+//	runner.NewRunner().
+//	    WithCacheByObject(map[client.Object]cache.ByObject{
+//	        &corev1.Secret{}: {
+//	            Namespaces: map[string]cache.Config{
+//	                "model-namespace": {},
+//	            },
+//	        },
+//	    })
+func (r *Runner) WithCacheByObject(byObject map[client.Object]cache.ByObject) *Runner {
+	r.cacheByObject = byObject
 	return r
 }
 
@@ -187,6 +213,9 @@ func (r *Runner) Run(ctx context.Context) error {
 		cacheOptions.DefaultNamespaces = map[string]cache.Config{
 			namespace: {},
 		}
+	}
+	if r.cacheByObject != nil {
+		cacheOptions.ByObject = r.cacheByObject
 	}
 
 	mgr, err := ctrl.NewManager(cfg, ctrl.Options{Cache: cacheOptions, Metrics: metricsServerOptions})
