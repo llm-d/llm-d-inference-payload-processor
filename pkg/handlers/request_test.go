@@ -179,21 +179,15 @@ func TestHandleRequestHeaders(t *testing.T) {
 func TestHandleRequestHeaders_InjectsTraceContext(t *testing.T) {
 	withTraceContextPropagator(t)
 
-	traceID, err := trace.TraceIDFromHex(testTraceID)
-	if err != nil {
-		t.Fatalf("failed to parse trace ID: %v", err)
-	}
-	spanID, err := trace.SpanIDFromHex(testSpanID)
-	if err != nil {
-		t.Fatalf("failed to parse span ID: %v", err)
-	}
-	ctx := trace.ContextWithSpanContext(context.Background(), trace.NewSpanContext(trace.SpanContextConfig{
-		TraceID:    traceID,
-		SpanID:     spanID,
-		TraceFlags: trace.FlagsSampled,
-	}))
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSampler(sdktrace.AlwaysSample()))
+	prevTP := otel.GetTracerProvider()
+	otel.SetTracerProvider(tp)
+	t.Cleanup(func() { otel.SetTracerProvider(prevTP) })
 
-	wantTraceparent := "00-" + testTraceID + "-" + testSpanID + "-01"
+	ctx, span := tp.Tracer("test").Start(context.Background(), "gateway.request")
+	defer span.End()
+
+	wantTraceparent := "00-" + span.SpanContext().TraceID().String() + "-" + span.SpanContext().SpanID().String() + "-01"
 
 	t.Run("records traceparent as a header mutation", func(t *testing.T) {
 		server := newServerForTest(newTestProfiles())
@@ -253,6 +247,37 @@ func TestHandleRequestHeaders_InjectsTraceContext(t *testing.T) {
 			t.Errorf("expected no header mutation, got %v", mutation)
 		}
 	})
+}
+
+func TestHandleRequestHeaders_SkipsInjectForNonRecordingSpan(t *testing.T) {
+	withTraceContextPropagator(t)
+
+	traceID, err := trace.TraceIDFromHex(testTraceID)
+	if err != nil {
+		t.Fatalf("failed to parse trace ID: %v", err)
+	}
+	spanID, err := trace.SpanIDFromHex(testSpanID)
+	if err != nil {
+		t.Fatalf("failed to parse span ID: %v", err)
+	}
+	ctx := trace.ContextWithSpanContext(context.Background(), trace.NewSpanContext(trace.SpanContextConfig{
+		TraceID:    traceID,
+		SpanID:     spanID,
+		TraceFlags: trace.FlagsSampled,
+	}))
+
+	server := newServerForTest(newTestProfiles())
+	reqCtx := &RequestContext{Request: requesthandling.NewInferenceRequest()}
+	resp := server.HandleRequestHeaders(ctx, reqCtx, &extProcPb.HttpHeaders{
+		Headers:     &basepb.HeaderMap{Headers: []*basepb.HeaderValue{}},
+		EndOfStream: true,
+	})
+	if len(resp) != 1 {
+		t.Fatalf("expected a single response, got %d", len(resp))
+	}
+	if got := reqCtx.Request.MutatedHeaders()["traceparent"]; got != "" {
+		t.Fatalf("expected no traceparent mutation for non-recording span, got %q", got)
+	}
 }
 
 // === Request Body Tests (built-in plugins) ===
