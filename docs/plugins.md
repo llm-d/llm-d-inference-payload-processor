@@ -73,11 +73,11 @@ config loader routes each plugin to the right extension point based on that inte
 IPP executes plugins in a fixed sequence of stages:
 
 ```
-ProfilePicker → Profile Request Plugins → [Model Server] → Profile Response Plugins
+PreProcessor Plugins → ProfilePicker → Profile Request Plugins → [Model Server] → Profile Response Plugins → PostProcessor Plugins
 ```
 
-(The config API also defines global `preProcessing` / `postProcessing` stages; these are reserved
-extension points and are not yet invoked by the request path — see [Architecture][Architecture].)
+Pre- and post-processors run on every request regardless of which profile is selected — see
+[Pre- and Post-Processors](#pre--and-post-processors).
 
 Plugins are **declared once** under the top-level `plugins` list of the `PayloadProcessorConfig`
 (each with a `type`, an optional `name`, and optional `parameters`) and then **referenced by name**
@@ -452,7 +452,8 @@ profiles:
       weight: 2.0
     - pluginRef: weighted-random-picker
 postProcessing:
-- pluginRef: model-name-to-header
+  plugins:
+  - pluginRef: model-name-to-header
 datalayer:
   extractors:
   - pluginRef: request-metadata-extractor
