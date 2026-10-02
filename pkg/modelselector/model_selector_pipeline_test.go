@@ -20,6 +20,11 @@ import (
 	"context"
 	"testing"
 
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/datalayer"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/modelselector"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/plugin"
@@ -78,6 +83,78 @@ func (p *testPicker) Pick(_ context.Context, _ *plugin.CycleState, scoredModels 
 		}
 	}
 	return &modelselector.PipelineRunResult{TargetModel: best.Model}
+}
+
+// TestRunPickerPlugin_Span verifies that runPickerPlugin emits a
+// "plugin.<type>" span carrying the plugin and picker attributes, including the
+// selected model.
+func TestRunPickerPlugin_Span(t *testing.T) {
+	recorder := tracetest.NewSpanRecorder()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
+	origTP := otel.GetTracerProvider()
+	otel.SetTracerProvider(tp)
+	t.Cleanup(func() { otel.SetTracerProvider(origTP) })
+
+	picker := &testPicker{typedName: plugin.TypedName{Type: "test-picker", Name: "max-score"}}
+	pipeline := NewModelSelectorPipeline().WithPicker(picker)
+
+	scoredModels := map[string]*modelselector.ScoredModel{
+		"model-a": {Model: datalayer.NewModel("model-a"), Score: 0.2},
+		"model-b": {Model: datalayer.NewModel("model-b"), Score: 0.9},
+	}
+
+	result := pipeline.runPickerPlugin(context.Background(), plugin.NewCycleState(), scoredModels)
+	if result == nil || result.TargetModel == nil {
+		t.Fatalf("runPickerPlugin returned no target model")
+	}
+	if got := result.TargetModel.GetName(); got != "model-b" {
+		t.Fatalf("selected model = %q, want %q", got, "model-b")
+	}
+
+	span := findSpanByName(t, recorder.Ended(), "plugin.test-picker")
+	attrs := attrMap(span.Attributes())
+
+	wantStrings := map[attribute.Key]string{
+		"llm_d.plugin.extension_point": pickerExtensionPoint,
+		"llm_d.plugin.type":            "test-picker",
+		"llm_d.plugin.name":            "max-score",
+		"llm_d.picker.selected_model":  "model-b",
+	}
+	for k, want := range wantStrings {
+		if got := attrs[k].AsString(); got != want {
+			t.Errorf("attribute %q = %q, want %q", k, got, want)
+		}
+	}
+	if got := attrs["llm_d.picker.candidate_count"].AsInt64(); got != 2 {
+		t.Errorf("candidate_count = %d, want 2", got)
+	}
+}
+
+// findSpanByName returns the single ended span with the given name, failing the
+// test if there is not exactly one.
+func findSpanByName(t *testing.T, spans []sdktrace.ReadOnlySpan, name string) sdktrace.ReadOnlySpan {
+	t.Helper()
+	var match sdktrace.ReadOnlySpan
+	count := 0
+	for _, s := range spans {
+		if s.Name() == name {
+			match = s
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("expected exactly 1 span named %q, got %d", name, count)
+	}
+	return match
+}
+
+// attrMap indexes a span's attributes by key for easy lookup.
+func attrMap(kvs []attribute.KeyValue) map[attribute.Key]attribute.Value {
+	m := make(map[attribute.Key]attribute.Value, len(kvs))
+	for _, kv := range kvs {
+		m[kv.Key] = kv.Value
+	}
+	return m
 }
 
 func TestPipelineRun(t *testing.T) {
