@@ -52,16 +52,12 @@ func InitTracing(ctx context.Context, logger logr.Logger, defaultServiceName str
 		os.Setenv("OTEL_SERVICE_NAME", defaultServiceName)
 	}
 
-	_, ok = os.LookupEnv("OTEL_EXPORTER_OTLP_ENDPOINT")
-	if !ok {
-		os.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317")
+	exporterType, err := traceExporterType()
+	if err != nil {
+		loggerWrap.Handle(fmt.Errorf("trace exporter configuration degraded: %w", err))
 	}
 
-	traceExporter, err := initTraceExporter(ctx, logger)
-	if err != nil {
-		loggerWrap.Handle(fmt.Errorf("%s: %v", "init trace exporter failed", err))
-		return err
-	}
+	logger.Info("init OTel trace exporter", "type", exporterType)
 
 	// Go SDK doesn't have an automatic sampler, handle manually
 	samplerType, ok := os.LookupEnv("OTEL_TRACES_SAMPLER")
@@ -86,12 +82,22 @@ func InitTracing(ctx context.Context, logger logr.Logger, defaultServiceName str
 	}
 
 	opt := []sdktrace.TracerProviderOption{
-		sdktrace.WithBatcher(traceExporter),
 		sdktrace.WithSampler(sampler),
 		sdktrace.WithResource(resource.NewWithAttributes(
 			semconv.SchemaURL,
 			semconv.ServiceVersionKey.String(version.BuildRef),
 		)),
+	}
+
+	// "none" registers no span processor at all. Spans are still created and
+	// propagated, so instrumented code and context propagation are unaffected.
+	if exporterType != exporterTypeNone {
+		traceExporter, err := newTraceExporter(ctx, exporterType)
+		if err != nil {
+			loggerWrap.Handle(fmt.Errorf("%s: %v", "init trace exporter failed", err))
+			return err
+		}
+		opt = append(opt, sdktrace.WithBatcher(traceExporter))
 	}
 
 	tracerProvider := sdktrace.NewTracerProvider(opt...)
@@ -112,29 +118,58 @@ func InitTracing(ctx context.Context, logger logr.Logger, defaultServiceName str
 	return nil
 }
 
-// initTraceExporter create a SpanExporter
-// support exporter type
-// - console: export spans in console for development use case
-// - otlp: export spans through gRPC to an opentelemetry collector
-func initTraceExporter(ctx context.Context, logger logr.Logger) (sdktrace.SpanExporter, error) {
-	var traceExporter sdktrace.SpanExporter
-	traceExporter, err := stdouttrace.New(stdouttrace.WithPrettyPrint())
-	if err != nil {
-		return nil, fmt.Errorf("failed to create stdouttrace exporter: %w", err)
-	}
+// The exporter types OTEL_TRACES_EXPORTER selects between.
+const (
+	exporterTypeOTLP    = "otlp"
+	exporterTypeConsole = "console"
+	exporterTypeNone    = "none"
 
+	defaultExporterType = exporterTypeOTLP
+)
+
+// traceExporterType resolves OTEL_TRACES_EXPORTER to one of the types
+// newTraceExporter builds:
+//
+//   - otlp: export spans through gRPC to an opentelemetry collector
+//   - console: pretty print spans on stdout, for development
+//   - none: create spans but export nothing
+//
+// An unrecognised value is returned as an error alongside the default type, so a
+// typo is reported rather than quietly selecting an exporter the operator did not
+// ask for. The exporter is not worth failing startup over.
+func traceExporterType() (string, error) {
 	exporterType, ok := os.LookupEnv("OTEL_TRACES_EXPORTER")
 	if !ok {
-		exporterType = "console"
+		return defaultExporterType, nil
 	}
 
-	logger.Info("init OTel trace exporter", "type", exporterType)
-	if exporterType == "otlp" {
-		traceExporter, err = otlptracegrpc.New(ctx, otlptracegrpc.WithInsecure())
+	switch exporterType {
+	case exporterTypeOTLP, exporterTypeConsole, exporterTypeNone:
+		return exporterType, nil
+	default:
+		return defaultExporterType, fmt.Errorf("unsupported OTEL_TRACES_EXPORTER %q, falling back to %s", exporterType, defaultExporterType)
+	}
+}
+
+// newTraceExporter builds the exporter named by exporterType, which traceExporterType
+// has already narrowed. Exactly one exporter is constructed; exporterTypeNone builds
+// none and is handled by the caller.
+func newTraceExporter(ctx context.Context, exporterType string) (sdktrace.SpanExporter, error) {
+	if exporterType == exporterTypeConsole {
+		traceExporter, err := stdouttrace.New(stdouttrace.WithPrettyPrint())
 		if err != nil {
-			return nil, fmt.Errorf("failed to create otlp-grcp exporter: %w", err)
+			return nil, fmt.Errorf("failed to create stdouttrace exporter: %w", err)
 		}
+		return traceExporter, nil
 	}
 
+	if _, ok := os.LookupEnv("OTEL_EXPORTER_OTLP_ENDPOINT"); !ok {
+		os.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317")
+	}
+
+	traceExporter, err := otlptracegrpc.New(ctx, otlptracegrpc.WithInsecure())
+	if err != nil {
+		return nil, fmt.Errorf("failed to create otlp-grpc exporter: %w", err)
+	}
 	return traceExporter, nil
 }
