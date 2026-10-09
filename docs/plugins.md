@@ -314,7 +314,8 @@ it increments the model's request count and adds the request's `max_tokens` to i
 corresponding response event it decrements both (flooring at zero). The extractor batches the changed
 models for that event set and writes the result to each model's `request-metadata` attribute, which
 [`inflight-requests-scorer`](#inflight-requests-scorer) consumes. Reference it under
-`datalayer.extractors`.
+`datalayer.extractors`. A stream that ends without a complete response emits a response event with
+an empty body so the in-flight counts are released.
 
 **How it runs:** The data layer calls [`RequestMetadataExtractor.Extract()`](pkg/framework/plugins/datalayer/requestmetadata/plugin.go:83) whenever request/response events arrive. The extractor updates its in-memory counters and persists the latest values to the shared datastore.
 

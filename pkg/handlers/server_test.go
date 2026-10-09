@@ -19,6 +19,8 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
 	"strconv"
 	"testing"
 	"time"
@@ -32,7 +34,13 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.opentelemetry.io/otel/trace"
+	"google.golang.org/grpc"
 	"google.golang.org/protobuf/testing/protocmp"
+
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/datalayer"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/datastore/inmemory"
+	datalayerinterface "github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/datalayer"
+	requestmetadata "github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/plugins/datalayer/requestmetadata"
 
 	envoytest "github.com/llm-d/llm-d-inference-payload-processor/pkg/common/envoy/test"
 	logutil "github.com/llm-d/llm-d-inference-payload-processor/pkg/common/observability/logging"
@@ -796,4 +804,100 @@ func addRequestPlugins(p map[string]*requesthandling.Profile, plugins ...request
 
 func withResponsePlugins(p map[string]*requesthandling.Profile, plugins ...requesthandling.ResponseProcessor) {
 	p[testProfileName].ResponsePlugins = plugins
+}
+
+type lifecycleStream struct {
+	grpc.ServerStream
+	ctx      context.Context
+	requests []*extProcPb.ProcessingRequest
+	recvErr  error
+	sendErr  error
+	cancel   context.CancelFunc
+}
+
+func (s *lifecycleStream) Context() context.Context                 { return s.ctx }
+func (s *lifecycleStream) Send(*extProcPb.ProcessingResponse) error { return s.sendErr }
+func (s *lifecycleStream) Recv() (*extProcPb.ProcessingRequest, error) {
+	if len(s.requests) == 0 {
+		if s.cancel != nil {
+			s.cancel()
+		}
+		return nil, s.recvErr
+	}
+	req := s.requests[0]
+	s.requests = s.requests[1:]
+	return req, nil
+}
+
+func TestProcessReleasesInflightRequests(t *testing.T) {
+	body := func(data string, end bool) *extProcPb.ProcessingRequest {
+		return &extProcPb.ProcessingRequest{Request: &extProcPb.ProcessingRequest_ResponseBody{
+			ResponseBody: &extProcPb.HttpBody{Body: []byte(data), EndOfStream: end},
+		}}
+	}
+	tests := []struct {
+		name           string
+		response       []*extProcPb.ProcessingRequest
+		recvErr        error
+		sendErr        error
+		cancel         bool
+		invalidRequest bool
+		wantEvents     int
+	}{
+		{name: "EOF before response", recvErr: io.EOF, wantEvents: 2},
+		{name: "stream receive error", recvErr: errors.New("connection lost"), wantEvents: 2},
+		{name: "cancelled stream", recvErr: context.Canceled, cancel: true, wantEvents: 2},
+		{name: "stream send error", sendErr: errors.New("connection lost"), wantEvents: 2},
+		{name: "partial response", response: []*extProcPb.ProcessingRequest{body("data: partial", false)}, recvErr: io.EOF, wantEvents: 2},
+		{name: "bodyless response", response: []*extProcPb.ProcessingRequest{{Request: &extProcPb.ProcessingRequest_ResponseHeaders{ResponseHeaders: &extProcPb.HttpHeaders{EndOfStream: true}}}}, recvErr: io.EOF, wantEvents: 2},
+		{name: "complete response", response: []*extProcPb.ProcessingRequest{body(`{"usage":{"prompt_tokens":2,"completion_tokens":3}}`, true)}, recvErr: io.EOF, wantEvents: 2},
+		{name: "duplicate final chunk", response: []*extProcPb.ProcessingRequest{body("{}", true), body("{}", true)}, recvErr: io.EOF, wantEvents: 2},
+		{name: "rejected request", invalidRequest: true, recvErr: io.EOF, wantEvents: 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			requestBody := `{"model":"m","max_tokens":32}`
+			if tt.invalidRequest {
+				requestBody = "invalid JSON"
+			}
+			stream := &lifecycleStream{
+				ctx: ctx, recvErr: tt.recvErr, sendErr: tt.sendErr,
+				requests: []*extProcPb.ProcessingRequest{
+					{Request: &extProcPb.ProcessingRequest_RequestHeaders{RequestHeaders: &extProcPb.HttpHeaders{}}},
+					{Request: &extProcPb.ProcessingRequest_RequestBody{RequestBody: &extProcPb.HttpBody{Body: []byte(requestBody), EndOfStream: true}}},
+				},
+			}
+			stream.requests = append(stream.requests, tt.response...)
+			if tt.cancel {
+				stream.cancel = cancel
+			}
+			notifier := datalayer.NewFakeProcessor()
+			server := newServerForTest(newTestProfiles()).WithEventNotifier(notifier)
+			_ = server.Process(stream)
+			events := notifier.GetEvents()
+			if len(events) != tt.wantEvents {
+				t.Fatalf("event count = %d, want %d", len(events), tt.wantEvents)
+			}
+			if tt.invalidRequest {
+				return
+			}
+			if events[0].Type != datasource.RequestEventType || events[1].Type != datasource.ResponseEventType {
+				t.Fatalf("events = %v, want request followed by response", events)
+			}
+			ds := inmemory.NewDatastore()
+			extractor := requestmetadata.NewRequestMetadataExtractor(ds)
+			if err := extractor.Extract(context.Background(), events); err != nil {
+				t.Fatal(err)
+			}
+			count, err := datalayerinterface.ReadAttributeKey[requestmetadata.RequestMetadataCount](ds.GetOrCreateModel("m").GetAttributes(), requestmetadata.RequestMetadataAttributeKey)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if count.Requests != 0 || count.Tokens != 0 {
+				t.Fatalf("inflight counts = %+v, want zero", count)
+			}
+		})
+	}
 }

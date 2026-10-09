@@ -177,6 +177,22 @@ func (s *Server) Process(srv extProcPb.ExternalProcessor_ProcessServer) error {
 		Profile:    s.emptyProfile, // request is always initialized with an empty profile to avoid nil pointer
 		CycleState: plugin.NewCycleState(),
 	}
+	requestNotified := false
+	responseNotified := false
+	defer func() {
+		if requestNotified && !responseNotified {
+			// Balance the request event when the stream ends without a complete response.
+			s.eventNotifier.Notify(datasource.Event{
+				Type: datasource.ResponseEventType,
+				Payload: datasource.ResponsePayload{
+					Request:    reqCtx.Request,
+					Response:   requesthandling.NewInferenceResponse(),
+					CycleState: reqCtx.CycleState,
+					Duration:   time.Since(reqCtx.RequestReceivedTimestamp),
+				},
+			})
+		}
+	}()
 	// TODO set a max cap on these.
 	// both requestBody and responseBody accumulate without an upper bound.
 	// An arbitrarily large body can OOM the code.
@@ -248,6 +264,7 @@ func (s *Server) Process(srv extProcPb.ExternalProcessor_ProcessServer) error {
 			}
 			requestBodyComplete = true
 			responses, err = s.HandleRequestBody(ctx, reqCtx, requestBody)
+			requestNotified = err == nil
 			loggerVerbose.Info("processing request body complete")
 		case *extProcPb.ProcessingRequest_RequestTrailers:
 			responses, err = s.HandleRequestTrailers(v.RequestTrailers)
@@ -294,6 +311,7 @@ func (s *Server) Process(srv extProcPb.ExternalProcessor_ProcessServer) error {
 					}
 				}
 
+				responseNotified = true
 				// Notify the data layer of the completed response.
 				s.eventNotifier.Notify(datasource.Event{
 					Type: datasource.ResponseEventType,

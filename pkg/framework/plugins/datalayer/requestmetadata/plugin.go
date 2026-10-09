@@ -54,10 +54,6 @@ func (r RequestMetadataCount) Clone() datalayer.Cloneable { return r }
 //
 // Extract is assumed to be called from a single goroutine (the NotificationSource event loop).
 // If parallel dispatch is introduced, add a sync.Mutex around counters and the DataStore write.
-//
-// TODO: counters leak if a request fails without a corresponding ResponseEventType (e.g. connection
-// drop, upstream error, context cancellation). The call site should fire a
-// synthetic ResponseEventType in its error/EOF path to keep counts accurate.
 type RequestMetadataExtractor struct {
 	typedName plugin.TypedName
 	ds        datalayer.Datastore
