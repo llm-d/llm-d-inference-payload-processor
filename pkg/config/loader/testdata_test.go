@@ -283,6 +283,44 @@ profiles:
     - pluginRef: test-response-processor
 `
 
+// errorProfilePickerWrongTypeText is an error case: the profilePicker references
+// an existing plugin that does not implement requesthandling.ProfilePicker.
+const errorProfilePickerWrongTypeText = `
+apiVersion: llm-d.ai/v1alpha1
+kind: PayloadProcessorConfig
+plugins:
+- type: test-request-processor
+- type: test-response-processor
+profilePicker:
+  pluginRef: test-request-processor
+profiles:
+- name: default
+  plugins:
+    request:
+    - pluginRef: test-request-processor
+    response:
+    - pluginRef: test-response-processor
+`
+
+// errorProfilePickerMissingRefText is an error case: the profilePicker references
+// a plugin that does not exist in the configuration.
+const errorProfilePickerMissingRefText = `
+apiVersion: llm-d.ai/v1alpha1
+kind: PayloadProcessorConfig
+plugins:
+- type: test-request-processor
+- type: test-response-processor
+profilePicker:
+  pluginRef: does-not-exist
+profiles:
+- name: default
+  plugins:
+    request:
+    - pluginRef: test-request-processor
+    response:
+    - pluginRef: test-response-processor
+`
+
 // modelSelectorScorerMissingWeightText is an error case: scorer without a weight.
 const modelSelectorScorerMissingWeightText = `
 apiVersion: llm-d.ai/v1alpha1
