@@ -174,18 +174,19 @@ type Profile struct {
 func (prof Profile) String() string {
 	var parts []string
 	parts = append(parts, "Name: "+prof.Name)
-	if len(prof.Plugins.Request) > 0 || len(prof.Plugins.Response) > 0 {
-		plugins := ""
+	if prof.Plugins != nil {
+		var plugins []string
 		if len(prof.Plugins.Request) > 0 {
-			plugins += fmt.Sprintf("Request: %v", prof.Plugins.Request)
+			plugins = append(plugins, fmt.Sprintf("Request: %v", prof.Plugins.Request))
 		}
 		if len(prof.Plugins.Response) > 0 {
-			if len(plugins) > 0 {
-				plugins += ", "
-			}
-			plugins += fmt.Sprintf("Response: %v", prof.Plugins.Response)
+			plugins = append(plugins, fmt.Sprintf("Response: %v", prof.Plugins.Response))
 		}
-		parts = append(parts, fmt.Sprintf("Plugins: {%s}", plugins))
+		if len(plugins) > 0 {
+			parts = append(parts, fmt.Sprintf("Plugins: {%s}", strings.Join(plugins, ", ")))
+		}
+	} else {
+		parts = append(parts, "Plugins: <missing>")
 	}
 	return "{" + strings.Join(parts, ", ") + "}"
 }
