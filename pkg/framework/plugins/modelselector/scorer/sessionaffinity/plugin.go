@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -122,6 +123,7 @@ func ScorerFactory(name string, rawParameters json.RawMessage, _ plugin.Handle) 
 		}
 	}
 
+	config.SessionIDKey = strings.ToLower(strings.TrimSpace(config.SessionIDKey))
 	if config.SessionIDKey == "" {
 		config.SessionIDKey = defaultSessionIDKey
 	}
