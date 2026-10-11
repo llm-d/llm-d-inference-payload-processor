@@ -36,9 +36,13 @@ import (
 
 	envoytest "github.com/llm-d/llm-d-inference-payload-processor/pkg/common/envoy/test"
 	logutil "github.com/llm-d/llm-d-inference-payload-processor/pkg/common/observability/logging"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/datastore/inmemory"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/datalayer/accumulator"
 	datasource "github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/datalayer/datasource"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/datalayer/pricing"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/plugin"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/requesthandling"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/plugins/datalayer/requestcostmetadata"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/plugins/requesthandling/basemodelextractor"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/plugins/requesthandling/bodyfieldtoheader"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/plugins/requesthandling/profilepicker/single"
@@ -603,6 +607,7 @@ func TestProcess_ResponseBodyPopulatedAtEndOfStream(t *testing.T) {
 		buffering bool
 		chunks    [][]byte
 		want      map[string]any
+		wantCost  float64
 	}{
 		{
 			name:   "streaming JSON",
@@ -616,6 +621,42 @@ func TestProcess_ResponseBodyPopulatedAtEndOfStream(t *testing.T) {
 				[]byte("data: {\"model\":\"m\",\"usage\":{\"prompt_tokens\":9,\"completion_tokens\":2}}\n\ndata: [DONE]\n\n"),
 			},
 			want: map[string]any{"prompt_tokens": float64(9), "completion_tokens": float64(2)},
+		},
+		{
+			name: "streaming Anthropic usage across chunks",
+			chunks: [][]byte{
+				[]byte(`event: message_start
+data: {"type":"message_start","message":{"model":"m","usage":{"input_tokens":9,"output_tokens":1,"cache_read_input_tokens":3}}}
+
+`),
+				[]byte(`event: message_delta
+data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":2}}
+
+event: message_stop
+data: {"type":"message_stop"}
+
+`),
+			},
+			want: map[string]any{
+				"input_tokens": float64(9), "output_tokens": float64(2), "cache_read_input_tokens": float64(3),
+			},
+			wantCost: 13,
+		},
+		{
+			name:      "buffered Anthropic usage across chunks",
+			buffering: true,
+			chunks: [][]byte{
+				[]byte(`event: message_start
+data: {"type":"message_start","message":{"model":"m","usage":{"input_tokens":9,"output_tokens":1}}}
+
+`),
+				[]byte(`event: message_delta
+data: {"type":"message_delta","usage":{"output_tokens":2}}
+
+`),
+			},
+			want:     map[string]any{"input_tokens": float64(9), "output_tokens": float64(2), "mutated": true},
+			wantCost: 13,
 		},
 		{
 			name:   "streaming unparsable body",
@@ -689,6 +730,25 @@ func TestProcess_ResponseBodyPopulatedAtEndOfStream(t *testing.T) {
 			usage, _ := body["usage"].(map[string]any)
 			if diff := cmp.Diff(tc.want, usage); diff != "" {
 				t.Errorf("usage in notified response body, diff(-want, +got): %v", diff)
+			}
+			if tc.wantCost > 0 {
+				ds := inmemory.NewDatastore()
+				model := ds.GetOrCreateModel("m")
+				model.GetAttributes().Put(pricing.TokenPricesAttributeKey,
+					&pricing.TokenPrices{InputTokenPrice: 1, OutputTokenPrice: 2})
+				extractor := requestcostmetadata.NewRequestCostMetadataExtractor(ds, 200, 0, 0)
+				if err := extractor.Extract(streamCtx, []datasource.Event{event}); err != nil {
+					t.Fatalf("extract response cost: %v", err)
+				}
+				value, ok := model.GetAttributes().Get(accumulator.CostDigestAttributeKey)
+				if !ok {
+					t.Fatal("response did not produce a cost sample")
+				}
+				digest := value.(*accumulator.CostDigest).Digest
+				if digest.Count() != 1 || digest.Quantile(0.5) != tc.wantCost {
+					t.Errorf("cost digest count=%d median=%v, want count=1 median=%v",
+						digest.Count(), digest.Quantile(0.5), tc.wantCost)
+				}
 			}
 		})
 	}
