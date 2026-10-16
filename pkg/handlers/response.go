@@ -395,8 +395,14 @@ func parseSSEResponseBody(body []byte) map[string]any {
 			}
 		}
 
-		// Usage: top level (Anthropic) or nested in response (OpenAI Responses)
+		// Usage: top level (Anthropic deltas / OpenAI), nested in message
+		// (Anthropic message_start), or nested in response (OpenAI Responses).
 		usage, _ := event["usage"].(map[string]any)
+		if usage == nil {
+			if msg, ok := event["message"].(map[string]any); ok {
+				usage, _ = msg["usage"].(map[string]any)
+			}
+		}
 		if usage == nil {
 			if resp, ok := event["response"].(map[string]any); ok {
 				usage, _ = resp["usage"].(map[string]any)
