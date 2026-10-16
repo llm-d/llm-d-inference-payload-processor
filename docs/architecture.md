@@ -101,11 +101,6 @@ The pipeline is declared in a `PayloadProcessorConfig`: all plugins are instanti
 `plugins` list and then referenced by name within other sections. See [Plugins] for the full configuration
 model and [Configuration] for the API schema.
 
-> [!NOTE]
-> The config API also defines global **PreProcessing** and **PostProcessing** stages — intended to run
-> for every request before profile selection and after the response plugins. These are reserved
-> extension points: they are accepted in the configuration but are not yet invoked by the request path.
-
 ### Profiles
 
 A **profile** is a named set of `request` and `response` plugin references. Exactly one profile runs
@@ -125,9 +120,11 @@ configured, the built-in [`single-profile-picker`] is enabled automatically.
 
 ### Pre- and Post-Processing
 
-**PreProcessing** and **PostProcessing** are reserved global extension points in the config API —
-intended for logic common to all requests, before profile selection and after the response plugins.
-They are not yet wired into the request path, and there are no in-tree pre/post processors.
+**PreProcessing** and **PostProcessing** are global stages for logic that must run on every request,
+whichever profile is selected. Pre-processors run before the profile picker and post-processors run
+after the selected profile's response plugins. A pre-processor is any `RequestProcessor` referenced
+from `preProcessing`; see [Pre- and Post-Processors] for the post-processor interfaces and how they
+affect response buffering.
 
 ---
 
@@ -259,6 +256,7 @@ A request first passes through IPP (which selects the pool via header injection)
 
 [Configuration]: configuration.md
 [Plugins]: plugins.md
+[Pre- and Post-Processors]: plugins.md#pre--and-post-processors
 [ModelSelector proposal]: proposals/043-model-selection-framework/README.md
 [`single-profile-picker`]: plugins.md#profile-picker-plugins
 [llm-d Router]: https://github.com/llm-d/llm-d-router

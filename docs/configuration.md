@@ -65,10 +65,10 @@ model — the same plugin type can be instantiated multiple times under differen
 | Field | Required | Type | Description |
 |-------|----------|------|-------------|
 | `plugins` | **Yes** | `[]PluginSpec` | The plugin instances to create. Every reference elsewhere resolves to a `name` declared here. |
-| `preProcessing` | No | `PluginRefList` | Ordered references intended to run for **every** request before a profile is selected. _Reserved: accepted by the config but not yet invoked by the request path._ |
+| `preProcessing` | No | `PluginRefList` | Ordered references run for **every** request before a profile is selected. |
 | `profilePicker` | No | `PluginRef` | The plugin that chooses which profile to run. When exactly one profile is defined and no picker is set, the built-in [`single-profile-picker`] is enabled automatically. |
 | `profiles` | **Yes** (min 1) | `[]Profile` | The named profiles. Exactly one runs per request. |
-| `postProcessing` | No | `PluginRefList` | Ordered references intended to run for **every** request after the selected profile's response plugins. _Reserved: accepted by the config but not yet invoked by the request path._ |
+| `postProcessing` | No | `PluginRefList` | Ordered references run for **every** request after the selected profile's response plugins. |
 | `datalayer` | No | `DatalayerConfig` | Data-layer plugin references: `collectors`, `extractors`, and `datasources`. |
 
 ### PluginSpec
