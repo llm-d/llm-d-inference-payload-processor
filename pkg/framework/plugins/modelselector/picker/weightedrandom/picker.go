@@ -96,8 +96,13 @@ func (p *WeightedRandomPicker) Pick(ctx context.Context, cycleState *plugin.Cycl
 	debugLogger := log.FromContext(ctx).V(logutil.DEBUG)
 	debugEnabled := debugLogger.Enabled()
 
-	// Check if there is at least one model with Score > 0, if not let random picker run
-	if slices.IndexFunc(scoredModels, func(scoredModel *modelselector.ScoredModel) bool { return scoredModel.Score > 0 }) == -1 {
+	var maxScore float64
+	for _, scoredModel := range scoredModels {
+		if scoredModel.Score > maxScore {
+			maxScore = scoredModel.Score
+		}
+	}
+	if maxScore == 0 {
 		if debugEnabled {
 			debugLogger.Info("All scores are zero, delegating to RandomPicker for uniform selection")
 		}
@@ -126,7 +131,8 @@ func (p *WeightedRandomPicker) Pick(ctx context.Context, cycleState *plugin.Cycl
 			u = 1e-10 // Avoid 0 to ensure positive key
 		}
 
-		weightedModels[i] = weightedScoredModel{ScoredModel: scoredModel, key: math.Pow(u, 1.0/scoredModel.Score)} // key = U^(1/weight)
+		// Scaling by the largest score preserves probabilities and prevents all keys underflowing to zero.
+		weightedModels[i] = weightedScoredModel{ScoredModel: scoredModel, key: math.Pow(u, maxScore/scoredModel.Score)}
 	}
 
 	slices.SortFunc(weightedModels, func(a, b weightedScoredModel) int {

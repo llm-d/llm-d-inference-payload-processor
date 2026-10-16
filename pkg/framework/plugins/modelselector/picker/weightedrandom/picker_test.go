@@ -18,6 +18,7 @@ package weightedrandom
 
 import (
 	"context"
+	"math"
 	"testing"
 
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/datalayer"
@@ -94,5 +95,41 @@ func TestWeightedRandomPickerTypedName(t *testing.T) {
 	p := NewWeightedRandomPicker()
 	if p.TypedName().Type != WeightedRandomPickerType {
 		t.Errorf("expected type %q, got %q", WeightedRandomPickerType, p.TypedName().Type)
+	}
+}
+
+func TestWeightedRandomPickerSmallScores(t *testing.T) {
+	modelA := datalayer.NewModel("model-a")
+	modelB := datalayer.NewModel("model-b")
+	p := NewWeightedRandomPicker()
+
+	for _, score := range []float64{1e-6, 1e-300, math.SmallestNonzeroFloat64} {
+		t.Run("excludes nonpositive scores", func(t *testing.T) {
+			input := []*modelselector.ScoredModel{
+				{Model: modelA, Score: 0},
+				{Model: modelB, Score: score},
+			}
+			for range 100 {
+				result := p.Pick(context.Background(), plugin.NewCycleState(), input)
+				if result.TargetModel != modelB {
+					t.Fatalf("selected zero-score model with positive score %g", score)
+				}
+			}
+		})
+
+		t.Run("equal scores select both models", func(t *testing.T) {
+			input := []*modelselector.ScoredModel{
+				{Model: modelA, Score: score},
+				{Model: modelB, Score: score},
+			}
+			counts := make(map[datalayer.Model]int)
+			for range 1000 {
+				result := p.Pick(context.Background(), plugin.NewCycleState(), input)
+				counts[result.TargetModel]++
+			}
+			if counts[modelA] == 0 || counts[modelB] == 0 {
+				t.Fatalf("equal scores %g did not select both models: a=%d b=%d", score, counts[modelA], counts[modelB])
+			}
+		})
 	}
 }
