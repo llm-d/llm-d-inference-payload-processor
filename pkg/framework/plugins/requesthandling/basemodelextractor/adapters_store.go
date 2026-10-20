@@ -52,6 +52,7 @@ func NewAdaptersStore() AdaptersStore {
 	return &adaptersStoreImpl{
 		loraAdapterToBaseModel: map[string]string{},
 		configmapAdapters:      map[types.NamespacedName]sets.Set[string]{},
+		configmapBaseModels:    map[types.NamespacedName]string{},
 		baseModels:             map[string]int{},
 		lock:                   sync.RWMutex{},
 	}
@@ -60,7 +61,8 @@ func NewAdaptersStore() AdaptersStore {
 type adaptersStoreImpl struct {
 	loraAdapterToBaseModel map[string]string                         // a mapping between a lora adapter and its corresponding base model
 	configmapAdapters      map[types.NamespacedName]sets.Set[string] // map from configmap namespaced name to its adapters
-	baseModels             map[string]int                            // base model with a counter of its configmaps
+	configmapBaseModels    map[types.NamespacedName]string
+	baseModels             map[string]int // base model with a counter of its configmaps
 	lock                   sync.RWMutex
 }
 
@@ -88,14 +90,18 @@ func (adaptersStore *adaptersStoreImpl) configMapUpdateOrAddIfNotExist(configmap
 	for adapterToRemove := range adaptersToRemove {
 		delete(adaptersStore.loraAdapterToBaseModel, adapterToRemove)
 	}
-	// update base model count, update count only if this configmap is added
-	if !configmapExist {
-		if count, baseExist := adaptersStore.baseModels[baseModel]; baseExist {
-			adaptersStore.baseModels[baseModel] = count + 1
-		} else {
-			adaptersStore.baseModels[baseModel] = 1
+	previousBaseModel := adaptersStore.configmapBaseModels[configmapNamespacedName]
+	if !configmapExist || previousBaseModel != baseModel {
+		if configmapExist {
+			if count := adaptersStore.baseModels[previousBaseModel]; count == 1 {
+				delete(adaptersStore.baseModels, previousBaseModel)
+			} else {
+				adaptersStore.baseModels[previousBaseModel] = count - 1
+			}
 		}
+		adaptersStore.baseModels[baseModel]++
 	}
+	adaptersStore.configmapBaseModels[configmapNamespacedName] = baseModel
 	// update configmap NamespacedName to current set of adapters mapping
 	adaptersStore.configmapAdapters[configmapNamespacedName] = newAdapters
 
@@ -120,10 +126,8 @@ func (adaptersStore *adaptersStoreImpl) configMapDelete(configmap *corev1.Config
 	delete(adaptersStore.configmapAdapters, configmapNamespacedName)
 
 	// update base model count
-	baseModel, err := adaptersStore.parseBaseModelFromConfigMap(configmap) // parse base model
-	if err != nil {
-		return // if no base model field exist we cannot delete it
-	}
+	baseModel := adaptersStore.configmapBaseModels[configmapNamespacedName]
+	delete(adaptersStore.configmapBaseModels, configmapNamespacedName)
 	if count := adaptersStore.baseModels[baseModel]; count == 1 {
 		delete(adaptersStore.baseModels, baseModel)
 	} else {
