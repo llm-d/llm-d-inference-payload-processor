@@ -19,7 +19,9 @@ package modelconfigcollector
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
+	"path/filepath"
 	"slices"
 	"testing"
 	"time"
@@ -113,19 +115,41 @@ func overwriteFile(t *testing.T, path string, cfg ModelsConfig) {
 	}
 }
 
-// waitForUpdatedConfig polls until the datastore reflects wantCount models
-// (proving the fsnotify watcher picked up a file change and re-ran syncModels)
-// or the deadline expires.
-func waitForUpdatedConfig(t *testing.T, ds datalayer.Datastore, wantCount int, timeout time.Duration) []datalayer.Model {
+// modelNames returns the sorted names of all models currently in the datastore.
+func modelNames(ds datalayer.Datastore) []string {
+	var names []string
+	for _, m := range ds.GetModels(datalayer.AllModelsPredicate) {
+		names = append(names, m.GetName())
+	}
+	slices.Sort(names)
+	return names
+}
+
+// mustMarshal serializes cfg, failing the test on error.
+func mustMarshal(t *testing.T, cfg ModelsConfig) []byte {
 	t.Helper()
+	data, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatalf("marshal config: %v", err)
+	}
+	return data
+}
+
+// waitForModels polls until the datastore contains exactly want (order-insensitive).
+func waitForModels(t *testing.T, ds datalayer.Datastore, timeout time.Duration, want ...string) bool {
+	t.Helper()
+	sortedWant := slices.Clone(want)
+	slices.Sort(sortedWant)
 	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		if models := ds.GetModels(datalayer.AllModelsPredicate); len(models) == wantCount {
-			return models
+	for {
+		if names := modelNames(ds); slices.Equal(names, sortedWant) {
+			return true
+		}
+		if !time.Now().Before(deadline) {
+			return false
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	return ds.GetModels(datalayer.AllModelsPredicate)
 }
 
 // --- Factory-level tests ---
@@ -265,9 +289,120 @@ func TestStart_WatcherTriggersResync(t *testing.T) {
 		Models: []ModelConfiguration{{Name: "m1"}, {Name: "m2"}},
 	})
 
-	models := waitForUpdatedConfig(t, ds, 2, 2*time.Second)
-	if len(models) != 2 {
-		t.Errorf("expected 2 models after file update, got %d: %v", len(models), models)
+	if !waitForModels(t, ds, 2*time.Second, "m1", "m2") {
+		t.Errorf("expected [m1 m2] after file update, got %v", modelNames(ds))
+	}
+}
+
+// kubeStyleMount creates a directory structure that mimics Kubernetes ConfigMap
+// volume mounts. It creates:
+// - A timestamped data directory (..2026_09_15_06_14_44.287844369/) containing models.json
+// - A ..data symlink pointing to the timestamped directory
+// - A models.json symlink pointing to ..data/models.json
+// It returns the mount directory, the config file path, and the initial version name.
+func kubeStyleMount(t *testing.T, cfg ModelsConfig) (dir, path, version string) {
+	t.Helper()
+	dir = t.TempDir()
+	version = kubeStyleUpdate(t, dir, "", mustMarshal(t, cfg))
+	if err := os.Symlink(filepath.Join("..data", "models.json"), filepath.Join(dir, "models.json")); err != nil {
+		t.Fatalf("symlink models.json: %v", err)
+	}
+	return dir, filepath.Join(dir, "models.json"), version
+}
+
+// kubeStyleUpdate simulates a Kubernetes ConfigMap update by:
+// 1. Creating a new timestamped directory with the new models.json content
+// 2. Atomically updating the ..data symlink to point to the new directory
+// 3. Removing the previous versioned directory (unless oldVersion is empty)
+// This mimics kubelet's atomic writer; the stable models.json symlink is never touched.
+// It returns the new version name.
+func kubeStyleUpdate(t *testing.T, dir, oldVersion string, content []byte) string {
+	t.Helper()
+	newVersion := time.Now().Format("..2006_01_02_15_04_05.000000000")
+	newDir := filepath.Join(dir, newVersion)
+	if err := os.MkdirAll(newDir, 0o700); err != nil {
+		t.Fatalf("mkdir %s: %v", newDir, err)
+	}
+	if err := os.WriteFile(filepath.Join(newDir, "models.json"), content, 0o600); err != nil {
+		t.Fatalf("write models.json: %v", err)
+	}
+	tmpLink := filepath.Join(dir, "..data_tmp")
+	os.Remove(tmpLink) //nolint:errcheck
+	if err := os.Symlink(newVersion, tmpLink); err != nil {
+		t.Fatalf("symlink ..data_tmp: %v", err)
+	}
+	if err := os.Rename(tmpLink, filepath.Join(dir, "..data")); err != nil {
+		t.Fatalf("atomic ..data swap: %v", err)
+	}
+	if oldVersion != "" {
+		if err := os.RemoveAll(filepath.Join(dir, oldVersion)); err != nil {
+			t.Fatalf("remove old dir: %v", err)
+		}
+	}
+	return newVersion
+}
+
+// TestStart_WatcherResyncsOnConfigMapAtomicUpdate ensures the watcher picks up a
+// ConfigMap atomic update (..data symlink swap), whose events never carry the
+// config file name. Regression guard for the removed name filter; it only fails
+// pre-fix on Linux (macOS kqueue synthesizes extra child events).
+func TestStart_WatcherResyncsOnConfigMapAtomicUpdate(t *testing.T) {
+	dir, path, v1 := kubeStyleMount(t, ModelsConfig{Models: []ModelConfiguration{{Name: "m1"}}})
+
+	ds := datastore.NewFakeDataStore()
+	startFactory(t, path, ds)
+	if !waitForModels(t, ds, 2*time.Second, "m1") {
+		t.Fatalf("expected [m1] after initial sync, got %v", modelNames(ds))
+	}
+
+	kubeStyleUpdate(t, dir, v1, mustMarshal(t, ModelsConfig{Models: []ModelConfiguration{{Name: "m2"}}}))
+
+	if !waitForModels(t, ds, 3*time.Second, "m2") {
+		t.Errorf("expected [m2] after ConfigMap-style atomic update, got %v", modelNames(ds))
+	}
+}
+
+// TestStart_WatcherResyncsOnRepeatedConfigMapUpdates ensures the watcher converges
+// across a sequence of ConfigMap atomic updates, not only the first one.
+func TestStart_WatcherResyncsOnRepeatedConfigMapUpdates(t *testing.T) {
+	dir, path, version := kubeStyleMount(t, ModelsConfig{Models: []ModelConfiguration{{Name: "m1"}}})
+
+	ds := datastore.NewFakeDataStore()
+	startFactory(t, path, ds)
+	if !waitForModels(t, ds, 2*time.Second, "m1") {
+		t.Fatalf("expected [m1] after initial sync, got %v", modelNames(ds))
+	}
+
+	for i := 2; i <= 5; i++ {
+		name := fmt.Sprintf("m%d", i)
+		version = kubeStyleUpdate(t, dir, version, mustMarshal(t,
+			ModelsConfig{Models: []ModelConfiguration{{Name: name}}}))
+		if !waitForModels(t, ds, 3*time.Second, name) {
+			t.Fatalf("expected [%s] after update, got %v", name, modelNames(ds))
+		}
+	}
+}
+
+// TestStart_WatcherKeepsLastGoodConfigOnInvalidUpdate ensures an invalid update
+// keeps the last good config and a later valid update still applies.
+func TestStart_WatcherKeepsLastGoodConfigOnInvalidUpdate(t *testing.T) {
+	dir, path, v1 := kubeStyleMount(t, ModelsConfig{Models: []ModelConfiguration{{Name: "m1"}}})
+
+	ds := datastore.NewFakeDataStore()
+	startFactory(t, path, ds)
+	if !waitForModels(t, ds, 2*time.Second, "m1") {
+		t.Fatalf("expected [m1] after initial sync, got %v", modelNames(ds))
+	}
+
+	v2 := kubeStyleUpdate(t, dir, v1, []byte(`this is not valid json {{{`))
+	time.Sleep(debounceDelay + 750*time.Millisecond)
+	if names := modelNames(ds); !slices.Equal(names, []string{"m1"}) {
+		t.Fatalf("expected [m1] preserved after invalid update, got %v", names)
+	}
+
+	kubeStyleUpdate(t, dir, v2, mustMarshal(t, ModelsConfig{Models: []ModelConfiguration{{Name: "m2"}}}))
+	if !waitForModels(t, ds, 3*time.Second, "m2") {
+		t.Errorf("expected [m2] after subsequent valid update, got %v", modelNames(ds))
 	}
 }
 
@@ -316,9 +451,8 @@ func TestStart_WatcherClearsModelsOnRemove(t *testing.T) {
 		t.Fatalf("remove config file: %v", err)
 	}
 
-	models := waitForUpdatedConfig(t, ds, 0, 2*time.Second)
-	if len(models) != 0 {
-		t.Errorf("expected 0 models after config file removal, got %d: %v", len(models), models)
+	if !waitForModels(t, ds, 2*time.Second) {
+		t.Errorf("expected 0 models after config file removal, got %v", modelNames(ds))
 	}
 }
 
@@ -340,9 +474,8 @@ func TestStart_WatcherClearsModelsOnRename(t *testing.T) {
 		t.Fatalf("rename config file: %v", err)
 	}
 
-	models := waitForUpdatedConfig(t, ds, 0, 2*time.Second)
-	if len(models) != 0 {
-		t.Errorf("expected 0 models after config file rename, got %d: %v", len(models), models)
+	if !waitForModels(t, ds, 2*time.Second) {
+		t.Errorf("expected 0 models after config file rename, got %v", modelNames(ds))
 	}
 }
 

@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/fsnotify/fsnotify"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -35,6 +36,9 @@ import (
 )
 
 const PluginType = "model-config-datasource"
+
+// debounceDelay wait for events to settle before reloading
+const debounceDelay = 250 * time.Millisecond
 
 // compile-time interface assertion
 var _ dlsrc.DataSource = &ModelConfigDataSource{}
@@ -145,6 +149,13 @@ func (c *ModelConfigDataSource) Start(ctx context.Context) error {
 		defer close(c.doneCh)
 		defer watcher.Close() //nolint:errcheck
 
+		var debounce *time.Timer
+		defer func() {
+			if debounce != nil {
+				debounce.Stop()
+			}
+		}()
+
 		for {
 			select {
 			case <-c.stopCh:
@@ -155,25 +166,20 @@ func (c *ModelConfigDataSource) Start(ctx context.Context) error {
 				if !ok {
 					return
 				}
-				absEvent, err := filepath.Abs(event.Name)
-				if err != nil {
-					logger.Error(err, "failed to resolve event path", "path", event.Name)
-					continue
-				}
-				// Verify that event refers to the config file
-				if absEvent != c.absModelsPath {
-					continue
-				}
-				// The following handles ONLY changes to the configuration file
 				if event.Has(fsnotify.Write) || event.Has(fsnotify.Create) || event.Has(fsnotify.Remove) || event.Has(fsnotify.Rename) {
-					data, err := readModelsFile(c.absModelsPath, false)
-					if err != nil {
-						logger.Error(err, "failed to read models config after file change")
-						continue
+					if debounce != nil {
+						debounce.Stop()
 					}
-					if err := c.syncModels(ctx, data); err != nil {
-						logger.Error(err, "failed to sync models after file change")
-					}
+					debounce = time.AfterFunc(debounceDelay, func() {
+						data, err := readModelsFile(c.absModelsPath, false)
+						if err != nil {
+							logger.Error(err, "failed to read models config after file change")
+							return
+						}
+						if err := c.syncModels(ctx, data); err != nil {
+							logger.Error(err, "failed to sync models after file change")
+						}
+					})
 				}
 			case err, ok := <-watcher.Errors:
 				if !ok {
