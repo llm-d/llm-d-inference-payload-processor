@@ -60,6 +60,8 @@ func (c *ConfigMapReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	logger.Info("Reconciling ConfigMap")
 
 	configmap := &corev1.ConfigMap{}
+	configmap.SetNamespace(req.Namespace)
+	configmap.SetName(req.Name)
 	err := c.Get(ctx, req.NamespacedName, configmap)
 	if err != nil && !errors.IsNotFound(err) {
 		return ctrl.Result{}, fmt.Errorf("unable to get ConfigMap - %w", err)
