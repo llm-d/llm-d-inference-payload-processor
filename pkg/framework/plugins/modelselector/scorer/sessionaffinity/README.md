@@ -19,7 +19,7 @@ When a request arrives with **no session ID at all**, the plugin optimistically 
 
 ## Session ID Lookup
 
-The plugin reads the session ID from a single configured request header key. Default key: `x-session-id`.
+The plugin reads the session ID from a single configured request header key. Default key: `x-session-id`. The key is matched case-insensitively (normalized to lowercase).
 
 ## Configuration
 
@@ -53,7 +53,7 @@ profiles:
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `sessionIdKey` | string | `"x-session-id"` | Request header key to read the session ID from |
+| `sessionIdKey` | string | `"x-session-id"` | Request header key to read the session ID from (case-insensitive) |
 | `maxSessions` | int | `10000` | Maximum number of session-to-model mappings in the LRU cache |
 | `ttlSeconds` | int | `3600` | Time-to-live in seconds for each cache entry |
 

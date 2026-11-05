@@ -76,6 +76,29 @@ func TestFactory_InvalidJSON(t *testing.T) {
 	assert.Error(t, err)
 }
 
+// Verify the configured sessionIdKey is normalized to lowercase.
+func TestFactory_NormalizesSessionIDKey(t *testing.T) {
+	cases := []struct {
+		name    string
+		raw     string
+		wantKey string
+	}{
+		{"mixed-case", `{"sessionIdKey":"X-Session-Id"}`, "x-session-id"},
+		{"uppercase", `{"sessionIdKey":"SESSION-ID"}`, "session-id"},
+		{"with whitespace", `{"sessionIdKey":"  X-Conv-ID  "}`, "x-conv-id"},
+		{"already lowercase (unchanged)", `{"sessionIdKey":"x-conv-id"}`, "x-conv-id"},
+		{"whitespace-only falls back to default", `{"sessionIdKey":"   "}`, defaultSessionIDKey},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			p, err := ScorerFactory("norm", json.RawMessage(tc.raw), nil)
+			require.NoError(t, err)
+			s := p.(*SessionAffinityScorer)
+			assert.Equal(t, tc.wantKey, s.sessionIDKey)
+		})
+	}
+}
+
 // --- Score tests ---
 
 // No session ID in request headers → 0.0 for all models.
