@@ -19,15 +19,19 @@ package error
 import (
 	"fmt"
 
+	configPb "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	extProcPb "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
 	envoyTypePb "github.com/envoyproxy/go-control-plane/envoy/type/v3"
 	"google.golang.org/grpc/status"
+
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/common/envoy"
 )
 
 // Error is an error struct for errors returned by the epp/ipp server.
 type Error struct {
-	Code string
-	Msg  string
+	Code    string
+	Msg     string
+	Headers map[string]string
 }
 
 const (
@@ -81,12 +85,20 @@ func BuildErrResponse(err error) (*extProcPb.ProcessingResponse, error) {
 		return nil, status.Errorf(status.Code(err), "failed to handle request: %v", err)
 	}
 
+	e, _ := err.(Error)
+
+	contentType := &configPb.HeaderValueOption{
+		Header: &configPb.HeaderValue{Key: "content-type", RawValue: []byte("text/plain")},
+	}
+	setHeaders := append([]*configPb.HeaderValueOption{contentType}, envoy.GenerateHeadersMutation(e.Headers)...)
+
 	resp := &extProcPb.ProcessingResponse{
 		Response: &extProcPb.ProcessingResponse_ImmediateResponse{
 			ImmediateResponse: &extProcPb.ImmediateResponse{
 				Status: &envoyTypePb.HttpStatus{
 					Code: httpCode,
 				},
+				Headers: &extProcPb.HeaderMutation{SetHeaders: setHeaders},
 			},
 		},
 	}

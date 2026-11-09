@@ -227,6 +227,7 @@ func TestBuildErrResponse(t *testing.T) {
 		wantHTTPStatus   envoyTypePb.StatusCode
 		wantBodyContains string
 		wantGRPCErr      bool
+		wantHeaders      map[string]string
 	}{
 		{
 			name:             "BadRequest returns 400",
@@ -275,6 +276,13 @@ func TestBuildErrResponse(t *testing.T) {
 			err:         errors.New("unknown problem"),
 			wantGRPCErr: true,
 		},
+		{
+			name:             "headers follow content-type",
+			err:              Error{Code: ResourceExhausted, Msg: "no capacity", Headers: map[string]string{"x-llm-d-request-dropped-reason": "rejected-saturated"}},
+			wantHTTPStatus:   envoyTypePb.StatusCode_TooManyRequests,
+			wantBodyContains: "no capacity",
+			wantHeaders:      map[string]string{"x-llm-d-request-dropped-reason": "rejected-saturated"},
+		},
 	}
 
 	for _, tt := range tests {
@@ -307,6 +315,20 @@ func TestBuildErrResponse(t *testing.T) {
 			}
 			if tt.wantBodyContains != "" && !strings.Contains(string(ir.GetBody()), tt.wantBodyContains) {
 				t.Errorf("body %q should contain %q", string(ir.GetBody()), tt.wantBodyContains)
+			}
+
+			setHeaders := ir.GetHeaders().GetSetHeaders()
+			if len(setHeaders) != len(tt.wantHeaders)+1 {
+				t.Fatalf("headers = %v, want content-type and %d more", setHeaders, len(tt.wantHeaders))
+			}
+			if key, value := setHeaders[0].GetHeader().GetKey(), string(setHeaders[0].GetHeader().GetRawValue()); key != "content-type" || value != "text/plain" {
+				t.Errorf("first header = %s: %s, want content-type: text/plain", key, value)
+			}
+			for _, h := range setHeaders[1:] {
+				key, value := h.GetHeader().GetKey(), string(h.GetHeader().GetRawValue())
+				if want := tt.wantHeaders[key]; value != want {
+					t.Errorf("header %q = %q, want %q", key, value, want)
+				}
 			}
 		})
 	}
