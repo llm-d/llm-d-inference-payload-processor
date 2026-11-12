@@ -21,6 +21,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strconv"
 	"time"
 
@@ -337,11 +338,15 @@ func (s *Server) runResponsePlugin(ctx context.Context, tracer trace.Tracer, cyc
 
 // parseSSEResponseBody extracts a composite response body from an SSE stream.
 // It scans all "data:" lines for JSON objects and merges usage/model fields into
-// a single map that response plugins can process.
+// a single map that response plugins can process. OpenAI chat completion chunks
+// are rebuilt as a chat completion (choices[].message), and Anthropic Messages
+// events are rebuilt as a message (content blocks, stop_reason).
 func parseSSEResponseBody(body []byte) map[string]any {
 	result := map[string]any{}
 	var contentBuilder bytes.Buffer
 	var stopReason string
+	// OpenAI chat completion chunks, keyed by choice index.
+	var chatChoices map[int]*sseChatChoice
 	lines := bytes.Split(body, []byte("\n"))
 
 	for _, line := range lines {
@@ -373,29 +378,52 @@ func parseSSEResponseBody(body []byte) map[string]any {
 			}
 		}
 
-		// Anthropic message_start: extract model from nested message
+		// Anthropic message_start: extract model and the initial usage from the
+		// nested message. input_tokens (and the cache token counts) are only
+		// reported here; message_delta later carries the cumulative output_tokens.
 		if msg, ok := event["message"].(map[string]any); ok {
 			if m, ok := msg["model"].(string); ok && m != "" {
 				result["model"] = m
 			}
+			if usage, ok := msg["usage"].(map[string]any); ok {
+				mergeSSEUsage(result, usage)
+			}
 		}
 
-		// OpenAI chat completions: extract content from choices[].delta.content
+		// OpenAI chat completions: accumulate choices[].delta per choice index
 		if choices, ok := event["choices"].([]any); ok {
+			if chatChoices == nil {
+				chatChoices = map[int]*sseChatChoice{}
+			}
 			for _, c := range choices {
-				choice, _ := c.(map[string]any)
+				choice, ok := c.(map[string]any)
+				if !ok {
+					continue
+				}
+				index := 0
+				if i, ok := choice["index"].(float64); ok {
+					index = int(i)
+				}
+				state, ok := chatChoices[index]
+				if !ok {
+					state = &sseChatChoice{}
+					chatChoices[index] = state
+				}
 				if d, ok := choice["delta"].(map[string]any); ok {
+					if role, ok := d["role"].(string); ok && role != "" {
+						state.role = role
+					}
 					if text, ok := d["content"].(string); ok {
-						contentBuilder.WriteString(text)
+						state.content.WriteString(text)
 					}
 				}
 				if fr, ok := choice["finish_reason"].(string); ok && fr != "" {
-					stopReason = fr
+					state.finishReason = fr
 				}
 			}
 		}
 
-		// Usage: top level (Anthropic) or nested in response (OpenAI Responses)
+		// Usage: top level (Anthropic, OpenAI chat) or nested in response (OpenAI Responses)
 		usage, _ := event["usage"].(map[string]any)
 		if usage == nil {
 			if resp, ok := event["response"].(map[string]any); ok {
@@ -406,38 +434,31 @@ func parseSSEResponseBody(body []byte) map[string]any {
 			}
 		}
 		if usage != nil {
-			existing, _ := result["usage"].(map[string]any)
-			if existing == nil {
-				existing = map[string]any{}
-			}
-			for k, v := range usage {
-				existing[k] = v
-			}
-			result["usage"] = existing
+			mergeSSEUsage(result, usage)
 		}
 	}
 
-	if len(result) == 0 {
+	if len(result) == 0 && len(chatChoices) == 0 {
 		return nil
 	}
 
 	// Reconstruct in a format that translators expect.
-	// Anthropic: content as array of {type,text} blocks.
 	// OpenAI: choices[].message.content as string.
+	if len(chatChoices) > 0 {
+		result["choices"] = buildSSEChatChoices(chatChoices)
+		return result
+	}
+
+	// Anthropic Messages format: content as array of {type,text} blocks.
 	if contentBuilder.Len() > 0 {
-		if _, hasChoices := result["choices"]; hasChoices {
-			// OpenAI format — content already merged via choices[].delta.content above
-		} else {
-			// Anthropic Messages format — wrap in content block array
-			result["content"] = []any{
-				map[string]any{"type": "text", "text": contentBuilder.String()},
-			}
-			if result["type"] == nil {
-				result["type"] = "message"
-			}
-			if result["role"] == nil {
-				result["role"] = "assistant"
-			}
+		result["content"] = []any{
+			map[string]any{"type": "text", "text": contentBuilder.String()},
+		}
+		if result["type"] == nil {
+			result["type"] = "message"
+		}
+		if result["role"] == nil {
+			result["role"] = "assistant"
 		}
 	}
 	if stopReason != "" {
@@ -445,4 +466,53 @@ func parseSSEResponseBody(body []byte) map[string]any {
 	}
 
 	return result
+}
+
+// sseChatChoice accumulates the deltas of one OpenAI chat completion choice.
+type sseChatChoice struct {
+	role         string
+	content      bytes.Buffer
+	finishReason string
+}
+
+// buildSSEChatChoices turns the accumulated chat completion deltas into
+// choices[].message entries ordered by choice index.
+func buildSSEChatChoices(chatChoices map[int]*sseChatChoice) []any {
+	indexes := make([]int, 0, len(chatChoices))
+	for index := range chatChoices {
+		indexes = append(indexes, index)
+	}
+	slices.Sort(indexes)
+
+	choices := make([]any, 0, len(indexes))
+	for _, index := range indexes {
+		state := chatChoices[index]
+		role := state.role
+		if role == "" {
+			role = "assistant"
+		}
+		message := map[string]any{"role": role, "content": nil}
+		if state.content.Len() > 0 {
+			message["content"] = state.content.String()
+		}
+		choice := map[string]any{"index": index, "message": message, "finish_reason": nil}
+		if state.finishReason != "" {
+			choice["finish_reason"] = state.finishReason
+		}
+		choices = append(choices, choice)
+	}
+	return choices
+}
+
+// mergeSSEUsage merges usage into result["usage"], letting later events
+// override the counts reported by earlier ones.
+func mergeSSEUsage(result map[string]any, usage map[string]any) {
+	existing, _ := result["usage"].(map[string]any)
+	if existing == nil {
+		existing = map[string]any{}
+	}
+	for k, v := range usage {
+		existing[k] = v
+	}
+	result["usage"] = existing
 }
