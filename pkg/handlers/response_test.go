@@ -340,3 +340,113 @@ func expectedStreamedResponseBodyMutation(bodyBytes []byte) []*extProcPb.Process
 		},
 	}
 }
+
+func TestParseSSEResponseBody(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		want map[string]any
+	}{
+		{
+			name: "openai chat completion chunks rebuild choices",
+			body: "data: {\"model\":\"gpt\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"\"}}]}\n\n" +
+				"data: {\"model\":\"gpt\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Hel\"}}]}\n\n" +
+				"data: {\"model\":\"gpt\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"lo\"},\"finish_reason\":\"stop\"}]}\n\n" +
+				"data: {\"model\":\"gpt\",\"choices\":[],\"usage\":{\"prompt_tokens\":9,\"completion_tokens\":2}}\n\n" +
+				"data: [DONE]\n\n",
+			want: map[string]any{
+				"model": "gpt",
+				"choices": []any{
+					map[string]any{
+						"index":         0,
+						"message":       map[string]any{"role": "assistant", "content": "Hello"},
+						"finish_reason": "stop",
+					},
+				},
+				"usage": map[string]any{"prompt_tokens": float64(9), "completion_tokens": float64(2)},
+			},
+		},
+		{
+			name: "openai chat completion chunks keep each choice apart",
+			body: "data: {\"model\":\"gpt\",\"choices\":[{\"index\":1,\"delta\":{\"content\":\"b\"}},{\"index\":0,\"delta\":{\"content\":\"a\"}}]}\n\n" +
+				"data: {\"model\":\"gpt\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"length\"},{\"index\":1,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n",
+			want: map[string]any{
+				"model": "gpt",
+				"choices": []any{
+					map[string]any{
+						"index":         0,
+						"message":       map[string]any{"role": "assistant", "content": "a"},
+						"finish_reason": "length",
+					},
+					map[string]any{
+						"index":         1,
+						"message":       map[string]any{"role": "assistant", "content": "b"},
+						"finish_reason": "stop",
+					},
+				},
+			},
+		},
+		{
+			name: "openai chat completion without content leaves content null",
+			body: "data: {\"model\":\"gpt\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\"},\"finish_reason\":\"tool_calls\"}]}\n\n",
+			want: map[string]any{
+				"model": "gpt",
+				"choices": []any{
+					map[string]any{
+						"index":         0,
+						"message":       map[string]any{"role": "assistant", "content": nil},
+						"finish_reason": "tool_calls",
+					},
+				},
+			},
+		},
+		{
+			name: "anthropic message keeps input tokens from message_start",
+			body: "event: message_start\n" +
+				"data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_1\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude\",\"usage\":{\"input_tokens\":25,\"cache_read_input_tokens\":3,\"output_tokens\":1}}}\n\n" +
+				"event: content_block_delta\n" +
+				"data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Hi\"}}\n\n" +
+				"event: content_block_delta\n" +
+				"data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\" there\"}}\n\n" +
+				"event: message_delta\n" +
+				"data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":15}}\n\n" +
+				"event: message_stop\n" +
+				"data: {\"type\":\"message_stop\"}\n\n",
+			want: map[string]any{
+				"model":       "claude",
+				"type":        "message",
+				"role":        "assistant",
+				"content":     []any{map[string]any{"type": "text", "text": "Hi there"}},
+				"stop_reason": "end_turn",
+				"usage": map[string]any{
+					"input_tokens":            float64(25),
+					"cache_read_input_tokens": float64(3),
+					"output_tokens":           float64(15),
+				},
+			},
+		},
+		{
+			name: "openai responses usage nested in response",
+			body: "data: {\"type\":\"response.output_text.delta\",\"delta\":\"Hi\"}\n\n" +
+				"data: {\"type\":\"response.completed\",\"response\":{\"model\":\"gpt\",\"usage\":{\"input_tokens\":4,\"output_tokens\":1}}}\n\n",
+			want: map[string]any{
+				"model": "gpt",
+				"usage": map[string]any{"input_tokens": float64(4), "output_tokens": float64(1)},
+			},
+		},
+		{
+			name: "no data lines",
+			body: "event: ping\n\n",
+			want: nil,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := parseSSEResponseBody([]byte(tc.body))
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("parseSSEResponseBody returned unexpected body, diff(-want, +got): %v", diff)
+			}
+		})
+	}
+}
