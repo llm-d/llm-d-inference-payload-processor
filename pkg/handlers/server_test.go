@@ -618,6 +618,14 @@ func TestProcess_ResponseBodyPopulatedAtEndOfStream(t *testing.T) {
 			want: map[string]any{"prompt_tokens": float64(9), "completion_tokens": float64(2)},
 		},
 		{
+			name: "streaming anthropic SSE keeps input tokens",
+			chunks: [][]byte{
+				[]byte("event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"model\":\"m\",\"usage\":{\"input_tokens\":9,\"output_tokens\":1}}}\n\n"),
+				[]byte("event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":2}}\n\n"),
+			},
+			want: map[string]any{"input_tokens": float64(9), "output_tokens": float64(2)},
+		},
+		{
 			name:   "streaming unparsable body",
 			chunks: [][]byte{[]byte("not a body")},
 			want:   nil,
