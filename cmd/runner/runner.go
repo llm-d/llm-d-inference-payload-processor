@@ -130,6 +130,7 @@ func (r *Runner) Run(ctx context.Context) error {
 	pflag.Parse()
 
 	if err := opts.Complete(); err != nil {
+		setupLog.Error(err, "Failed to complete flags")
 		return err
 	}
 	if err := opts.Validate(); err != nil {
@@ -226,6 +227,7 @@ func (r *Runner) Run(ctx context.Context) error {
 	// Setup ExtProc Server Runner.
 	serverRunner := &runserver.ExtProcServerRunner{
 		GrpcPort:                      opts.GRPCPort,
+		GRPCMaxRecvMsgSize:            opts.GRPCMaxRecvMsgSize,
 		SecureServing:                 opts.SecureServing,
 		PreProcessors:                 r.preProcessors,
 		ProfilePicker:                 r.profilePicker,

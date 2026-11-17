@@ -367,6 +367,7 @@ logging options). In Helm, set them via `payloadProcessor.flags` (which renders 
 | `--config-file` | _(empty)_ | Path to the `PayloadProcessorConfig` YAML file. |
 | `--config-text` | _(empty)_ | The `PayloadProcessorConfig` provided inline as text, in lieu of a file. |
 | `--grpc-port` | `9004` | gRPC port used for ext_proc communication with the proxy. |
+| `--grpc-max-recv-msg-size` | gRPC default (4MiB) | Maximum size of a single ext_proc message received from the proxy, as a quantity such as `32MiB` or `25MB`. Raise it when the proxy buffers request bodies larger than 4MiB, such as multimodal requests with inline images. The limit applies to the decompressed size of gzip-compressed messages. |
 | `--grpc-health-port` | `9005` | Port for gRPC liveness and readiness probes. |
 | `--metrics-port` | `9090` | Port exposing the Prometheus `/metrics` endpoint. |
 | `--metrics-endpoint-auth` | `true` | Enable authentication and authorization on the metrics endpoint. |

@@ -243,3 +243,47 @@ func TestCompleteRespectsExplicitZapLogLevel(t *testing.T) {
 		t.Errorf("Expected LogVerbosity to be 5, got %d", opts.LogVerbosity)
 	}
 }
+
+func TestCompleteParsesGRPCMaxRecvMsgSize(t *testing.T) {
+	tests := []struct {
+		value       string
+		want        int
+		expectError bool
+	}{
+		{value: "32MiB", want: 32 << 20},
+		{value: "25MB", want: 25_000_000},
+		{value: "16Mi", want: 16 << 20},
+		{value: " 4Mi ", want: 4 << 20},
+		{value: "1048576", want: 1 << 20},
+		{value: "0", want: 0},
+		{value: "abc", expectError: true},
+		{value: "-1Mi", expectError: true},
+		{value: "0.5", expectError: true},
+		{value: "100Ei", expectError: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.value, func(t *testing.T) {
+			opts := NewOptions()
+			fs := pflag.NewFlagSet(tt.value, pflag.ContinueOnError)
+			opts.AddFlags(fs)
+			if err := fs.Parse([]string{"--grpc-max-recv-msg-size=" + tt.value}); err != nil {
+				t.Fatalf("Failed to parse flags: %v", err)
+			}
+
+			err := opts.Complete()
+			if tt.expectError {
+				if err == nil {
+					t.Errorf("Expected an error for %q, got size %d", tt.value, opts.GRPCMaxRecvMsgSize)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Complete() returned error: %v", err)
+			}
+			if opts.GRPCMaxRecvMsgSize != tt.want {
+				t.Errorf("GRPCMaxRecvMsgSize = %d, want %d", opts.GRPCMaxRecvMsgSize, tt.want)
+			}
+		})
+	}
+}

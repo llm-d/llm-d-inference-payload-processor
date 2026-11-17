@@ -17,9 +17,12 @@ limitations under the License.
 package server
 
 import (
+	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/spf13/pflag"
+	"k8s.io/apimachinery/pkg/api/resource"
 
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/common/observability/logging"
 )
@@ -34,7 +37,9 @@ type Options struct {
 	//
 	// ext_proc configuration.
 	//
-	GRPCPort int // gRPC port for communicating with Envoy proxy.
+	GRPCPort              int    // gRPC port for communicating with Envoy proxy.
+	GRPCMaxRecvMsgSize    int    // Maximum gRPC message size to receive in bytes; 0 keeps the gRPC default.
+	GRPCMaxRecvMsgSizeStr string // Raw grpc-max-recv-msg-size flag value, parsed by Complete.
 	//
 	// Diagnostics.
 	//
@@ -79,6 +84,8 @@ func (opts *Options) AddFlags(fs *pflag.FlagSet) {
 
 	fs.IntVar(&opts.GRPCPort, "grpc-port", opts.GRPCPort,
 		"The gRPC port used for communicating with Envoy proxy.")
+	fs.StringVar(&opts.GRPCMaxRecvMsgSizeStr, "grpc-max-recv-msg-size", opts.GRPCMaxRecvMsgSizeStr,
+		"Maximum size of a gRPC message received from Envoy (e.g., 32MiB, 25MB). Defaults to the gRPC limit of 4MiB.")
 	fs.IntVar(&opts.GRPCHealthPort, "grpc-health-port", opts.GRPCHealthPort,
 		"The port used for gRPC liveness and readiness probes.")
 	fs.IntVar(&opts.MetricsPort, "metrics-port", opts.MetricsPort,
@@ -99,8 +106,34 @@ func (opts *Options) AddFlags(fs *pflag.FlagSet) {
 
 // Complete performs post-processing of parsed command-line arguments.
 func (opts *Options) Complete() error {
+	if opts.GRPCMaxRecvMsgSizeStr != "" {
+		size, err := parseByteSize(opts.GRPCMaxRecvMsgSizeStr)
+		if err != nil {
+			return fmt.Errorf("invalid value %q for flag %q: %w", opts.GRPCMaxRecvMsgSizeStr, "grpc-max-recv-msg-size", err)
+		}
+		opts.GRPCMaxRecvMsgSize = size
+	}
+
 	// Complete logging options.
 	return opts.LoggingOptions.Complete()
+}
+
+// parseByteSize parses a quantity such as 32Mi or 25M into bytes, also accepting
+// a trailing B (32MiB, 25MB) to match the router's size flags.
+func parseByteSize(value string) (int, error) {
+	s := strings.TrimSpace(value)
+	if len(s) > 1 && (s[len(s)-1] == 'B' || s[len(s)-1] == 'b') {
+		s = s[:len(s)-1]
+	}
+	q, err := resource.ParseQuantity(s)
+	if err != nil {
+		return 0, err
+	}
+	n, ok := q.AsInt64()
+	if !ok || n < 0 {
+		return 0, errors.New("must be a non-negative whole number of bytes")
+	}
+	return int(n), nil
 }
 
 // Validate checks the Options for invalid or conflicting values.
