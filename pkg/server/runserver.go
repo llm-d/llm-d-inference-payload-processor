@@ -25,6 +25,8 @@ import (
 	"github.com/go-logr/logr"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
+	// Registers the gzip codec so Envoy can send compressed ext_proc messages.
+	_ "google.golang.org/grpc/encoding/gzip"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	"github.com/llm-d/llm-d-inference-payload-processor/internal/runnable"
@@ -37,6 +39,7 @@ import (
 // ExtProcServerRunner provides methods to manage an external process server.
 type ExtProcServerRunner struct {
 	GrpcPort                      int
+	GRPCMaxRecvMsgSize            int
 	SecureServing                 bool
 	PreProcessors                 []requesthandling.RequestProcessor
 	ProfilePicker                 requesthandling.ProfilePicker
@@ -57,7 +60,10 @@ func NewDefaultExtProcServerRunner(port int) *ExtProcServerRunner {
 // The runnable implements LeaderElectionRunnable with leader election disabled.
 func (r *ExtProcServerRunner) AsRunnable(logger logr.Logger) manager.Runnable {
 	return runnable.NoLeaderElection(manager.RunnableFunc(func(ctx context.Context) error {
-		var srv *grpc.Server
+		var opts []grpc.ServerOption
+		if r.GRPCMaxRecvMsgSize > 0 {
+			opts = append(opts, grpc.MaxRecvMsgSize(r.GRPCMaxRecvMsgSize))
+		}
 		if r.SecureServing {
 			cert, err := tlsutil.CreateSelfSignedTLSCertificate(logger)
 			if err != nil {
@@ -67,10 +73,9 @@ func (r *ExtProcServerRunner) AsRunnable(logger logr.Logger) manager.Runnable {
 				Certificates: []tls.Certificate{cert},
 				NextProtos:   []string{"h2"},
 			})
-			srv = grpc.NewServer(grpc.Creds(creds))
-		} else {
-			srv = grpc.NewServer()
+			opts = append(opts, grpc.Creds(creds))
 		}
+		srv := grpc.NewServer(opts...)
 
 		server := handlers.NewServer(r.PreProcessors, r.ProfilePicker, r.Profiles, r.PostProcessors, r.ResponseHeadersPostProcessors).WithEventNotifier(r.EventNotifier)
 		extProcPb.RegisterExternalProcessorServer(srv, server)

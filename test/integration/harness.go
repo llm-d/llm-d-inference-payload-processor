@@ -51,11 +51,12 @@ type Harness struct {
 	// Internal handles for cleanup
 	server   *runserver.ExtProcServerRunner
 	grpcConn *grpc.ClientConn
+	port     int
 }
 
 // NewHarness boots up an isolated payload processor server on a random port with the default
 // BodyFieldToHeaderPlugin for model extraction and no response plugins.
-func NewHarness(t *testing.T, ctx context.Context) *Harness {
+func NewHarness(t *testing.T, ctx context.Context, configure ...func(*runserver.ExtProcServerRunner)) *Harness {
 	t.Helper()
 	modelToHeaderPlugin, err := bodyfieldtoheader.NewBodyFieldToHeaderPlugin(modelField, bodyfieldtoheader.ModelHeader)
 	require.NoError(t, err, "failed to create body-field-to-header plugin")
@@ -96,7 +97,7 @@ func NewHarness(t *testing.T, ctx context.Context) *Harness {
 
 	baseModelToHeaderPlugin := &basemodelextractor.BaseModelToHeaderPlugin{AdaptersStore: store}
 
-	return NewHarnessWithPlugins(t, ctx, []requesthandling.RequestProcessor{modelToHeaderPlugin, baseModelToHeaderPlugin}, []requesthandling.ResponseProcessor{})
+	return NewHarnessWithPlugins(t, ctx, []requesthandling.RequestProcessor{modelToHeaderPlugin, baseModelToHeaderPlugin}, []requesthandling.ResponseProcessor{}, configure...)
 }
 
 // NewHarnessWithPlugins boots up an isolated payload processor server on a random port
@@ -106,6 +107,7 @@ func NewHarnessWithPlugins(
 	ctx context.Context,
 	requestPlugins []requesthandling.RequestProcessor,
 	responsePlugins []requesthandling.ResponseProcessor,
+	configure ...func(*runserver.ExtProcServerRunner),
 ) *Harness {
 	t.Helper()
 
@@ -124,6 +126,9 @@ func NewHarnessWithPlugins(
 		},
 	}
 	runner.EventNotifier = noopNotifier{}
+	for _, c := range configure {
+		c(runner)
+	}
 
 	// 3. Start Server in Background
 	serverCtx, serverCancel := context.WithCancel(ctx)
@@ -142,6 +147,7 @@ func NewHarnessWithPlugins(
 		Client:   client,
 		server:   runner,
 		grpcConn: conn,
+		port:     port,
 	}
 
 	// 4. Register Cleanup
