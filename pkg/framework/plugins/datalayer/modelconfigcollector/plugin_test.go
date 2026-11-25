@@ -28,10 +28,15 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/datastore"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/datastore/inmemory"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/datalayer"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/datalayer/accumulator"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/datalayer/datasource"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/datalayer/modelgroups"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/datalayer/pricing"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/plugin"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/requesthandling"
+	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/plugins/datalayer/requestcostmetadata"
 )
 
 // fakeHandle implements plugin.Handle for unit tests.
@@ -295,6 +300,49 @@ func TestSyncModels_FileChange_RemovesModel(t *testing.T) {
 	models := ds.GetModels(datalayer.AllModelsPredicate)
 	if len(models) != 1 || models[0].GetName() != "m1" {
 		t.Errorf("expected only [m1] after resync, got %v", models)
+	}
+}
+
+func TestLateCostResponseDoesNotRestoreRemovedModel(t *testing.T) {
+	ctx := context.Background()
+	ds := inmemory.NewDatastore()
+	config := NewModelConfigDataSource("test", "", ds)
+	if err := config.syncModels(ctx, []byte(`{"models":[{"name":"removed"},{"name":"retained"}]}`)); err != nil {
+		t.Fatal(err)
+	}
+
+	responseEvent := func(name string) datasource.Event {
+		request := requesthandling.NewInferenceRequest()
+		request.Body["model"] = name
+		response := requesthandling.NewInferenceResponse()
+		response.Body["usage"] = map[string]any{"prompt_tokens": 100.0, "completion_tokens": 20.0}
+		return datasource.Event{
+			Type:    datasource.ResponseEventType,
+			Payload: datasource.ResponsePayload{Request: request, Response: response},
+		}
+	}
+	lateResponse := responseEvent("removed")
+	if err := config.syncModels(ctx, []byte(`{"models":[{"name":"retained"}]}`)); err != nil {
+		t.Fatal(err)
+	}
+	if models := ds.GetModels(datalayer.AllModelsPredicate); len(models) != 1 || models[0].GetName() != "retained" {
+		t.Fatalf("expected only retained model after config reload, got %v", models)
+	}
+
+	extractor := requestcostmetadata.NewRequestCostMetadataExtractor(ds, 200, 0, 0)
+	if err := extractor.Extract(ctx, []datasource.Event{lateResponse, responseEvent("retained")}); err != nil {
+		t.Fatal(err)
+	}
+	models := ds.GetModels(datalayer.AllModelsPredicate)
+	if len(models) != 1 || models[0].GetName() != "retained" {
+		t.Fatalf("expected only retained model after processing costs, got %v", models)
+	}
+	digest, err := datalayer.ReadAttributeKey[*accumulator.CostDigest](models[0].GetAttributes(), accumulator.CostDigestAttributeKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count := digest.Digest.Count(); count != 1 {
+		t.Errorf("expected one cost sample for the retained model, got %d", count)
 	}
 }
 

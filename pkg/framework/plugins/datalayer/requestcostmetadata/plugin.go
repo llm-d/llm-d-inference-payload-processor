@@ -137,6 +137,11 @@ type modelCostAccumulator struct {
 	lastWindowStart time.Time
 }
 
+type modelPricing struct {
+	model  datalayer.Model
+	prices *pricing.TokenPrices
+}
+
 // RequestCostMetadataExtractor accumulates per-model cost samples derived from
 // response usage metadata and pricing attributes, and publishes a t-digest
 // snapshot to the Model's AttributeMap on flush.
@@ -191,8 +196,8 @@ func (e *RequestCostMetadataExtractor) Extract(ctx context.Context, events []dls
 
 	now := e.clockNow()
 	updated := make(map[string]*modelCostAccumulator)
-	// Cache token prices per-model to avoid repeated lookups within this batch
-	tokenPricesCache := make(map[string]*pricing.TokenPrices)
+	// Keep the priced model instance so publishing cannot recreate a removed model.
+	pricingCache := make(map[string]modelPricing)
 
 	for _, ev := range events {
 		if ev.Type != dlsrc.ResponseEventType {
@@ -218,19 +223,17 @@ func (e *RequestCostMetadataExtractor) Extract(ctx context.Context, events []dls
 			continue
 		}
 
-		// Check cache first; only lookup if not already cached
-		tp, ok := tokenPricesCache[model]
+		entry, ok := pricingCache[model]
 		if !ok {
-			found := false
-			tp, found = lookupTokenPrices(e.ds, model)
-			if !found {
+			entry, ok = lookupModelPricing(e.ds, model)
+			if !ok {
 				debugLogger.Info("model has no TokenPrices attribute, skipping cost sample", "model", model)
 				continue
 			}
-			tokenPricesCache[model] = tp
+			pricingCache[model] = entry
 		}
 
-		if tp == nil {
+		if entry.prices == nil {
 			debugLogger.Info("TokenPrices is nil, skipping cost sample", "model", model)
 			continue
 		}
@@ -241,7 +244,7 @@ func (e *RequestCostMetadataExtractor) Extract(ctx context.Context, events []dls
 			continue
 		}
 
-		cost := promptTokens*tp.InputTokenPrice + completionTokens*tp.OutputTokenPrice
+		cost := promptTokens*entry.prices.InputTokenPrice + completionTokens*entry.prices.OutputTokenPrice
 
 		acc, err := e.getOrCreateAccumulator(model, now)
 		if err != nil {
@@ -304,7 +307,7 @@ func (e *RequestCostMetadataExtractor) Extract(ctx context.Context, events []dls
 		acc.lastFlush = now
 		// Clone never fails per tdigest contract; it returns a deep copy of the digest.
 		snapshot := acc.digest.Clone()
-		e.ds.GetOrCreateModel(model).GetAttributes().Put(
+		pricingCache[model].model.GetAttributes().Put(
 			accumulator.CostDigestAttributeKey,
 			&accumulator.CostDigest{Digest: snapshot},
 		)
@@ -376,27 +379,17 @@ func extractGoogle(usageMetadata map[string]any) (prompt, completion float64, ok
 	return prompt, completion, true
 }
 
-// lookupTokenPrices fetches the *pricing.TokenPrices stored on the model's
-// AttributeMap. Returns ok=false if the attribute is absent or of the wrong
-// type, in which case the caller skips the cost sample (a model with no
-// pricing has no defined cost to record).
-//
-// Note: This function uses GetOrCreateModel, which creates an empty model
-// in the datastore if the model name does not exist. When a response arrives
-// for an unconfigured model (no pricing), the extractor skips the cost sample
-// but the empty model remains in Datastore.Models(), which may cause
-// operator confusion when querying the model registry. This is harmless
-// functionally but is a known side-effect.
-func lookupTokenPrices(ds datalayer.Datastore, model string) (*pricing.TokenPrices, bool) {
-	v, ok := ds.GetOrCreateModel(model).GetAttributes().Get(pricing.TokenPricesAttributeKey)
-	if !ok {
-		return nil, false
+// lookupModelPricing retrieves pricing for an existing model. A response that
+// arrives after the model was removed cannot add it back to the datastore.
+func lookupModelPricing(ds datalayer.Datastore, name string) (modelPricing, bool) {
+	models := ds.GetModels(func(model datalayer.Model) bool { return model.GetName() == name })
+	if len(models) == 0 {
+		return modelPricing{}, false
 	}
-	tp, ok := v.(*pricing.TokenPrices)
-	if !ok {
-		return nil, false
-	}
-	return tp, true
+	model := models[0]
+	value, _ := model.GetAttributes().Get(pricing.TokenPricesAttributeKey)
+	prices, ok := value.(*pricing.TokenPrices)
+	return modelPricing{model: model, prices: prices}, ok
 }
 
 // getOrCreateAccumulator returns the per-model accumulator, creating a fresh
